@@ -1,0 +1,626 @@
+.shop-app {
+  --bg: #f6f5f1;
+  --surface: #ffffff;
+  --border: #e7e4db;
+  --ink: #23231f;
+  --ink-muted: #8b887e;
+
+  --primary-50: #e1f5ee;
+  --primary-500: #1d9e75;
+  --primary-600: #0f6e56;
+  --primary-900: #04342c;
+  --grain-50: #faeeda;
+  --grain-500: #ef9f27;
+  --grain-600: #854f0b;
+  --consigned-50: #faece7;
+  --consigned-500: #d85a30;
+  --consigned-600: #993c1d;
+
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-plex-sans), sans-serif;
+  font-size: 14px;
+  min-height: 100vh;
+  display: flex;
+}
+
+.shop-app * {
+  box-sizing: border-box;
+}
+
+.shop-app svg.icon {
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+/* Sidebar */
+.shop-app .sidebar {
+  width: 232px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 0.5px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.shop-app .shop-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 22px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.shop-app .shop-id .mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: var(--primary-600);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.shop-app .shop-id p {
+  margin: 0;
+  font-weight: 500;
+  font-size: 13.5px;
+}
+
+.shop-app nav.nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shop-app .nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 7px;
+  color: var(--ink-muted);
+  text-decoration: none;
+  font-size: 13.5px;
+}
+
+.shop-app .nav-item:hover {
+  background: #f1f0ea;
+  color: var(--ink);
+}
+
+.shop-app .nav-item.active {
+  background: var(--primary-50);
+  color: var(--primary-600);
+  font-weight: 500;
+}
+
+.shop-app .sidebar-footer {
+  margin-top: auto;
+  padding: 12px 8px 4px;
+  border-top: 0.5px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.shop-app .avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--grain-50);
+  color: var(--grain-600);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.shop-app .sidebar-footer p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+
+/* Main */
+.shop-app .main {
+  flex: 1;
+  padding: 28px 36px 60px;
+  max-width: 1180px;
+}
+
+.shop-app .page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 22px;
+}
+
+.shop-app .page-head h1 {
+  font-size: 19px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.shop-app .page-head p {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 13.5px;
+}
+
+.shop-app .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 500;
+  border-radius: 7px;
+  cursor: pointer;
+  border: none;
+  padding: 9px 15px;
+  font-family: inherit;
+}
+
+.shop-app .btn-primary {
+  background: var(--primary-600);
+  color: #fff;
+}
+
+.shop-app .btn-ghost {
+  background: var(--surface);
+  color: var(--ink);
+  border: 0.5px solid var(--border);
+}
+
+/* Stat cards (dashboard overview) */
+.shop-app .stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.shop-app .stat-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.shop-app .stat-card p.stat-label {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.shop-app .stat-card p.stat-value {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.shop-app .stat-value.tone-primary {
+  color: var(--primary-600);
+}
+.shop-app .stat-value.tone-grain {
+  color: var(--grain-600);
+}
+.shop-app .stat-value.tone-consigned {
+  color: var(--consigned-600);
+}
+
+/* Tabs */
+.shop-app .tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 0.5px solid var(--border);
+  margin-bottom: 18px;
+}
+
+.shop-app .tab {
+  padding: 9px 4px;
+  margin-right: 22px;
+  font-size: 13.5px;
+  color: var(--ink-muted);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  font-family: inherit;
+}
+
+.shop-app .tab.active {
+  color: var(--primary-600);
+  border-bottom-color: var(--primary-600);
+  font-weight: 500;
+}
+
+/* Filter bar */
+.shop-app .filter-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.shop-app .filter-bar select,
+.shop-app .filter-bar input {
+  font-family: inherit;
+  font-size: 13px;
+  border: 0.5px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 12px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.shop-app .filter-bar .search {
+  flex: 1;
+  max-width: 280px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 0.5px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.shop-app .filter-bar .search input {
+  border: none;
+  padding: 8px 0;
+  flex: 1;
+}
+
+.shop-app .filter-bar .search svg {
+  color: var(--ink-muted);
+}
+
+/* Table */
+.shop-app .panel {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.shop-app table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shop-app thead th {
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  padding: 11px 16px;
+  border-bottom: 0.5px solid var(--border);
+}
+
+.shop-app tbody td {
+  padding: 12px 16px;
+  font-size: 13.5px;
+  border-bottom: 0.5px solid var(--border);
+}
+
+.shop-app tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.shop-app tbody tr:hover {
+  background: #fbfaf7;
+}
+
+.shop-app .empty-row td {
+  color: var(--ink-muted);
+  text-align: center;
+  padding: 32px 16px;
+}
+
+.shop-app .cat-pill {
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #efeee7;
+  color: #6b675c;
+}
+
+.shop-app .row-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.shop-app .icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--ink-muted);
+  padding: 4px;
+}
+
+.shop-app .icon-btn:hover {
+  color: var(--ink);
+}
+
+.shop-app .qty-low {
+  color: var(--consigned-600);
+  font-weight: 500;
+}
+
+/* Grain stock panel */
+.shop-app .grain-card {
+  border-bottom: 0.5px solid var(--border);
+  padding: 18px 16px;
+}
+
+.shop-app .grain-card:last-child {
+  border-bottom: none;
+}
+
+.shop-app .grain-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  background: none;
+  border: none;
+  width: 100%;
+  padding: 0;
+  font-family: inherit;
+  color: inherit;
+}
+
+.shop-app .grain-head-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.shop-app .grain-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--grain-50);
+  color: var(--grain-600);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shop-app .grain-name {
+  font-weight: 500;
+  font-size: 14.5px;
+  margin: 0;
+}
+
+.shop-app .grain-sub {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin: 2px 0 0;
+}
+
+.shop-app .grain-total {
+  text-align: right;
+}
+
+.shop-app .grain-total p:first-child {
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.shop-app .grain-total p:last-child {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 2px 0 0;
+}
+
+.shop-app .batch-list {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 0.5px dashed var(--border);
+}
+
+.shop-app .batch-row {
+  display: grid;
+  grid-template-columns: 1.3fr 0.9fr 0.9fr 0.9fr 0.8fr;
+  gap: 10px;
+  padding: 7px 0;
+  font-size: 12.5px;
+  align-items: center;
+}
+
+.shop-app .batch-row.head {
+  color: var(--ink-muted);
+  font-size: 11px;
+}
+
+.shop-app .owner-tag {
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  display: inline-block;
+}
+
+.shop-app .owner-shop {
+  background: var(--primary-50);
+  color: var(--primary-600);
+}
+
+.shop-app .owner-customer {
+  background: var(--consigned-50);
+  color: var(--consigned-600);
+}
+
+.shop-app .add-batch-row {
+  padding-top: 14px;
+  margin-top: 8px;
+}
+
+/* Modal */
+.shop-app .modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 17, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.shop-app .modal {
+  background: var(--surface);
+  border-radius: 12px;
+  width: 440px;
+  max-width: 92vw;
+  padding: 22px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.shop-app .modal h2 {
+  font-size: 15.5px;
+  margin: 0 0 4px;
+}
+
+.shop-app .modal .modal-sub {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  margin: 0 0 18px;
+}
+
+.shop-app .stock-toggle {
+  display: flex;
+  background: #f1f0ea;
+  border-radius: 8px;
+  padding: 3px;
+  margin-bottom: 18px;
+}
+
+.shop-app .stock-toggle button {
+  flex: 1;
+  border: none;
+  background: none;
+  padding: 7px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--ink-muted);
+}
+
+.shop-app .stock-toggle button.active {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.shop-app .field {
+  margin-bottom: 13px;
+}
+
+.shop-app .field label {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  margin-bottom: 5px;
+}
+
+.shop-app .field input,
+.shop-app .field select {
+  width: 100%;
+  font-family: inherit;
+  font-size: 13.5px;
+  border: 0.5px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.shop-app .field-row {
+  display: flex;
+  gap: 10px;
+}
+
+.shop-app .field-row .field {
+  flex: 1;
+}
+
+.shop-app .field-error {
+  color: var(--consigned-600);
+  font-size: 11.5px;
+  margin: 4px 0 0;
+}
+
+.shop-app .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.shop-app .form-banner {
+  font-size: 12.5px;
+  padding: 8px 12px;
+  border-radius: 7px;
+  margin-bottom: 14px;
+}
+
+.shop-app .form-banner.error {
+  background: var(--consigned-50);
+  color: var(--consigned-600);
+}
+
+/* Loading skeletons */
+.shop-app .skeleton {
+  background: linear-gradient(90deg, #eeece4 25%, #f5f3ec 37%, #eeece4 63%);
+  background-size: 400% 100%;
+  border-radius: 6px;
+  animation: shop-skeleton-shimmer 1.4s ease infinite;
+}
+
+@keyframes shop-skeleton-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+@media (max-width: 860px) {
+  .shop-app {
+    flex-direction: column;
+  }
+  .shop-app .sidebar {
+    width: 100%;
+    height: auto;
+    position: static;
+  }
+  .shop-app .stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .shop-app .batch-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}

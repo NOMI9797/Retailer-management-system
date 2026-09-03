@@ -1,0 +1,265 @@
+.home-root {
+  --bg: #10201a;
+  --bg-raised: #17281f;
+  --ink: #ede6d8;
+  --ink-muted: #93a398;
+  --hairline: rgba(237, 230, 216, 0.12);
+  --wheat: #c98a3a;
+  --wheat-dim: #8c5f26;
+  --ledger: #b0452f;
+  --ledger-dim: #7a2e1e;
+  --teal: #2e9e78;
+  --teal-dim: #1f6e53;
+
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-plex-sans), sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  position: relative;
+}
+
+.home-root * {
+  box-sizing: border-box;
+}
+
+.home-root .texture {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: repeating-linear-gradient(
+      45deg,
+      var(--ink) 0,
+      var(--ink) 1px,
+      transparent 1px,
+      transparent 14px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      var(--ink) 0,
+      var(--ink) 1px,
+      transparent 1px,
+      transparent 14px
+    );
+}
+
+.home-root .wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 32px;
+  position: relative;
+}
+
+.home-root header.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28px 0;
+  border-bottom: 0.5px solid var(--hairline);
+}
+
+.home-root .mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-root .seal {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1.5px solid var(--wheat);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-fraunces), serif;
+  font-size: 15px;
+  color: var(--wheat);
+}
+
+.home-root .mark-name {
+  font-family: var(--font-fraunces), serif;
+  font-size: 16px;
+  letter-spacing: 0.01em;
+}
+
+.home-root .topbar-phone {
+  font-size: 13.5px;
+  color: var(--ink-muted);
+}
+
+.home-root .topbar-phone strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.home-root .hero {
+  max-width: 640px;
+  padding: 100px 0 88px;
+}
+
+.home-root .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--wheat);
+  border: 0.5px solid var(--wheat-dim);
+  padding: 6px 14px 6px 10px;
+  border-radius: 999px;
+  margin-bottom: 28px;
+}
+
+.home-root .badge svg {
+  width: 13px;
+  height: 13px;
+}
+
+.home-root h1.headline {
+  font-family: var(--font-fraunces), serif;
+  font-weight: 500;
+  font-size: 54px;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  margin: 0 0 22px;
+}
+
+.home-root .headline em {
+  font-style: italic;
+  color: var(--wheat);
+  font-weight: 400;
+}
+
+.home-root .lede {
+  font-size: 17px;
+  color: var(--ink-muted);
+  max-width: 46ch;
+  margin: 0 0 34px;
+}
+
+.home-root .cta-row {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.home-root .btn-primary {
+  background: var(--teal);
+  color: #0a1712;
+  font-weight: 500;
+  font-size: 14.5px;
+  border: none;
+  padding: 13px 22px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.home-root .phone-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 14.5px;
+  border-bottom: 0.5px solid var(--hairline);
+  padding-bottom: 2px;
+}
+
+.home-root .phone-link svg {
+  width: 15px;
+  height: 15px;
+  color: var(--ink-muted);
+}
+
+.home-root .ledger-section {
+  padding: 8px 0 96px;
+}
+
+.home-root .ledger-heading {
+  font-family: var(--font-fraunces), serif;
+  font-size: 22px;
+  font-weight: 500;
+  margin: 0 0 6px;
+}
+
+.home-root .ledger-sub {
+  color: var(--ink-muted);
+  font-size: 14.5px;
+  margin: 0 0 40px;
+}
+
+.home-root .ledger-row {
+  display: grid;
+  grid-template-columns: 56px 220px 1fr;
+  gap: 28px;
+  align-items: center;
+  padding: 26px 0;
+  border-top: 0.5px solid var(--hairline);
+}
+
+.home-root .ledger-row:last-child {
+  border-bottom: 0.5px solid var(--hairline);
+}
+
+.home-root .chip {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.home-root .chip svg {
+  width: 19px;
+  height: 19px;
+}
+
+.home-root .chip.wheat {
+  background: rgba(201, 138, 58, 0.14);
+  color: var(--wheat);
+}
+
+.home-root .chip.ledger {
+  background: rgba(176, 69, 47, 0.14);
+  color: var(--ledger);
+}
+
+.home-root .chip.teal {
+  background: rgba(46, 158, 120, 0.14);
+  color: var(--teal);
+}
+
+.home-root .ledger-title {
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.home-root .ledger-desc {
+  color: var(--ink-muted);
+  font-size: 14.5px;
+  max-width: 56ch;
+  margin: 0;
+}
+
+@media (max-width: 860px) {
+  .home-root .hero {
+    padding-top: 56px;
+  }
+  .home-root h1.headline {
+    font-size: 38px;
+  }
+  .home-root .ledger-row {
+    grid-template-columns: 40px 1fr;
+  }
+  .home-root .ledger-row > div:nth-child(2) {
+    grid-column: 2;
+  }
+  .home-root .ledger-row > p {
+    grid-column: 2;
+  }
+}

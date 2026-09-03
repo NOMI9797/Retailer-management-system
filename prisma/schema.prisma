@@ -1,0 +1,255 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Tenancy ──────────────────────────────────────────────
+
+model Shop {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  areas        Area[]
+  customers    Customer[]
+  accountTypes AccountType[]
+  categories   Category[]
+  units        Unit[]
+  products     Product[]
+  dailySales   DailySale[]
+  expenses     Expense[]
+}
+
+model Area {
+  id           String   @id @default(uuid())
+  shopId       String
+  shop         Shop     @relation(fields: [shopId], references: [id])
+  name         String
+  parentAreaId String?
+  parentArea   Area?    @relation("AreaHierarchy", fields: [parentAreaId], references: [id])
+  subAreas     Area[]   @relation("AreaHierarchy")
+
+  customers Customer[]
+}
+
+// ── Customer ─────────────────────────────────────────────
+
+model Customer {
+  id        String   @id @default(uuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id])
+  name      String
+  phone     String?
+  areaId    String?
+  area      Area?    @relation(fields: [areaId], references: [id])
+  notes     String?
+  createdAt DateTime @default(now())
+
+  accounts     CustomerAccount[]
+  dailySales   DailySale[]
+  ownedBatches GrainBatch[]
+}
+
+// ── Settings-managed: account types & their custom fields ──
+
+enum AccountFieldType {
+  TEXT
+  NUMBER
+  DATE
+  DROPDOWN
+}
+
+enum AccountStatus {
+  ACTIVE
+  CLOSED
+}
+
+model AccountType {
+  id             String  @id @default(uuid())
+  shopId         String
+  shop           Shop    @relation(fields: [shopId], references: [id])
+  name           String
+  code           String
+  tracksQuantity Boolean @default(false)
+  isActive       Boolean @default(true)
+
+  fields           AccountTypeField[]
+  customerAccounts CustomerAccount[]
+
+  @@unique([shopId, code])
+}
+
+model AccountTypeField {
+  id            String           @id @default(uuid())
+  accountTypeId String
+  accountType   AccountType      @relation(fields: [accountTypeId], references: [id])
+  fieldName     String
+  fieldLabel    String
+  fieldType     AccountFieldType
+  isRequired    Boolean          @default(false)
+  displayOrder  Int              @default(0)
+
+  values AccountFieldValue[]
+}
+
+model CustomerAccount {
+  id             String        @id @default(uuid())
+  customerId     String
+  customer       Customer      @relation(fields: [customerId], references: [id])
+  accountTypeId  String
+  accountType    AccountType   @relation(fields: [accountTypeId], references: [id])
+  openedDate     DateTime      @default(now())
+  status         AccountStatus @default(ACTIVE)
+  currentBalance Decimal       @default(0) @db.Decimal(14, 2)
+  notes          String?
+
+  fieldValues  AccountFieldValue[]
+  transactions AccountTransaction[]
+}
+
+model AccountFieldValue {
+  id                 String           @id @default(uuid())
+  customerAccountId  String
+  customerAccount    CustomerAccount  @relation(fields: [customerAccountId], references: [id])
+  accountTypeFieldId String
+  accountTypeField   AccountTypeField @relation(fields: [accountTypeFieldId], references: [id])
+  value              String
+}
+
+// ── Ledger ───────────────────────────────────────────────
+
+enum TxnDirection {
+  IN
+  OUT
+}
+
+enum CashOrAccount {
+  CASH
+  ACCOUNT
+}
+
+model AccountTransaction {
+  id                 String          @id @default(uuid())
+  customerAccountId  String
+  customerAccount    CustomerAccount @relation(fields: [customerAccountId], references: [id])
+  transactionDate    DateTime        @default(now())
+  direction          TxnDirection
+  amount             Decimal         @db.Decimal(14, 2)
+  quantity           Decimal?        @db.Decimal(14, 3)
+  linkedSaleId       String?
+  linkedSale         DailySale?      @relation(fields: [linkedSaleId], references: [id])
+  cashOrAccount      CashOrAccount
+  notes              String?
+}
+
+// ── Products & stock ─────────────────────────────────────
+
+model Category {
+  id       String  @id @default(uuid())
+  shopId   String
+  shop     Shop    @relation(fields: [shopId], references: [id])
+  name     String
+  isActive Boolean @default(true)
+
+  products Product[]
+
+  @@unique([shopId, name])
+}
+
+// Shopkeeper-editable list (kg, packet, piece, liter, ...), reused as
+// the unit dropdown on both simple and grain products — never
+// hardcoded per the product document's "no hardcoded lists" principle.
+model Unit {
+  id       String  @id @default(uuid())
+  shopId   String
+  shop     Shop    @relation(fields: [shopId], references: [id])
+  name     String
+  isActive Boolean @default(true)
+
+  products Product[]
+
+  @@unique([shopId, name])
+}
+
+enum StockKind {
+  SIMPLE
+  GRAIN
+}
+
+model Product {
+  id         String    @id @default(uuid())
+  shopId     String
+  shop       Shop      @relation(fields: [shopId], references: [id])
+  categoryId String
+  category   Category  @relation(fields: [categoryId], references: [id])
+  name       String
+  unitId     String
+  unit       Unit      @relation(fields: [unitId], references: [id])
+  stockKind  StockKind @default(SIMPLE)
+  // SIMPLE stock uses costPrice/sellPrice; GRAIN stock uses baseRate as
+  // a reference rate only — each GrainBatch carries its own actual
+  // rate, since grain prices move during the season.
+  costPrice  Decimal?  @db.Decimal(12, 2)
+  sellPrice  Decimal?  @db.Decimal(12, 2)
+  baseRate   Decimal?  @db.Decimal(12, 2)
+  quantity   Decimal   @default(0) @db.Decimal(14, 3)
+
+  batches   GrainBatch[]
+  saleItems DailySaleItem[]
+}
+
+// Batches let one product (e.g. "Wheat") hold both shop-owned and
+// consigned stock at once. ownerCustomerId = null means shop-owned.
+model GrainBatch {
+  id              String    @id @default(uuid())
+  productId       String
+  product         Product   @relation(fields: [productId], references: [id])
+  ownerCustomerId String?
+  ownerCustomer   Customer? @relation(fields: [ownerCustomerId], references: [id])
+  quantityIn      Decimal   @db.Decimal(14, 3)
+  quantitySold    Decimal   @default(0) @db.Decimal(14, 3)
+  rate            Decimal   @db.Decimal(12, 2)
+  receivedAt      DateTime  @default(now())
+}
+
+// ── Daily sales ──────────────────────────────────────────
+
+model DailySale {
+  id         String   @id @default(uuid())
+  shopId     String
+  shop       Shop     @relation(fields: [shopId], references: [id])
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  saleDate   DateTime @default(now())
+  season     String?
+
+  items       DailySaleItem[]
+  accountTxns AccountTransaction[]
+}
+
+model DailySaleItem {
+  id            String        @id @default(uuid())
+  dailySaleId   String
+  dailySale     DailySale     @relation(fields: [dailySaleId], references: [id])
+  productId     String
+  product       Product       @relation(fields: [productId], references: [id])
+  quantity      Decimal       @db.Decimal(14, 3)
+  actualPrice   Decimal       @db.Decimal(12, 2)
+  cashOrAccount CashOrAccount
+}
+
+// ── Expenses ─────────────────────────────────────────────
+
+model Expense {
+  id            String        @id @default(uuid())
+  shopId        String
+  shop          Shop          @relation(fields: [shopId], references: [id])
+  description   String
+  amount        Decimal       @db.Decimal(12, 2)
+  expenseDate   DateTime      @default(now())
+  cashOrAccount CashOrAccount
+}
