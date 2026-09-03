@@ -2,32 +2,24 @@
 
 import { useState } from "react";
 import { createProduct, createGrainProduct } from "../actions";
-import type { listCategories, listUnits, listProducts } from "../actions";
+import type { listCategories, listUnits } from "../actions";
 
 type StockKind = "SIMPLE" | "GRAIN";
 type Category = Awaited<ReturnType<typeof listCategories>>[number];
 type Unit = Awaited<ReturnType<typeof listUnits>>[number];
-type Product = Awaited<ReturnType<typeof listProducts>>["products"][number];
 
 // Shared shape for adding a product — category-conditional: simple
 // stock asks for cost/sell price + starting quantity, grain stock
 // asks for a base rate only (batches are added separately afterward).
-// Categories/units arrive as props (fetched server-side by the page)
+// Categories/units arrive as props (fetched server-side, cached)
 // rather than being fetched here.
-//
-// onOptimisticAdd fires (SIMPLE stock only) right before the real
-// Server Action call, with a synthetic row built from the form's own
-// inputs, so the new product appears in the table instantly instead
-// of waiting for the round trip + router.refresh().
 export function ProductForm({
   categories,
   units,
-  onOptimisticAdd,
   onSaved,
 }: {
   categories: Category[];
   units: Unit[];
-  onOptimisticAdd?: (product: Product) => void;
   onSaved?: () => void;
 }) {
   const [stockKind, setStockKind] = useState<StockKind>("SIMPLE");
@@ -41,41 +33,12 @@ export function ProductForm({
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  function resetFields() {
-    setName("");
-    setCostPrice("");
-    setSellPrice("");
-    setQuantity("");
-    setBaseRate("");
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setIsSaving(true);
     try {
       if (stockKind === "SIMPLE") {
-        const category = categories.find((c) => c.id === categoryId);
-        const unit = units.find((u) => u.id === unitId);
-        if (onOptimisticAdd && category && unit) {
-          // Synthetic row for instant display — id/shopId/createdAt
-          // are placeholders overwritten once router.refresh() pulls
-          // the real record from the server.
-          onOptimisticAdd({
-            id: `optimistic-${Date.now()}`,
-            shopId: "",
-            categoryId,
-            unitId,
-            name,
-            stockKind: "SIMPLE",
-            costPrice: Number(costPrice),
-            sellPrice: Number(sellPrice),
-            baseRate: null,
-            quantity: quantity ? Number(quantity) : 0,
-            category,
-            unit,
-          } as unknown as Product);
-        }
         await createProduct({
           categoryId,
           unitId,
@@ -92,7 +55,6 @@ export function ProductForm({
           baseRate: Number(baseRate),
         });
       }
-      resetFields();
       onSaved?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save product");

@@ -1,55 +1,47 @@
-import {
-  listCategories,
-  listUnits,
-  listProducts,
-  listGrainProductDetailsForShop,
-} from "@/modules/products/actions";
-import { ProductsClient } from "./ProductsClient";
+import { Suspense } from "react";
+import { ProductsHeader } from "./ProductsHeader";
+import { CategoryFilterBar } from "./CategoryFilterBar";
+import { SimpleStockTable } from "./SimpleStockTable";
+import { GrainStockPanel } from "./GrainStockPanel";
+import { PageLoader } from "@/components/shared/PageLoader";
+import type { ProductsSearchParams } from "./searchParamsHref";
 
-// Server Component: every read happens here, during server rendering
-// — categories, simple products (filtered server-side via search
-// params), and every grain product's batches in one round trip. The
-// client only receives finished data and renders it; it never fetches
-// on its own. Writes (add/edit/rename) still go through Server
-// Actions from the client islands in ProductsClient.
+// Shell only — no data fetching of its own. Each section below
+// fetches its own data and streams in behind its own Suspense
+// boundary, so a slow query in one section (typically the grain
+// panel, which joins batches + owner customers) never blocks the
+// others from appearing. Tab state and every filter live in the URL
+// (searchParams), not client state, so switching tabs is a real
+// navigation Next.js can stream — not a client flip that requires
+// all the data to already be sitting in the browser.
 export default async function ProductsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ category?: string; search?: string; page?: string; grainPage?: string }>;
+  searchParams: Promise<ProductsSearchParams>;
 }) {
-  const { category, search, page, grainPage } = await searchParams;
-
-  const [categories, units, simpleResult, grainResult] = await Promise.all([
-    listCategories(),
-    listUnits(),
-    listProducts({
-      stockKind: "SIMPLE",
-      categoryId: category,
-      search,
-      page: page ? Number(page) : 1,
-    }),
-    listGrainProductDetailsForShop({ page: grainPage ? Number(grainPage) : 1 }),
-  ]);
+  const params = await searchParams;
+  const tab = params.tab === "grain" ? "grain" : "simple";
 
   return (
-    <ProductsClient
-      categories={categories}
-      units={units}
-      simpleProducts={simpleResult.products}
-      simplePagination={{
-        page: simpleResult.page,
-        totalPages: simpleResult.totalPages,
-        totalCount: simpleResult.totalCount,
-      }}
-      grainProducts={grainResult.products}
-      grainDetails={grainResult.details}
-      grainPagination={{
-        page: grainResult.page,
-        totalPages: grainResult.totalPages,
-        totalCount: grainResult.totalCount,
-      }}
-      activeCategory={category ?? ""}
-      activeSearch={search ?? ""}
-    />
+    <div>
+      <ProductsHeader searchParams={params} />
+
+      {tab === "simple" && (
+        <Suspense fallback={<div className="filter-bar" />}>
+          <CategoryFilterBar searchParams={params} />
+        </Suspense>
+      )}
+
+      <Suspense
+        key={JSON.stringify(params)}
+        fallback={<PageLoader label={tab === "simple" ? "Loading products…" : "Loading grain stock…"} />}
+      >
+        {tab === "simple" ? (
+          <SimpleStockTable searchParams={params} />
+        ) : (
+          <GrainStockPanel searchParams={params} />
+        )}
+      </Suspense>
+    </div>
   );
 }

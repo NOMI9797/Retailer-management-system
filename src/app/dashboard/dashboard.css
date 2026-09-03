@@ -591,23 +591,6 @@
   color: var(--consigned-600);
 }
 
-/* Loading skeletons */
-.shop-app .skeleton {
-  background: linear-gradient(90deg, #eeece4 25%, #f5f3ec 37%, #eeece4 63%);
-  background-size: 400% 100%;
-  border-radius: 6px;
-  animation: shop-skeleton-shimmer 1.4s ease infinite;
-}
-
-@keyframes shop-skeleton-shimmer {
-  0% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0 50%;
-  }
-}
-
 @media (max-width: 860px) {
   .shop-app {
     flex-direction: column;
@@ -622,5 +605,32 @@
   }
   .shop-app .batch-row {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Full-panel loader (used inside Suspense fallbacks) */
+.shop-app .page-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 64px 0;
+  color: var(--ink-muted);
+  font-size: 13.5px;
+}
+
+.shop-app .page-loader-spinner {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid var(--primary-50);
+  border-top-color: var(--primary-600);
+  animation: shop-page-loader-spin 0.7s linear infinite;
+}
+
+@keyframes shop-page-loader-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
