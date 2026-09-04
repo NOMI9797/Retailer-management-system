@@ -1,19 +1,23 @@
-import { listCategories } from "@/modules/products/actions";
 import { CategorySelect } from "@/modules/products/components/CategorySelect";
 import { SearchBox } from "@/modules/products/components/SearchBox";
+import type { listCategories } from "@/modules/products/actions";
 import type { ProductsSearchParams } from "./searchParamsHref";
 
-// Async Server Component — categories are cached (see
-// categories.actions.ts) so this resolves almost immediately, well
-// before the (slower) product list next to it. Wrapped in its own
-// Suspense boundary by page.tsx so it streams in independently of
-// the table/grain panel. CategorySelect and SearchBox are the only
-// client leaves here (both build their own hrefs from the live URL
-// via useSearchParams, since a function can't be passed to them as
-// a prop from this Server Component).
-export async function CategoryFilterBar({ searchParams }: { searchParams: ProductsSearchParams }) {
-  const categories = await listCategories();
+type Category = Awaited<ReturnType<typeof listCategories>>[number];
 
+// Pure Server Component — categories arrive as a prop (fetched once
+// in page.tsx and shared with ProductsHeader/SimpleStockTable)
+// rather than being fetched here again. CategorySelect and SearchBox
+// are the only client leaves (both build their own hrefs from the
+// live URL via useSearchParams, since a function can't be passed to
+// them as a prop from this Server Component).
+export function CategoryFilterBar({
+  searchParams,
+  categories,
+}: {
+  searchParams: ProductsSearchParams;
+  categories: Category[];
+}) {
   return (
     <div className="filter-bar">
       <CategorySelect categories={categories} activeCategory={searchParams.category ?? ""} />

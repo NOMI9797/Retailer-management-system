@@ -13,6 +13,11 @@ model Shop {
   id        String   @id @default(uuid())
   name      String
   createdAt DateTime @default(now())
+  // Default commission rate applied to consigned grain sales when the
+  // depleted batch has no commissionPercent override of its own. A
+  // shop-wide setting rather than a hardcoded constant, per the
+  // product document's "no hardcoded business rules" principle.
+  commissionPercent Decimal @default(0) @db.Decimal(5, 2)
 
   areas        Area[]
   customers    Customer[]
@@ -214,6 +219,13 @@ model GrainBatch {
   quantitySold    Decimal   @default(0) @db.Decimal(14, 3)
   rate            Decimal   @db.Decimal(12, 2)
   receivedAt      DateTime  @default(now())
+  // Overrides the shop's default commissionPercent for sales that
+  // deplete this specific batch — lets one farmer's better-negotiated
+  // rate stand without changing every other batch. Null = use the
+  // shop default.
+  commissionPercent Decimal? @db.Decimal(5, 2)
+
+  saleAllocations DailySaleItemBatch[]
 }
 
 // ── Daily sales ──────────────────────────────────────────
@@ -240,6 +252,22 @@ model DailySaleItem {
   quantity      Decimal       @db.Decimal(14, 3)
   actualPrice   Decimal       @db.Decimal(12, 2)
   cashOrAccount CashOrAccount
+
+  batchAllocations DailySaleItemBatch[]
+}
+
+// Depleting oldest-first can span more than one batch for a single
+// sale item (e.g. batch A has 5kg left, the sale is for 20kg — 5kg
+// comes from A, 15kg from B). One row per batch actually drawn from,
+// so commission/consignment postings can be computed and traced back
+// to the exact batch and quantity involved.
+model DailySaleItemBatch {
+  id              String        @id @default(uuid())
+  dailySaleItemId String
+  dailySaleItem   DailySaleItem @relation(fields: [dailySaleItemId], references: [id])
+  grainBatchId    String
+  grainBatch      GrainBatch    @relation(fields: [grainBatchId], references: [id])
+  quantity        Decimal       @db.Decimal(14, 3)
 }
 
 // ── Expenses ─────────────────────────────────────────────

@@ -1,8 +1,9 @@
 "use server";
 
+import { cache } from "react";
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
-import { cachedShopQuery, invalidateShopCache } from "./cache";
+import { cachedShopQuery, invalidateShopCache } from "@/lib/cache";
 import { unitSchema, updateUnitSchema, type UnitInput, type UpdateUnitInput } from "./schema";
 
 const ENTITY = "units";
@@ -20,7 +21,9 @@ export async function createUnit(input: UnitInput) {
 
 // Same reasoning as listCategories: units barely change day to day,
 // so a short cache avoids a database hit on every navigation.
-export async function listUnits(includeInactive = false) {
+// Wrapped in React's cache() for the same request-level dedup
+// safety net — see the comment on listCategories.
+export const listUnits = cache(async (includeInactive = false) => {
   const shopId = await getCurrentShopId();
 
   return cachedShopQuery(ENTITY, shopId, [includeInactive], () =>
@@ -29,7 +32,7 @@ export async function listUnits(includeInactive = false) {
       orderBy: { name: "asc" },
     })
   );
-}
+});
 
 export async function updateUnit(input: UpdateUnitInput) {
   const shopId = await getCurrentShopId();

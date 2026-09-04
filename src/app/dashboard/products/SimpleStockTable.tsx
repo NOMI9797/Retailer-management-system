@@ -1,4 +1,4 @@
-import { listProducts, listCategories, listUnits } from "@/modules/products/actions";
+import { listProducts, type listCategories, type listUnits } from "@/modules/products/actions";
 import { formatMoney } from "@/lib/utils";
 import { Pagination } from "@/modules/products/components/Pagination";
 import { EditProductButton } from "@/modules/products/components/EditProductButton";
@@ -6,24 +6,33 @@ import { buildProductsHref, type ProductsSearchParams } from "./searchParamsHref
 
 const LOW_STOCK_THRESHOLD = 5;
 
-// Async Server Component — the actual product query, wrapped in its
-// own Suspense boundary by page.tsx. Renders independently of
-// CategoryFilterBar/GrainStockPanel, so a slow query here (or in the
-// grain panel) never blocks the other from appearing. Only the edit
-// trigger needs client state (see EditProductLink); rows themselves
-// are plain server-rendered markup.
-export async function SimpleStockTable({ searchParams }: { searchParams: ProductsSearchParams }) {
+type Category = Awaited<ReturnType<typeof listCategories>>[number];
+type Unit = Awaited<ReturnType<typeof listUnits>>[number];
+
+// Async Server Component — the actual product query is the only
+// fetch this component makes; categories/units arrive as props
+// (fetched once in page.tsx, shared with Header/FilterBar) instead
+// of being re-fetched here for the edit modal. Wrapped in its own
+// Suspense boundary by page.tsx, so a slow query here never blocks
+// the header/filter bar from appearing. Only the edit trigger needs
+// client state (see EditProductButton); rows themselves are plain
+// server-rendered markup.
+export async function SimpleStockTable({
+  searchParams,
+  categories,
+  units,
+}: {
+  searchParams: ProductsSearchParams;
+  categories: Category[];
+  units: Unit[];
+}) {
   const page = searchParams.page ? Number(searchParams.page) : 1;
-  const [result, categories, units] = await Promise.all([
-    listProducts({
-      stockKind: "SIMPLE",
-      categoryId: searchParams.category,
-      search: searchParams.search,
-      page,
-    }),
-    listCategories(),
-    listUnits(),
-  ]);
+  const result = await listProducts({
+    stockKind: "SIMPLE",
+    categoryId: searchParams.category,
+    search: searchParams.search,
+    page,
+  });
 
   return (
     <>

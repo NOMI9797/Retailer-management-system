@@ -1,8 +1,9 @@
 "use server";
 
+import { cache } from "react";
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
-import { cachedShopQuery, invalidateShopCache } from "./cache";
+import { cachedShopQuery, invalidateShopCache } from "@/lib/cache";
 import { categorySchema, updateCategorySchema, type CategoryInput, type UpdateCategoryInput } from "./schema";
 
 const ENTITY = "categories";
@@ -23,7 +24,15 @@ export async function createCategory(input: CategoryInput) {
 // on every sale — so this is the one list worth caching per shop.
 // Cached 60s and invalidated immediately on any write, so edits still
 // show up right away.
-export async function listCategories(includeInactive = false) {
+//
+// Wrapped in React's cache() as a safety net: unstable_cache (inside
+// cachedShopQuery) caches across requests but doesn't dedupe
+// concurrent calls within a single render, so two components calling
+// listCategories() in the same request would still both hit it.
+// cache() memoizes by arguments for the lifetime of one request, so
+// this stays a single fetch even if a future component ends up
+// calling it again instead of receiving it as a prop.
+export const listCategories = cache(async (includeInactive = false) => {
   const shopId = await getCurrentShopId();
 
   return cachedShopQuery(ENTITY, shopId, [includeInactive], () =>
@@ -32,7 +41,7 @@ export async function listCategories(includeInactive = false) {
       orderBy: { name: "asc" },
     })
   );
-}
+});
 
 export async function updateCategory(input: UpdateCategoryInput) {
   const shopId = await getCurrentShopId();

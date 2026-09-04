@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { listCategories, listUnits } from "@/modules/products/actions";
 import { ProductsHeader } from "./ProductsHeader";
 import { CategoryFilterBar } from "./CategoryFilterBar";
 import { SimpleStockTable } from "./SimpleStockTable";
@@ -6,14 +7,14 @@ import { GrainStockPanel } from "./GrainStockPanel";
 import { PageLoader } from "@/components/shared/PageLoader";
 import type { ProductsSearchParams } from "./searchParamsHref";
 
-// Shell only — no data fetching of its own. Each section below
-// fetches its own data and streams in behind its own Suspense
-// boundary, so a slow query in one section (typically the grain
-// panel, which joins batches + owner customers) never blocks the
-// others from appearing. Tab state and every filter live in the URL
-// (searchParams), not client state, so switching tabs is a real
-// navigation Next.js can stream — not a client flip that requires
-// all the data to already be sitting in the browser.
+// Shell: fetches categories/units ONCE here and passes them down as
+// props — Header, the filter bar, and the table all need the same
+// reference data, so fetching it once and sharing it beats each
+// section re-fetching its own copy (even with caching, that's still
+// 3 separate round trips instead of 1). Only the genuinely slow,
+// independent query — products or grain batches — gets its own
+// Suspense boundary; categories/units are small and cached, so
+// awaiting them directly here costs almost nothing.
 export default async function ProductsPage({
   searchParams,
 }: {
@@ -21,23 +22,20 @@ export default async function ProductsPage({
 }) {
   const params = await searchParams;
   const tab = params.tab === "grain" ? "grain" : "simple";
+  const [categories, units] = await Promise.all([listCategories(), listUnits()]);
 
   return (
     <div>
-      <ProductsHeader searchParams={params} />
+      <ProductsHeader searchParams={params} categories={categories} units={units} />
 
-      {tab === "simple" && (
-        <Suspense fallback={<div className="filter-bar" />}>
-          <CategoryFilterBar searchParams={params} />
-        </Suspense>
-      )}
+      {tab === "simple" && <CategoryFilterBar searchParams={params} categories={categories} />}
 
       <Suspense
         key={JSON.stringify(params)}
         fallback={<PageLoader label={tab === "simple" ? "Loading products…" : "Loading grain stock…"} />}
       >
         {tab === "simple" ? (
-          <SimpleStockTable searchParams={params} />
+          <SimpleStockTable searchParams={params} categories={categories} units={units} />
         ) : (
           <GrainStockPanel searchParams={params} />
         )}

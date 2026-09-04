@@ -1,18 +1,31 @@
 import Link from "next/link";
 import { buildProductsHref, type ProductsSearchParams } from "./searchParamsHref";
 import { AddProductModal } from "@/modules/products/components/AddProductModal";
-import { listCategories, listUnits } from "@/modules/products/actions";
+import type { listCategories, listUnits } from "@/modules/products/actions";
+
+type Category = Awaited<ReturnType<typeof listCategories>>[number];
+type Unit = Awaited<ReturnType<typeof listUnits>>[number];
 
 // Pure Server Component — title, tabs, and the Add-product trigger
-// are all static/URL-driven or backed by cheap cached data, so this
-// renders instantly with no dependency on the (slower) product/grain
-// queries. Tab switching is a real navigation (a plain <Link>
-// changing ?tab=), not client-side state, so it never waits on the
-// data underneath it. AddProductModal is the one client leaf here —
-// it owns its own open/close state locally rather than through the URL.
-export async function ProductsHeader({ searchParams }: { searchParams: ProductsSearchParams }) {
+// are all static/URL-driven. categories/units arrive as props
+// (fetched once in page.tsx and shared across every section that
+// needs them) rather than being fetched here — this used to call
+// listCategories()/listUnits() itself, which meant the same data was
+// fetched separately in three places on one page. Tab switching is a
+// real navigation (a plain <Link> changing ?tab=), not client-side
+// state, so it never waits on the data underneath it. AddProductModal
+// is the one client leaf here — it owns its own open/close state
+// locally rather than through the URL.
+export function ProductsHeader({
+  searchParams,
+  categories,
+  units,
+}: {
+  searchParams: ProductsSearchParams;
+  categories: Category[];
+  units: Unit[];
+}) {
   const tab = searchParams.tab === "grain" ? "grain" : "simple";
-  const [categories, units] = await Promise.all([listCategories(), listUnits()]);
 
   return (
     <>
