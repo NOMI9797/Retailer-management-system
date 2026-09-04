@@ -11,5 +11,13 @@ export const customerSchema = z.object({
   notes: z.string().optional(),
   accountTypeIds: z.array(z.string().uuid()).default([]),
 });
-
 export type CustomerInput = z.infer<typeof customerSchema>;
+
+export const updateCustomerSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1, "Name is required").optional(),
+  phone: z.string().optional(),
+  areaId: z.string().uuid().nullable().optional(),
+  notes: z.string().optional(),
+});
+export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;

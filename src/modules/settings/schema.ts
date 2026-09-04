@@ -48,3 +48,20 @@ export const updateAccountTypeFieldSchema = z.object({
   displayOrder: z.number().int().nonnegative().optional(),
 });
 export type UpdateAccountTypeFieldInput = z.infer<typeof updateAccountTypeFieldSchema>;
+
+// Areas — flat list only for now. The schema supports a
+// parentAreaId city -> sub-area hierarchy, but that's not exposed
+// here; this is a deliberate, smaller scope than the data model
+// allows, not an oversight — a hierarchical picker (parent select,
+// nested display) is real additional UI work beyond what Customers
+// needs to become usable today.
+export const areaSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+});
+export type AreaInput = z.infer<typeof areaSchema>;
+
+export const updateAreaSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1, "Name is required"),
+});
+export type UpdateAreaInput = z.infer<typeof updateAreaSchema>;

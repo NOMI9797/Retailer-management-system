@@ -3,28 +3,28 @@
 import { useEffect, useState } from "react";
 import { listCustomers } from "../actions";
 
-// Hooks do the reading — this one wraps a Server Action for a client
-// component that needs live, filterable data (e.g. a searchable
-// customer picker inside the Daily Sales form). Swap the body for
-// TanStack Query once you need caching across multiple components;
-// the call sites below don't change.
-export function useCustomers(query?: string) {
-  const [customers, setCustomers] = useState<Awaited<ReturnType<typeof listCustomers>>>([]);
+// Client-side interactive state (live search-as-you-type) that a
+// Server Component can't express — this is the legitimate case for a
+// hook per the module's server-first convention: everywhere else,
+// pages fetch directly, but a customer picker needs to refetch on
+// every keystroke while the rest of its parent form stays mounted.
+export function useCustomers(search?: string) {
+  const [customers, setCustomers] = useState<Awaited<ReturnType<typeof listCustomers>>["customers"]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    listCustomers(query).then((result) => {
+    listCustomers({ search }).then((result) => {
       if (!cancelled) {
-        setCustomers(result);
+        setCustomers(result.customers);
         setIsLoading(false);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [query]);
+  }, [search]);
 
   return { customers, isLoading };
 }

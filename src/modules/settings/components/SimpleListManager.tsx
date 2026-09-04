@@ -3,14 +3,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-type SimpleListItem = { id: string; name: string; isActive: boolean };
+type SimpleListItem = { id: string; name: string; isActive?: boolean };
 
-// Shared list manager for entities that are just "name + isActive"
-// (Categories, Units) — add, inline rename, and deactivate/activate,
-// all through the three callbacks the caller wires to its own Server
-// Actions. Account Types isn't built on this since it carries extra
-// fields (code, tracksQuantity, custom fields) the simple shape
-// doesn't fit.
+// Shared list manager for entities that are essentially "a name" —
+// Categories and Units (which also have isActive/deactivate) and
+// Areas (which don't — no onToggleActive means the active column and
+// button are omitted entirely rather than faked). Add, inline rename,
+// and optional deactivate, all through callbacks the caller wires to
+// its own Server Actions. Account Types isn't built on this since it
+// carries extra fields (code, tracksQuantity, custom fields) the
+// simple shape doesn't fit.
 export function SimpleListManager<T extends SimpleListItem>({
   items,
   itemLabel,
@@ -22,7 +24,7 @@ export function SimpleListManager<T extends SimpleListItem>({
   itemLabel: string;
   onCreate: (name: string) => Promise<unknown>;
   onRename: (id: string, name: string) => Promise<unknown>;
-  onToggleActive: (id: string, isActive: boolean) => Promise<unknown>;
+  onToggleActive?: (id: string, isActive: boolean) => Promise<unknown>;
 }) {
   const router = useRouter();
   const [newName, setNewName] = useState("");
@@ -58,6 +60,7 @@ export function SimpleListManager<T extends SimpleListItem>({
   }
 
   async function handleToggle(id: string, isActive: boolean) {
+    if (!onToggleActive) return;
     setError(null);
     try {
       await onToggleActive(id, isActive);
@@ -102,12 +105,14 @@ export function SimpleListManager<T extends SimpleListItem>({
                       autoFocus
                     />
                   ) : (
-                    <span style={{ opacity: item.isActive ? 1 : 0.5 }}>{item.name}</span>
+                    <span style={{ opacity: item.isActive === false ? 0.5 : 1 }}>{item.name}</span>
                   )}
                 </td>
-                <td>
-                  <span className="cat-pill">{item.isActive ? "Active" : "Inactive"}</span>
-                </td>
+                {onToggleActive && (
+                  <td>
+                    <span className="cat-pill">{item.isActive ? "Active" : "Inactive"}</span>
+                  </td>
+                )}
                 <td>
                   <div className="row-actions">
                     {editingId === item.id ? (
@@ -130,12 +135,14 @@ export function SimpleListManager<T extends SimpleListItem>({
                         >
                           Rename
                         </button>
-                        <button
-                          className="btn btn-ghost"
-                          onClick={() => handleToggle(item.id, item.isActive)}
-                        >
-                          {item.isActive ? "Deactivate" : "Activate"}
-                        </button>
+                        {onToggleActive && (
+                          <button
+                            className="btn btn-ghost"
+                            onClick={() => handleToggle(item.id, item.isActive!)}
+                          >
+                            {item.isActive ? "Deactivate" : "Activate"}
+                          </button>
+                        )}
                       </>
                     )}
                   </div>
