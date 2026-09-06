@@ -16,41 +16,6 @@ import type { Prisma } from "@prisma/client";
 const DEFAULT_PAGE_SIZE = 50;
 const PAYMENT_SPLIT_EPSILON = 0.01; // guards against float rounding, not real mismatches
 
-// Ensures the buyer has a target CustomerAccount for a credit charge
-// — defaults to their Regular account, auto-creating it if missing
-// (any walk-in customer is expected to eventually need one, unlike
-// the farmer/consignment side — see createGrainBatch's tracksQuantity
-// check for why that side errors instead of auto-creating).
-// accountTypeId lets the shopkeeper target a different account the
-// customer already holds, or a newly assigned one, instead of Regular.
-async function resolveBuyerAccount(
-  tx: Prisma.TransactionClient,
-  shopId: string,
-  customerId: string,
-  accountTypeId?: string
-) {
-  if (accountTypeId) {
-    const account = await tx.customerAccount.findFirst({
-      where: { customerId, accountTypeId },
-    });
-    if (account) return account;
-
-    const accountType = await tx.accountType.findFirst({ where: { id: accountTypeId, shopId } });
-    if (!accountType) throw new Error("Account type not found");
-    return tx.customerAccount.create({ data: { customerId, accountTypeId } });
-  }
-
-  const regularType = await tx.accountType.findFirst({ where: { shopId, code: "REGULAR" } });
-  if (!regularType) throw new Error("No Regular account type configured for this shop");
-
-  const existing = await tx.customerAccount.findFirst({
-    where: { customerId, accountTypeId: regularType.id },
-  });
-  if (existing) return existing;
-
-  return tx.customerAccount.create({ data: { customerId, accountTypeId: regularType.id } });
-}
-
 // The core "make this sale real" logic for the ITEMS side — decrement
 // stock/batches, post consignment payouts. Completely independent of
 // how the buyer pays (per the "farmer's payout is unaffected by the
@@ -64,7 +29,8 @@ async function applySaleItems(
   tx: Prisma.TransactionClient,
   shopId: string,
   saleId: string,
-  items: DailySaleItemInput[]
+  items: DailySaleItemInput[],
+  visitAt: Date
 ) {
   const shop = await tx.shop.findUniqueOrThrow({ where: { id: shopId } });
   let itemTotal = 0;
@@ -79,6 +45,7 @@ async function applySaleItems(
         productId: item.productId,
         quantity: item.quantity,
         actualPrice: item.actualPrice,
+        visitAt,
       },
     });
 
@@ -175,20 +142,19 @@ async function applySaleItems(
 }
 
 // The BUYER side: validates the Cash/Account/Credit split sums to the
-// bill total, records one DailySalePayment row per method actually
-// used, and — only for the Credit portion — posts an
-// AccountTransaction and increments the buyer's outstanding balance.
-// Cash and Account rows exist purely for Cash Flow reconciliation
-// (Milestone 3); they never touch the ledger, since both mean "paid
-// in full right now," just via different channels.
+// bill total and records one DailySalePayment row per method actually
+// used. Account types (Regular/Udhar/Consignment/...) are purely
+// static labels for categorizing a customer — for now, NO payment
+// method or balance is ever linked to a CustomerAccount/
+// AccountTransaction here, Credit included. This split exists only
+// for the sale's own record (and future Cash Flow reconciliation in
+// Milestone 3); it does not touch any account's ledger.
 async function applyPaymentSplit(
   tx: Prisma.TransactionClient,
-  shopId: string,
   saleId: string,
-  customerId: string,
   itemTotal: number,
   payments: PaymentSplitInput,
-  accountTypeId?: string
+  visitAt: Date
 ) {
   const splitTotal = payments.cash + payments.account + payments.credit;
   if (Math.abs(splitTotal - itemTotal) > PAYMENT_SPLIT_EPSILON) {
@@ -199,49 +165,32 @@ async function applyPaymentSplit(
 
   if (payments.cash > 0) {
     await tx.dailySalePayment.create({
-      data: { dailySaleId: saleId, paymentMethod: "CASH", amount: payments.cash },
+      data: { dailySaleId: saleId, paymentMethod: "CASH", amount: payments.cash, visitAt },
     });
   }
   if (payments.account > 0) {
     await tx.dailySalePayment.create({
-      data: { dailySaleId: saleId, paymentMethod: "ACCOUNT", amount: payments.account },
+      data: { dailySaleId: saleId, paymentMethod: "ACCOUNT", amount: payments.account, visitAt },
     });
   }
   if (payments.credit > 0) {
     await tx.dailySalePayment.create({
-      data: { dailySaleId: saleId, paymentMethod: "CREDIT", amount: payments.credit },
-    });
-
-    const buyerAccount = await resolveBuyerAccount(tx, shopId, customerId, accountTypeId);
-
-    await tx.accountTransaction.create({
-      data: {
-        customerAccountId: buyerAccount.id,
-        direction: "IN",
-        amount: payments.credit,
-        linkedSaleId: saleId,
-        paymentMethod: "CREDIT",
-        notes: "Credit portion of sale",
-      },
-    });
-    // Customer owes the shop — positive balance.
-    await tx.customerAccount.update({
-      where: { id: buyerAccount.id },
-      data: { currentBalance: { increment: payments.credit } },
+      data: { dailySaleId: saleId, paymentMethod: "CREDIT", amount: payments.credit, visitAt },
     });
   }
 }
 
 // Completely undoes a sale's effects: restores simple stock and
 // grain batch quantities, reverses every AccountTransaction linked to
-// it (consignment payouts and the buyer's credit charge) with an
-// exact opposite adjustment to each account's currentBalance, then
-// deletes the batch allocations, sale items, payments, and
-// transactions. Deliberately does NOT delete the DailySale row itself
-// — that's what lets updateDailySale reuse the same id after
-// reapplying, rather than the edit silently creating a new sale with
-// a different id. deleteDailySale calls this and then removes the
-// row as its own final step.
+// it (only ever the consignment/farmer payouts — the buyer's payment
+// split never posts one, see applyPaymentSplit) with an exact
+// opposite adjustment to each account's currentBalance, then deletes
+// the batch allocations, sale items, payments, and transactions.
+// Deliberately does NOT delete the DailySale row itself — that's what
+// lets updateDailySale reuse the same id after reapplying, rather
+// than the edit silently creating a new sale with a different id.
+// deleteDailySale calls this and then removes the row as its own
+// final step.
 async function reverseSaleContents(tx: Prisma.TransactionClient, shopId: string, saleId: string) {
   const sale = await tx.dailySale.findFirst({
     where: { id: saleId, shopId },
@@ -273,9 +222,10 @@ async function reverseSaleContents(tx: Prisma.TransactionClient, shopId: string,
   // linkedSaleId, so this one query catches both sides.
   const transactions = await tx.accountTransaction.findMany({ where: { linkedSaleId: saleId } });
   for (const txn of transactions) {
-    // direction OUT (shop paid the farmer) had decremented the
-    // farmer's balance; direction IN (buyer owes) had incremented
-    // the buyer's balance. Reversing means applying the opposite.
+    // Currently only ever consignment/farmer payouts (direction OUT,
+    // which had decremented the farmer's balance) — the buyer's
+    // payment split never posts a transaction. Reversing means
+    // applying the opposite of whatever direction it was.
     const amount = Number(txn.amount);
     await tx.customerAccount.update({
       where: { id: txn.customerAccountId },
@@ -338,9 +288,12 @@ export async function createDailySale(input: CreateDailySaleInput) {
     // check — a returning customer's new items/payments are appended
     // on top of whatever was already recorded for today, not merged
     // into one combined split (per the "add a new split for just the
-    // new items" decision).
-    const itemTotal = await applySaleItems(tx, shopId, sale.id, data.items);
-    await applyPaymentSplit(tx, shopId, sale.id, data.customerId, itemTotal, data.payments, data.accountTypeId);
+    // new items" decision). A single visitAt, shared by every item and
+    // payment this call writes, is what lets the UI later regroup a
+    // merged day's DailySale back into "visit 1", "visit 2", etc.
+    const visitAt = new Date();
+    const itemTotal = await applySaleItems(tx, shopId, sale.id, data.items, visitAt);
+    await applyPaymentSplit(tx, sale.id, itemTotal, data.payments, visitAt);
 
     const created = await tx.dailySale.findUniqueOrThrow({
       where: { id: sale.id },
@@ -374,10 +327,15 @@ export async function updateDailySale(input: UpdateDailySaleInput) {
   const data = updateDailySaleSchema.parse(input);
 
   return db.$transaction(async (tx) => {
-    const { customerId } = await reverseSaleContents(tx, shopId, data.saleId);
+    await reverseSaleContents(tx, shopId, data.saleId);
 
-    const itemTotal = await applySaleItems(tx, shopId, data.saleId, data.items);
-    await applyPaymentSplit(tx, shopId, data.saleId, customerId, itemTotal, data.payments, data.accountTypeId);
+    // The edited items/payments are written as a single fresh visit —
+    // editing a sale collapses whatever visit structure it had before
+    // into the one edited version, which matches how the edit form
+    // presents it (one combined item list, one combined split).
+    const visitAt = new Date();
+    const itemTotal = await applySaleItems(tx, shopId, data.saleId, data.items, visitAt);
+    await applyPaymentSplit(tx, data.saleId, itemTotal, data.payments, visitAt);
 
     const updated = await tx.dailySale.findUniqueOrThrow({
       where: { id: data.saleId },
@@ -410,6 +368,13 @@ export async function deleteDailySale(saleId: string) {
 // queried directly from the same DailySale/DailySaleItem/
 // DailySalePayment rows Daily Sales wrote (not a copy). Exists for
 // every sale, cash, account, or credit.
+//
+// A single DailySale row can hold more than one visit (a customer who
+// came back later the same day appends to it rather than getting a
+// second row — see findTodaysSale), so items/payments are grouped by
+// visitAt into separate "visits" here, each with its own item list,
+// payment split, and total — otherwise a second visit's items would
+// look indistinguishable from the first's on the same date.
 export async function getCustomerPurchaseHistory(customerId: string) {
   const shopId = await getCurrentShopId();
 
@@ -419,22 +384,37 @@ export async function getCustomerPurchaseHistory(customerId: string) {
     orderBy: { saleDate: "desc" },
   });
 
-  return sales.map((sale) => ({
-    id: sale.id,
-    saleDate: sale.saleDate,
-    season: sale.season,
-    items: sale.items.map((item) => ({
-      id: item.id,
-      productId: item.productId,
-      productName: item.product.name,
-      quantity: Number(item.quantity),
-      actualPrice: Number(item.actualPrice),
-    })),
-    payments: sale.payments.map((p) => ({
-      paymentMethod: p.paymentMethod,
-      amount: Number(p.amount),
-    })),
-  }));
+  return sales.map((sale) => {
+    const visitTimes = Array.from(new Set(sale.items.map((i) => i.visitAt.getTime()))).sort((a, b) => b - a);
+
+    const visits = visitTimes.map((time) => {
+      const visitItems = sale.items.filter((i) => i.visitAt.getTime() === time);
+      const visitPayments = sale.payments.filter((p) => p.visitAt.getTime() === time);
+      const items = visitItems.map((item) => ({
+        id: item.id,
+        productId: item.productId,
+        productName: item.product.name,
+        quantity: Number(item.quantity),
+        actualPrice: Number(item.actualPrice),
+      }));
+      return {
+        visitAt: new Date(time),
+        items,
+        payments: visitPayments.map((p) => ({
+          paymentMethod: p.paymentMethod,
+          amount: Number(p.amount),
+        })),
+        total: items.reduce((sum, i) => sum + i.quantity * i.actualPrice, 0),
+      };
+    });
+
+    return {
+      id: sale.id,
+      saleDate: sale.saleDate,
+      season: sale.season,
+      visits,
+    };
+  });
 }
 
 // The edit form's data source for one sale — same shape

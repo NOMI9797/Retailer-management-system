@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import type { listProducts } from "@/modules/products/actions";
 
 type Product = Awaited<ReturnType<typeof listProducts>>["products"][number];
@@ -8,8 +9,13 @@ export type LineItemDraft = {
   productId: string;
   quantity: string;
   actualPrice: string;
+  categoryId?: string;
 };
 
+// Filtering by category first is purely a narrowing aid for the
+// product dropdown — categoryId never gets sent to createDailySale,
+// it just cuts down which options the shopkeeper has to scroll
+// through in a shop with hundreds of products.
 export function LineItemsEditor({
   products,
   items,
@@ -19,8 +25,14 @@ export function LineItemsEditor({
   items: LineItemDraft[];
   onChange: (items: LineItemDraft[]) => void;
 }) {
+  const categories = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const p of products) seen.set(p.categoryId, p.category.name);
+    return Array.from(seen, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [products]);
+
   function addItem() {
-    onChange([...items, { productId: "", quantity: "", actualPrice: "" }]);
+    onChange([...items, { productId: "", quantity: "", actualPrice: "", categoryId: "" }]);
   }
 
   function updateItem(index: number, patch: Partial<LineItemDraft>) {
@@ -40,6 +52,18 @@ export function LineItemsEditor({
     onChange(next);
   }
 
+  function updateCategory(index: number, categoryId: string) {
+    // Changing the category clears any product pick that no longer
+    // belongs to it — keeps the row from silently sending a product
+    // that's not even in the newly selected category.
+    const next = items.map((item, i) => {
+      if (i !== index) return item;
+      const stillValid = products.find((p) => p.id === item.productId)?.categoryId === categoryId;
+      return { ...item, categoryId, productId: stillValid ? item.productId : "" };
+    });
+    onChange(next);
+  }
+
   function removeItem(index: number) {
     onChange(items.filter((_, i) => i !== index));
   }
@@ -49,14 +73,27 @@ export function LineItemsEditor({
       <label>Items</label>
       {items.map((item, i) => {
         const product = products.find((p) => p.id === item.productId);
+        const filteredProducts = item.categoryId
+          ? products.filter((p) => p.categoryId === item.categoryId)
+          : products;
         return (
           <div key={i} className="field-row" style={{ marginBottom: 8, alignItems: "flex-end" }}>
+            <div className="field" style={{ marginBottom: 0, flex: "0 1 200px" }}>
+              <select value={item.categoryId || ""} onChange={(e) => updateCategory(i, e.target.value)}>
+                <option value="">All categories</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="field" style={{ marginBottom: 0, flex: 1 }}>
               <select value={item.productId} onChange={(e) => updateItem(i, { productId: e.target.value })} required>
                 <option value="" disabled>
                   Select product
                 </option>
-                {products.map((p) => (
+                {filteredProducts.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name} ({p.unit.name})
                   </option>

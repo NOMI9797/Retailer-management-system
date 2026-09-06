@@ -327,6 +327,19 @@
   background: #fbfaf7;
 }
 
+.shop-app tr.table-date-header td {
+  padding: 9px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--bg);
+  border-bottom: 0.5px solid var(--border);
+}
+
+.shop-app tr.table-date-header:hover {
+  background: var(--bg);
+}
+
 .shop-app .empty-row td {
   color: var(--ink-muted);
   text-align: center;

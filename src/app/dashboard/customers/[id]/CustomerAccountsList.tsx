@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { formatMoney, describeBalance } from "@/lib/utils";
+import { formatMoney, describeBalance, formatDate } from "@/lib/utils";
 import type { getCustomer } from "@/modules/customers/actions";
 
 type Account = Awaited<ReturnType<typeof getCustomer>>["accounts"][number];
@@ -82,7 +82,7 @@ function AccountCard({ account }: { account: Account }) {
               </div>
               {account.transactions.map((txn) => (
                 <div className="batch-row" key={txn.id}>
-                  <span>{new Date(txn.transactionDate).toLocaleDateString()}</span>
+                  <span>{formatDate(txn.transactionDate)}</span>
                   <span
                     className={`owner-tag ${txn.direction === "IN" ? "owner-shop" : "owner-customer"}`}
                   >

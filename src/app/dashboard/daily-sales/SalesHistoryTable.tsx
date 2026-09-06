@@ -1,6 +1,7 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { listDailySales } from "@/modules/daily-sales/actions";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney, formatDate } from "@/lib/utils";
 import { Pagination } from "@/modules/products/components/Pagination";
 import { buildDailySalesHref, type DailySalesSearchParams } from "./searchParamsHref";
 
@@ -17,6 +18,14 @@ export async function SalesHistoryTable({ searchParams }: { searchParams: DailyS
     page,
   });
 
+  // listDailySales already orders by saleDate desc, so same-day rows
+  // are already adjacent — a date-header row is inserted whenever the
+  // date changes, rather than repeating the date on every row, so
+  // scanning the page makes it obvious which sales fall on which day
+  // (mirrors the day-grouping already used on the customer's Purchase
+  // History panel).
+  let lastDateKey: string | null = null;
+
   return (
     <>
       <div className="panel">
@@ -24,7 +33,6 @@ export async function SalesHistoryTable({ searchParams }: { searchParams: DailyS
           <thead>
             <tr>
               <th>Customer</th>
-              <th>Date</th>
               <th>Items</th>
               <th>Total</th>
               <th></th>
@@ -33,24 +41,36 @@ export async function SalesHistoryTable({ searchParams }: { searchParams: DailyS
           <tbody>
             {result.sales.length === 0 ? (
               <tr className="empty-row">
-                <td colSpan={5}>No sales recorded yet.</td>
+                <td colSpan={4}>No sales recorded yet.</td>
               </tr>
             ) : (
-              result.sales.map((sale) => (
-                <tr key={sale.id}>
-                  <td>{sale.customerName}</td>
-                  <td>{new Date(sale.saleDate).toLocaleDateString()}</td>
-                  <td>{sale.itemCount}</td>
-                  <td>{formatMoney(sale.total)}</td>
-                  <td>
-                    <div className="row-actions">
-                      <Link className="btn btn-ghost" href={`/dashboard/customers/${sale.customerId}`}>
-                        View customer
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
-              ))
+              result.sales.map((sale) => {
+                const dateKey = formatDate(sale.saleDate);
+                const isNewDay = dateKey !== lastDateKey;
+                lastDateKey = dateKey;
+
+                return (
+                  <Fragment key={sale.id}>
+                    {isNewDay && (
+                      <tr className="table-date-header">
+                        <td colSpan={4}>{dateKey}</td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td>{sale.customerName}</td>
+                      <td>{sale.itemCount}</td>
+                      <td>{formatMoney(sale.total)}</td>
+                      <td>
+                        <div className="row-actions">
+                          <Link className="btn btn-ghost" href={`/dashboard/customers/${sale.customerId}`}>
+                            View customer
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  </Fragment>
+                );
+              })
             )}
           </tbody>
         </table>

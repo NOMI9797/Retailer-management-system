@@ -260,6 +260,12 @@ model DailySaleItem {
   product     Product   @relation(fields: [productId], references: [id])
   quantity    Decimal   @db.Decimal(14, 3)
   actualPrice Decimal   @db.Decimal(12, 2)
+  // Same value for every item (and DailySalePayment row) written by
+  // one createDailySale call — lets a customer's second visit on the
+  // same day, which appends to the same DailySale row rather than
+  // creating a new one, still be displayed as its own distinct group
+  // instead of mixing in with the first visit's items.
+  visitAt     DateTime  @default(now())
 
   batchAllocations DailySaleItemBatch[]
 }
@@ -276,6 +282,9 @@ model DailySalePayment {
   dailySale     DailySale     @relation(fields: [dailySaleId], references: [id])
   paymentMethod PaymentMethod
   amount        Decimal       @db.Decimal(14, 2)
+  // Matches the visitAt on the DailySaleItem rows written by the same
+  // createDailySale call — see DailySaleItem.visitAt.
+  visitAt       DateTime      @default(now())
 }
 
 // Depleting oldest-first can span more than one batch for a single

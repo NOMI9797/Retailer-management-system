@@ -11,17 +11,18 @@ type AccountType = Awaited<ReturnType<typeof listAccountTypes>>[number];
 type ExistingCustomer = ReturnType<typeof useCustomers>["customers"][number];
 
 export type CustomerSelection =
-  | { mode: "existing"; customerId: string; name: string; accountTypeId?: string }
+  | { mode: "existing"; customerId: string; name: string }
   | { mode: "new"; name: string; phone?: string; areaId?: string; accountTypeIds: string[] };
 
 // Progressive disclosure, per the milestone: type a name, if a match
 // exists select it and go straight to line items (the common, fast
 // case) — only if nothing matches does the form expand for the rest
 // (phone, area, account type), and even then only name is required.
-// For an EXISTING customer, their current accounts are shown and a
-// new one can be assigned right here too — a returning customer might
-// now also need a second account (e.g. a Regular buyer who's started
-// supplying consigned grain), and this is the moment that's noticed.
+// For an EXISTING customer, their current accounts are shown with
+// add/edit/remove — but purely as static customer categorization
+// (Regular/Udhar/Consignment/...), management convenient to do right
+// here. None of it feeds into the sale itself: no payment method or
+// balance is ever linked to an account type from Daily Sales.
 export function CustomerPicker({
   areas,
   accountTypes,
@@ -33,7 +34,6 @@ export function CustomerPicker({
 }) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<ExistingCustomer | null>(null);
-  const [selectedAccountTypeId, setSelectedAccountTypeId] = useState<string | undefined>(undefined);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [newAccountTypeId, setNewAccountTypeId] = useState("");
   const [isAddingAccount, setIsAddingAccount] = useState(false);
@@ -57,15 +57,7 @@ export function CustomerPicker({
     setShowNewFields(false);
     setShowAddAccount(false);
     setAddAccountError(null);
-    const defaultAccountTypeId = customer.accounts[0]?.accountTypeId;
-    setSelectedAccountTypeId(defaultAccountTypeId);
-    onChange({ mode: "existing", customerId: customer.id, name: customer.name, accountTypeId: defaultAccountTypeId });
-  }
-
-  function pickAccountForSale(accountTypeId: string) {
-    if (!selected) return;
-    setSelectedAccountTypeId(accountTypeId);
-    onChange({ mode: "existing", customerId: selected.id, name: selected.name, accountTypeId });
+    onChange({ mode: "existing", customerId: customer.id, name: customer.name });
   }
 
   async function handleAddAccount() {
@@ -84,7 +76,6 @@ export function CustomerPicker({
       });
       setShowAddAccount(false);
       setNewAccountTypeId("");
-      pickAccountForSale(newAccountTypeId);
     } catch (err) {
       setAddAccountError(err instanceof Error ? err.message : "Failed to add account");
     } finally {
@@ -109,9 +100,6 @@ export function CustomerPicker({
         a.id === accountId ? { ...a, accountTypeId: editAccountTypeId, accountType: newAccountType! } : a
       );
       setSelected({ ...selected, accounts: updatedAccounts });
-      if (selectedAccountTypeId === selected.accounts.find((a) => a.id === accountId)?.accountTypeId) {
-        pickAccountForSaleFrom(updatedAccounts, editAccountTypeId);
-      }
       setEditingAccountId(null);
     } catch (err) {
       setEditError(err instanceof Error ? err.message : "Failed to change account type");
@@ -120,26 +108,13 @@ export function CustomerPicker({
     }
   }
 
-  function pickAccountForSaleFrom(accounts: ExistingCustomer["accounts"], accountTypeId: string) {
-    if (!selected) return;
-    setSelectedAccountTypeId(accountTypeId);
-    onChange({ mode: "existing", customerId: selected.id, name: selected.name, accountTypeId });
-  }
-
   async function handleRemoveAccount(accountId: string) {
     if (!selected) return;
     setRemovingAccountId(accountId);
     setRemoveError(null);
     try {
       await removeCustomerAccount(accountId);
-      const remaining = selected.accounts.filter((a) => a.id !== accountId);
-      setSelected({ ...selected, accounts: remaining });
-      const wasSelected = selected.accounts.find((a) => a.id === accountId)?.accountTypeId === selectedAccountTypeId;
-      if (wasSelected) {
-        const fallback = remaining[0]?.accountTypeId;
-        setSelectedAccountTypeId(fallback);
-        onChange({ mode: "existing", customerId: selected.id, name: selected.name, accountTypeId: fallback });
-      }
+      setSelected({ ...selected, accounts: selected.accounts.filter((a) => a.id !== accountId) });
     } catch (err) {
       setRemoveError(err instanceof Error ? err.message : "Failed to remove account");
     } finally {
@@ -310,7 +285,7 @@ export function CustomerPicker({
       {selected && (
         <div style={{ marginTop: 10 }}>
           <p style={{ fontSize: 12.5, color: "var(--ink-muted)", marginBottom: 6 }}>
-            {selected.accounts.length === 0 ? "No accounts yet" : "Account for this sale"}
+            {selected.accounts.length === 0 ? "No accounts yet" : "Accounts (categorization only)"}
           </p>
 
           {selected.accounts.length > 0 && (
@@ -361,24 +336,7 @@ export function CustomerPicker({
                       </>
                     ) : (
                       <>
-                        <button
-                          type="button"
-                          onClick={() => pickAccountForSale(a.accountTypeId)}
-                          style={{
-                            flex: 1,
-                            textAlign: "left",
-                            background: "none",
-                            border: "none",
-                            cursor: "pointer",
-                            fontFamily: "inherit",
-                            fontSize: 13.5,
-                            fontWeight: selectedAccountTypeId === a.accountTypeId ? 600 : 400,
-                            color: selectedAccountTypeId === a.accountTypeId ? "var(--primary-600)" : "var(--ink)",
-                          }}
-                        >
-                          {a.accountType.name}
-                          {selectedAccountTypeId === a.accountTypeId ? " (selected)" : ""}
-                        </button>
+                        <span style={{ flex: 1, fontSize: 13.5 }}>{a.accountType.name}</span>
                         <button
                           type="button"
                           className="btn btn-ghost"

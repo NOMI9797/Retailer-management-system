@@ -60,10 +60,8 @@ export function NewSaleForm({
     setIsSaving(true);
     try {
       let customerId: string;
-      let accountTypeId: string | undefined;
       if (customer.mode === "existing") {
         customerId = customer.customerId;
-        accountTypeId = customer.accountTypeId;
       } else {
         const created = await createCustomer({
           name: customer.name,
@@ -76,7 +74,6 @@ export function NewSaleForm({
 
       await createDailySale({
         customerId,
-        accountTypeId,
         items: items.map((i) => ({
           productId: i.productId,
           quantity: Number(i.quantity),

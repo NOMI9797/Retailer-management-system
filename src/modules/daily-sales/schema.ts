@@ -12,12 +12,14 @@ export type DailySaleItemInput = z.infer<typeof dailySaleItemSchema>;
 
 // The bill total split across payment methods — cash and account are
 // both "paid in full right now" (just different channels, tracked
-// separately for Cash Flow reconciliation), credit is the only one
-// that creates an outstanding balance. All three are optional
-// individually (a sale might be 100% cash, or split any way), but
-// together they must sum to exactly the computed item total —
-// enforced in createDailySale/updateDailySale, not here, since this
-// schema doesn't have the item total to check against.
+// separately for Cash Flow reconciliation), credit means "not paid
+// yet." For now none of the three ever posts to a CustomerAccount's
+// ledger/balance — account types (Regular/Udhar/Consignment/...) are
+// purely static customer categorization, untouched by Daily Sales. All
+// three are optional individually (a sale might be 100% cash, or split
+// any way), but together they must sum to exactly the computed item
+// total — enforced in createDailySale/updateDailySale, not here, since
+// this schema doesn't have the item total to check against.
 export const paymentSplitSchema = z.object({
   cash: z.number().nonnegative().default(0),
   account: z.number().nonnegative().default(0),
@@ -27,7 +29,6 @@ export type PaymentSplitInput = z.infer<typeof paymentSplitSchema>;
 
 export const createDailySaleSchema = z.object({
   customerId: z.string().uuid(),
-  accountTypeId: z.string().uuid().optional(),
   season: z.string().optional(),
   items: z.array(dailySaleItemSchema).min(1, "At least one item is required"),
   payments: paymentSplitSchema,
@@ -41,7 +42,6 @@ export type CreateDailySaleInput = z.infer<typeof createDailySaleSchema>;
 // this milestone's scope).
 export const updateDailySaleSchema = z.object({
   saleId: z.string().uuid(),
-  accountTypeId: z.string().uuid().optional(),
   items: z.array(dailySaleItemSchema).min(1, "At least one item is required"),
   payments: paymentSplitSchema,
 });
