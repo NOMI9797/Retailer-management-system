@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
-import { serializeDecimals } from "./lib/serialize";
+import { serializeDecimals } from "@/lib/serialize";
 import {
   productSchema,
   updateProductSchema,

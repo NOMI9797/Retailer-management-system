@@ -77,7 +77,7 @@ function AccountCard({ account }: { account: Account }) {
                 <span>Date</span>
                 <span>Direction</span>
                 <span>Amount</span>
-                <span>Cash / account</span>
+                <span>Method</span>
                 <span>Notes</span>
               </div>
               {account.transactions.map((txn) => (
@@ -89,7 +89,7 @@ function AccountCard({ account }: { account: Account }) {
                     {txn.direction}
                   </span>
                   <span>{formatMoney(txn.amount)}</span>
-                  <span>{txn.cashOrAccount}</span>
+                  <span>{txn.paymentMethod}</span>
                   <span>{txn.notes || "—"}</span>
                 </div>
               ))}

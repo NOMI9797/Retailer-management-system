@@ -132,9 +132,17 @@ enum TxnDirection {
   OUT
 }
 
-enum CashOrAccount {
+// How money moved for a given posting — CASH (physical cash, paid
+// now), ACCOUNT (bank/online transfer, also paid now, just a
+// different channel), or CREDIT (not paid yet — this is the only one
+// that ever creates an outstanding balance). Cash and Account are
+// both "settled immediately"; they're tracked separately so Cash Flow
+// (Milestone 3) can reconcile the physical cash drawer against bank
+// movement, not because either one is owed.
+enum PaymentMethod {
   CASH
   ACCOUNT
+  CREDIT
 }
 
 model AccountTransaction {
@@ -147,7 +155,7 @@ model AccountTransaction {
   quantity           Decimal?        @db.Decimal(14, 3)
   linkedSaleId       String?
   linkedSale         DailySale?      @relation(fields: [linkedSaleId], references: [id])
-  cashOrAccount      CashOrAccount
+  paymentMethod      PaymentMethod
   notes              String?
 }
 
@@ -240,20 +248,34 @@ model DailySale {
   season     String?
 
   items       DailySaleItem[]
+  payments    DailySalePayment[]
   accountTxns AccountTransaction[]
 }
 
 model DailySaleItem {
+  id          String    @id @default(uuid())
+  dailySaleId String
+  dailySale   DailySale @relation(fields: [dailySaleId], references: [id])
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id])
+  quantity    Decimal   @db.Decimal(14, 3)
+  actualPrice Decimal   @db.Decimal(12, 2)
+
+  batchAllocations DailySaleItemBatch[]
+}
+
+// The whole-sale bill total split across payment methods — e.g. a
+// Rs 650 bill might be Rs 200 CASH + Rs 250 ACCOUNT + Rs 200 CREDIT,
+// one row per method actually used (not one per line item — the
+// split happens on the total, not per product). Only the CREDIT
+// row(s) ever cause an AccountTransaction; CASH/ACCOUNT rows exist
+// purely for Cash Flow reconciliation (Milestone 3).
+model DailySalePayment {
   id            String        @id @default(uuid())
   dailySaleId   String
   dailySale     DailySale     @relation(fields: [dailySaleId], references: [id])
-  productId     String
-  product       Product       @relation(fields: [productId], references: [id])
-  quantity      Decimal       @db.Decimal(14, 3)
-  actualPrice   Decimal       @db.Decimal(12, 2)
-  cashOrAccount CashOrAccount
-
-  batchAllocations DailySaleItemBatch[]
+  paymentMethod PaymentMethod
+  amount        Decimal       @db.Decimal(14, 2)
 }
 
 // Depleting oldest-first can span more than one batch for a single
@@ -279,5 +301,5 @@ model Expense {
   description   String
   amount        Decimal       @db.Decimal(12, 2)
   expenseDate   DateTime      @default(now())
-  cashOrAccount CashOrAccount
+  paymentMethod PaymentMethod
 }

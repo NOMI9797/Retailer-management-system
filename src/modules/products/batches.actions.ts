@@ -3,7 +3,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
-import { serializeDecimals } from "./lib/serialize";
+import { serializeDecimals } from "@/lib/serialize";
 import { grainBatchSchema, type GrainBatchInput } from "./schema";
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -22,8 +22,21 @@ export async function createGrainBatch(input: GrainBatchInput) {
   if (data.ownerCustomerId) {
     const customer = await db.customer.findFirst({
       where: { id: data.ownerCustomerId, shopId },
+      include: { accounts: { include: { accountType: true } } },
     });
     if (!customer) throw new Error("Customer not found");
+
+    // A batch owner must already have a consignment-style (tracksQuantity)
+    // account before stock can be assigned to them — otherwise this
+    // gap only surfaces weeks later, mid-sale, when Daily Sales has
+    // nowhere to post the farmer's payout. Caught here instead, while
+    // the batch details are still fresh and easy to fix.
+    const hasConsignmentAccount = customer.accounts.some((a) => a.accountType.tracksQuantity);
+    if (!hasConsignmentAccount) {
+      throw new Error(
+        `${customer.name} needs a consignment-style account (an account type with "tracks quantity" enabled) before stock can be assigned to them. Add one from their customer page first.`
+      );
+    }
   }
 
   const batch = await db.grainBatch.create({

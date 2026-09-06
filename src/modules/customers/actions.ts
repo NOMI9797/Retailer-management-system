@@ -6,9 +6,34 @@ import { customerSchema, updateCustomerSchema, type CustomerInput, type UpdateCu
 
 const DEFAULT_PAGE_SIZE = 50;
 
+// Dedupes by name within the shop before creating — this is what
+// keeps "the same customer's whole history under one account" true
+// (per the milestone's core rule) even when a customer is added twice
+// by mistake, e.g. once from the Customers page and again from Daily
+// Sales' quick-add for a returning customer whose name wasn't picked
+// from the search results. On a match, any newly-selected account
+// types are attached to the EXISTING customer (skipping ones they
+// already hold) instead of spawning a second Customer row with its
+// own separate balance/history.
 export async function createCustomer(input: CustomerInput) {
   const shopId = await getCurrentShopId();
   const data = customerSchema.parse(input);
+
+  const existing = await db.customer.findFirst({
+    where: { shopId, name: { equals: data.name, mode: "insensitive" } },
+    include: { accounts: true },
+  });
+
+  if (existing) {
+    const heldTypeIds = new Set(existing.accounts.map((a) => a.accountTypeId));
+    const newTypeIds = data.accountTypeIds.filter((id) => !heldTypeIds.has(id));
+    if (newTypeIds.length > 0) {
+      await db.customerAccount.createMany({
+        data: newTypeIds.map((accountTypeId) => ({ customerId: existing.id, accountTypeId })),
+      });
+    }
+    return existing;
+  }
 
   // This single call is the "no duplication" rule in practice: a
   // customer created here from Daily Sales is the same record the
@@ -31,6 +56,29 @@ export async function createCustomer(input: CustomerInput) {
   return customer;
 }
 
+// Attaches an additional account type to an existing customer — e.g.
+// a regular walk-in buyer who's now also become a farmer supplying
+// consigned grain needs a second, Consignment-style account without
+// losing their existing Regular one. No-ops if they already hold that
+// account type (picking it again from the UI shouldn't create a
+// second row of the same type).
+export async function addCustomerAccount(customerId: string, accountTypeId: string) {
+  const shopId = await getCurrentShopId();
+
+  const customer = await db.customer.findFirst({ where: { id: customerId, shopId } });
+  if (!customer) throw new Error("Customer not found");
+
+  const accountType = await db.accountType.findFirst({ where: { id: accountTypeId, shopId } });
+  if (!accountType) throw new Error("Account type not found");
+
+  const existing = await db.customerAccount.findFirst({ where: { customerId, accountTypeId } });
+  const account = existing ?? (await db.customerAccount.create({ data: { customerId, accountTypeId } }));
+
+  // currentBalance is a Prisma Decimal — must be a plain number before
+  // crossing into the Client Component that calls this (CustomerPicker).
+  return { ...account, currentBalance: Number(account.currentBalance) };
+}
+
 export async function updateCustomer(input: UpdateCustomerInput) {
   const shopId = await getCurrentShopId();
   const { id, ...data } = updateCustomerSchema.parse(input);
@@ -39,19 +87,6 @@ export async function updateCustomer(input: UpdateCustomerInput) {
   if (!existing) throw new Error("Customer not found");
 
   return db.customer.update({ where: { id }, data });
-}
-
-// What Daily Sales calls when a new customer is typed in rather than
-// picked from the list — same record either way, no duplication.
-export async function findOrCreateCustomerByName(name: string) {
-  const shopId = await getCurrentShopId();
-
-  const existing = await db.customer.findFirst({
-    where: { shopId, name },
-  });
-  if (existing) return existing;
-
-  return db.customer.create({ data: { shopId, name } });
 }
 
 // Paginated + filterable by area, searchable by name/phone — the
@@ -92,7 +127,17 @@ export async function listCustomers(options?: {
   ]);
 
   return {
-    customers,
+    // accounts[].currentBalance is a Prisma Decimal — must be a plain
+    // number before crossing into a Client Component (this list feeds
+    // the Daily Sales customer picker, which is client-side). Same
+    // fix as getCustomer below.
+    customers: customers.map((customer) => ({
+      ...customer,
+      accounts: customer.accounts.map((account) => ({
+        ...account,
+        currentBalance: Number(account.currentBalance),
+      })),
+    })),
     totalCount,
     page,
     pageSize,
