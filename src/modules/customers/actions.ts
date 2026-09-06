@@ -158,6 +158,7 @@ export async function updateCustomer(input: UpdateCustomerInput) {
 export async function listCustomers(options?: {
   search?: string;
   areaId?: string;
+  accountTypeId?: string;
   page?: number;
   pageSize?: number;
 }) {
@@ -168,6 +169,7 @@ export async function listCustomers(options?: {
   const where = {
     shopId,
     areaId: options?.areaId || undefined,
+    accounts: options?.accountTypeId ? { some: { accountTypeId: options.accountTypeId } } : undefined,
     ...(options?.search
       ? {
           OR: [
@@ -206,6 +208,21 @@ export async function listCustomers(options?: {
     pageSize,
     totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
   };
+}
+
+// The Customers page's stat row — shop-wide totals, unaffected by
+// whatever the filter bar/table below are currently narrowed to, so
+// the shopkeeper always has a stable overview snapshot.
+export async function getCustomerStats() {
+  const shopId = await getCurrentShopId();
+
+  const [totalCustomers, withAccount, areasCovered] = await Promise.all([
+    db.customer.count({ where: { shopId } }),
+    db.customer.count({ where: { shopId, accounts: { some: {} } } }),
+    db.area.count({ where: { shopId, customers: { some: {} } } }),
+  ]);
+
+  return { totalCustomers, withAccount, areasCovered };
 }
 
 // The customer detail/ledger page's data source — every account this

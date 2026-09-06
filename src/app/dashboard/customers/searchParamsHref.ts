@@ -1,6 +1,7 @@
 export type CustomersSearchParams = {
   search?: string;
   area?: string;
+  accountType?: string;
   page?: string;
 };
 
@@ -16,6 +17,7 @@ export function buildCustomersHref(
 
   if (merged.search) params.set("search", merged.search);
   if (merged.area) params.set("area", merged.area);
+  if (merged.accountType) params.set("accountType", merged.accountType);
   if (merged.page && merged.page !== "1") params.set("page", merged.page);
 
   const qs = params.toString();

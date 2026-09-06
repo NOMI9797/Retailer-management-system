@@ -1,13 +1,12 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { buildDailySalesHref } from "./searchParamsHref";
+import { buildCustomersHref } from "@/app/dashboard/customers/searchParamsHref";
 import type { listAccountTypes } from "@/modules/settings/accountTypes.actions";
 
-// Filters Sales history to customers holding a given account type
-// (Regular/Udhar/Consignment/...) — purely a lookup aid, same as the
-// area filter; account types stay static categorization elsewhere.
-export function DailySalesAccountTypeSelect({
+// Same pattern as AreaSelect — reads the current URL itself since a
+// function can't cross the Server -> Client boundary as a prop.
+export function AccountTypeSelect({
   accountTypes,
   activeAccountType,
 }: {
@@ -19,7 +18,7 @@ export function DailySalesAccountTypeSelect({
 
   function onChange(accountTypeId: string) {
     const current = Object.fromEntries(searchParams.entries());
-    router.push(buildDailySalesHref(current, { accountType: accountTypeId || undefined, page: undefined }));
+    router.push(buildCustomersHref(current, { accountType: accountTypeId || undefined }));
   }
 
   const activeName = accountTypes.find((t) => t.id === activeAccountType)?.name ?? "All account types";

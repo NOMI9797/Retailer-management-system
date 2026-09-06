@@ -5,6 +5,20 @@ import { formatMoney, formatDate } from "@/lib/utils";
 import { Pagination } from "@/modules/products/components/Pagination";
 import { buildDailySalesHref, type DailySalesSearchParams } from "./searchParamsHref";
 
+const PAYMENT_LABEL: Record<string, string> = {
+  CASH: "Cash",
+  ACCOUNT: "On account",
+  CREDIT: "Credit",
+  MIXED: "Mixed",
+};
+
+const PAYMENT_CLASS: Record<string, string> = {
+  CASH: "pay-cash",
+  ACCOUNT: "pay-account",
+  CREDIT: "pay-credit",
+  MIXED: "pay-mixed",
+};
+
 // Summary rows only, per the milestone: customer, date, item count,
 // total bill. Full line-item detail deliberately doesn't live here —
 // clicking through goes to that customer's own detail page, where
@@ -28,6 +42,7 @@ export async function SalesHistoryTable({ searchParams }: { searchParams: DailyS
   // (mirrors the day-grouping already used on the customer's Purchase
   // History panel).
   let lastDateKey: string | null = null;
+  const pageTotal = result.sales.reduce((sum, s) => sum + s.total, 0);
 
   return (
     <>
@@ -35,36 +50,52 @@ export async function SalesHistoryTable({ searchParams }: { searchParams: DailyS
         <table>
           <thead>
             <tr>
-              <th>Customer</th>
+              <th style={{ width: "36%" }}>Customer</th>
               <th>Items</th>
-              <th>Total</th>
+              <th>Payment</th>
+              <th style={{ textAlign: "right" }}>Total</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {result.sales.length === 0 ? (
               <tr className="empty-row">
-                <td colSpan={4}>No sales recorded yet.</td>
+                <td colSpan={5}>No sales recorded yet.</td>
               </tr>
             ) : (
               result.sales.map((sale) => {
                 const dateKey = formatDate(sale.saleDate);
                 const isNewDay = dateKey !== lastDateKey;
                 lastDateKey = dateKey;
+                const initial = sale.customerName.charAt(0).toUpperCase();
 
                 return (
                   <Fragment key={sale.id}>
                     {isNewDay && (
                       <tr className="table-date-header">
-                        <td colSpan={4}>{dateKey}</td>
+                        <td colSpan={5}>{dateKey}</td>
                       </tr>
                     )}
                     <tr>
-                      <td>{sale.customerName}</td>
-                      <td>{sale.itemCount}</td>
-                      <td>{formatMoney(sale.total)}</td>
                       <td>
-                        <div className="row-actions">
+                        <div className="cust-cell">
+                          <div className="cust-avatar">{initial}</div>
+                          <span style={{ fontWeight: 500 }}>{sale.customerName}</span>
+                        </div>
+                      </td>
+                      <td>
+                        {sale.itemCount} item{sale.itemCount === 1 ? "" : "s"}
+                      </td>
+                      <td>
+                        {sale.paymentSummary && (
+                          <span className={`pay-badge ${PAYMENT_CLASS[sale.paymentSummary]}`}>
+                            {PAYMENT_LABEL[sale.paymentSummary]}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: "right", fontWeight: 600 }}>{formatMoney(sale.total)}</td>
+                      <td>
+                        <div className="row-actions" style={{ justifyContent: "flex-end" }}>
                           <Link className="btn btn-ghost" href={`/dashboard/customers/${sale.customerId}`}>
                             View customer
                           </Link>
@@ -77,6 +108,26 @@ export async function SalesHistoryTable({ searchParams }: { searchParams: DailyS
             )}
           </tbody>
         </table>
+
+        {result.sales.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              padding: "12px 20px",
+              fontSize: 12,
+              color: "var(--ink-muted)",
+            }}
+          >
+            <span>
+              {result.sales.length} sale{result.sales.length === 1 ? "" : "s"} · {formatMoney(pageTotal)} total
+            </span>
+            <span>
+              {result.totalPages > 1 ? `Page ${result.page} of ${result.totalPages}` : "Showing all results"}
+            </span>
+          </div>
+        )}
       </div>
 
       <Pagination

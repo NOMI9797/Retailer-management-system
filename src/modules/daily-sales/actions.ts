@@ -497,7 +497,7 @@ export async function listDailySales(options?: {
   const [sales, totalCount] = await Promise.all([
     db.dailySale.findMany({
       where,
-      include: { customer: true, items: true },
+      include: { customer: true, items: true, payments: true },
       orderBy: { saleDate: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -506,17 +506,71 @@ export async function listDailySales(options?: {
   ]);
 
   return {
-    sales: sales.map((sale) => ({
-      id: sale.id,
-      customerId: sale.customerId,
-      customerName: sale.customer.name,
-      saleDate: sale.saleDate,
-      itemCount: sale.items.length,
-      total: sale.items.reduce((sum, i) => sum + Number(i.actualPrice) * Number(i.quantity), 0),
-    })),
+    sales: sales.map((sale) => {
+      const paymentTotals = { CASH: 0, ACCOUNT: 0, CREDIT: 0 };
+      for (const p of sale.payments) paymentTotals[p.paymentMethod] += Number(p.amount);
+      // A summary tag for the row — "Cash"/"Account"/"Credit" when the
+      // whole day's sale was paid one way, "Mixed" when more than one
+      // method has a nonzero amount. Purely a display label; the real
+      // breakdown lives in paymentTotals and on the customer's
+      // Purchase History panel.
+      const methodsUsed = (Object.keys(paymentTotals) as (keyof typeof paymentTotals)[]).filter(
+        (m) => paymentTotals[m] > 0
+      );
+      const paymentSummary = methodsUsed.length === 1 ? methodsUsed[0] : methodsUsed.length > 1 ? "MIXED" : null;
+
+      return {
+        id: sale.id,
+        customerId: sale.customerId,
+        customerName: sale.customer.name,
+        saleDate: sale.saleDate,
+        itemCount: sale.items.length,
+        total: sale.items.reduce((sum, i) => sum + Number(i.actualPrice) * Number(i.quantity), 0),
+        paymentSummary,
+      };
+    }),
     totalCount,
     page,
     pageSize,
     totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
+  };
+}
+
+// The Sales history page's stat row — today's total, how many
+// transactions, and the cash/account split for TODAY only (not
+// affected by whatever filters the table below is showing), so a
+// shopkeeper always has a stable end-of-day snapshot regardless of
+// what they're currently searching for.
+export async function getTodaysSalesStats() {
+  const shopId = await getCurrentShopId();
+
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
+
+  const sales = await db.dailySale.findMany({
+    where: { shopId, saleDate: { gte: startOfDay, lte: endOfDay } },
+    include: { payments: true },
+  });
+
+  let cash = 0;
+  let account = 0;
+  let credit = 0;
+  for (const sale of sales) {
+    for (const p of sale.payments) {
+      const amount = Number(p.amount);
+      if (p.paymentMethod === "CASH") cash += amount;
+      else if (p.paymentMethod === "ACCOUNT") account += amount;
+      else credit += amount;
+    }
+  }
+
+  return {
+    transactionCount: sales.length,
+    totalSales: cash + account + credit,
+    cash,
+    account,
+    credit,
   };
 }

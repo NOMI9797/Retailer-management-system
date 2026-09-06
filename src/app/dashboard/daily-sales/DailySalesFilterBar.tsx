@@ -20,7 +20,7 @@ export function DailySalesFilterBar({
   accountTypes: Awaited<ReturnType<typeof listAccountTypes>>;
 }) {
   return (
-    <div className="filter-bar">
+    <div className="pill-filter-bar">
       <DailySalesAreaSelect areas={areas} activeArea={searchParams.area ?? ""} />
       <DailySalesAccountTypeSelect accountTypes={accountTypes} activeAccountType={searchParams.accountType ?? ""} />
       <DailySalesDateRange activeFrom={searchParams.from ?? ""} activeTo={searchParams.to ?? ""} />
