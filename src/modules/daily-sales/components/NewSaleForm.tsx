@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CustomerPicker, type CustomerSelection } from "./CustomerPicker";
 import { LineItemsEditor, type LineItemDraft } from "./LineItemsEditor";
 import { PaymentSplitEditor, type PaymentSplitDraft } from "./PaymentSplitEditor";
@@ -23,6 +24,7 @@ export function NewSaleForm({
   products: Product[];
   onSaved?: () => void;
 }) {
+  const router = useRouter();
   const [customer, setCustomer] = useState<CustomerSelection | null>(null);
   const [items, setItems] = useState<LineItemDraft[]>([{ productId: "", quantity: "", actualPrice: "" }]);
   const [payments, setPayments] = useState<PaymentSplitDraft>({ cash: "", account: "", credit: "" });
@@ -83,7 +85,12 @@ export function NewSaleForm({
         payments: { cash, account, credit },
       });
 
-      onSaved?.();
+      if (onSaved) {
+        onSaved();
+      } else {
+        router.push("/dashboard/daily-sales");
+        router.refresh();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to record sale");
     } finally {
@@ -102,6 +109,11 @@ export function NewSaleForm({
       <PaymentSplitEditor total={itemTotal} payments={payments} onChange={setPayments} />
 
       <div className="modal-actions">
+        {!onSaved && (
+          <button type="button" className="btn btn-ghost" onClick={() => router.push("/dashboard/daily-sales")}>
+            Cancel
+          </button>
+        )}
         <button type="submit" className="btn btn-primary" disabled={isSaving}>
           {isSaving ? "Saving…" : "Record sale"}
         </button>

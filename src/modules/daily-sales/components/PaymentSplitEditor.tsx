@@ -101,7 +101,7 @@ export function PaymentSplitEditor({
 
       {customMode && (
         <div className="field-row" style={{ alignItems: "flex-end" }}>
-          <div className="field" style={{ marginBottom: 0 }}>
+          <div className="field" style={{ marginBottom: 0, flex: "0 1 200px" }}>
             <label style={{ fontWeight: 400, fontSize: 12.5 }}>Cash</label>
             <input
               type="number"
@@ -112,7 +112,7 @@ export function PaymentSplitEditor({
               onChange={(e) => onChange({ ...payments, cash: e.target.value })}
             />
           </div>
-          <div className="field" style={{ marginBottom: 0 }}>
+          <div className="field" style={{ marginBottom: 0, flex: "0 1 200px" }}>
             <label style={{ fontWeight: 400, fontSize: 12.5 }}>Account</label>
             <input
               type="number"
@@ -123,7 +123,7 @@ export function PaymentSplitEditor({
               onChange={(e) => onChange({ ...payments, account: e.target.value })}
             />
           </div>
-          <div className="field" style={{ marginBottom: 0 }}>
+          <div className="field" style={{ marginBottom: 0, flex: "0 1 200px" }}>
             <label style={{ fontWeight: 400, fontSize: 12.5 }}>Credit</label>
             <input
               type="number"

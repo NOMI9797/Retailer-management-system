@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useCustomers } from "@/modules/customers/hooks/useCustomers";
-import { addCustomerAccount } from "@/modules/customers/actions";
+import { addCustomerAccount, changeCustomerAccountType, removeCustomerAccount } from "@/modules/customers/actions";
 import type { listAreas } from "@/modules/settings/areas.actions";
 import type { listAccountTypes } from "@/modules/settings/accountTypes.actions";
 
@@ -38,6 +38,12 @@ export function CustomerPicker({
   const [newAccountTypeId, setNewAccountTypeId] = useState("");
   const [isAddingAccount, setIsAddingAccount] = useState(false);
   const [addAccountError, setAddAccountError] = useState<string | null>(null);
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
+  const [editAccountTypeId, setEditAccountTypeId] = useState("");
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [removingAccountId, setRemovingAccountId] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
   const [showNewFields, setShowNewFields] = useState(false);
   const [phone, setPhone] = useState("");
   const [areaId, setAreaId] = useState("");
@@ -83,6 +89,61 @@ export function CustomerPicker({
       setAddAccountError(err instanceof Error ? err.message : "Failed to add account");
     } finally {
       setIsAddingAccount(false);
+    }
+  }
+
+  function startEditAccount(accountId: string, currentAccountTypeId: string) {
+    setEditingAccountId(accountId);
+    setEditAccountTypeId(currentAccountTypeId);
+    setEditError(null);
+  }
+
+  async function handleSaveEditAccount(accountId: string) {
+    if (!selected || !editAccountTypeId) return;
+    setIsSavingEdit(true);
+    setEditError(null);
+    try {
+      const newAccountType = accountTypes.find((t) => t.id === editAccountTypeId);
+      await changeCustomerAccountType(accountId, editAccountTypeId);
+      const updatedAccounts = selected.accounts.map((a) =>
+        a.id === accountId ? { ...a, accountTypeId: editAccountTypeId, accountType: newAccountType! } : a
+      );
+      setSelected({ ...selected, accounts: updatedAccounts });
+      if (selectedAccountTypeId === selected.accounts.find((a) => a.id === accountId)?.accountTypeId) {
+        pickAccountForSaleFrom(updatedAccounts, editAccountTypeId);
+      }
+      setEditingAccountId(null);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Failed to change account type");
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }
+
+  function pickAccountForSaleFrom(accounts: ExistingCustomer["accounts"], accountTypeId: string) {
+    if (!selected) return;
+    setSelectedAccountTypeId(accountTypeId);
+    onChange({ mode: "existing", customerId: selected.id, name: selected.name, accountTypeId });
+  }
+
+  async function handleRemoveAccount(accountId: string) {
+    if (!selected) return;
+    setRemovingAccountId(accountId);
+    setRemoveError(null);
+    try {
+      await removeCustomerAccount(accountId);
+      const remaining = selected.accounts.filter((a) => a.id !== accountId);
+      setSelected({ ...selected, accounts: remaining });
+      const wasSelected = selected.accounts.find((a) => a.id === accountId)?.accountTypeId === selectedAccountTypeId;
+      if (wasSelected) {
+        const fallback = remaining[0]?.accountTypeId;
+        setSelectedAccountTypeId(fallback);
+        onChange({ mode: "existing", customerId: selected.id, name: selected.name, accountTypeId: fallback });
+      }
+    } catch (err) {
+      setRemoveError(err instanceof Error ? err.message : "Failed to remove account");
+    } finally {
+      setRemovingAccountId(null);
     }
   }
 
@@ -253,18 +314,104 @@ export function CustomerPicker({
           </p>
 
           {selected.accounts.length > 0 && (
-            <div className="stock-toggle" style={{ marginBottom: 8 }}>
-              {selected.accounts.map((a) => (
-                <button
-                  key={a.id}
-                  type="button"
-                  className={selectedAccountTypeId === a.accountTypeId ? "active" : ""}
-                  onClick={() => pickAccountForSale(a.accountTypeId)}
-                >
-                  {a.accountType.name}
-                </button>
-              ))}
+            <div className="panel" style={{ marginBottom: 8, overflow: "hidden" }}>
+              {selected.accounts.map((a) => {
+                const isEditing = editingAccountId === a.id;
+                // Only a client-side hint for the tooltip — the server
+                // action is the real guard (it also checks transaction
+                // history, which isn't loaded into this picker's data).
+                const hasBalance = a.currentBalance !== 0;
+                return (
+                  <div
+                    key={a.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 12px",
+                      borderBottom: "0.5px solid var(--border)",
+                    }}
+                  >
+                    {isEditing ? (
+                      <>
+                        <select
+                          value={editAccountTypeId}
+                          onChange={(e) => setEditAccountTypeId(e.target.value)}
+                          style={{ flex: 1 }}
+                        >
+                          {accountTypes
+                            .filter((t) => t.id === a.accountTypeId || !selected.accounts.some((x) => x.accountTypeId === t.id))
+                            .map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.name}
+                              </option>
+                            ))}
+                        </select>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          disabled={isSavingEdit}
+                          onClick={() => handleSaveEditAccount(a.id)}
+                        >
+                          {isSavingEdit ? "Saving…" : "Save"}
+                        </button>
+                        <button type="button" className="btn btn-ghost" onClick={() => setEditingAccountId(null)}>
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => pickAccountForSale(a.accountTypeId)}
+                          style={{
+                            flex: 1,
+                            textAlign: "left",
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            fontSize: 13.5,
+                            fontWeight: selectedAccountTypeId === a.accountTypeId ? 600 : 400,
+                            color: selectedAccountTypeId === a.accountTypeId ? "var(--primary-600)" : "var(--ink)",
+                          }}
+                        >
+                          {a.accountType.name}
+                          {selectedAccountTypeId === a.accountTypeId ? " (selected)" : ""}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          onClick={() => startEditAccount(a.id, a.accountTypeId)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          disabled={removingAccountId === a.id}
+                          onClick={() => handleRemoveAccount(a.id)}
+                          title={hasBalance ? "Accounts with a balance or history can't be removed" : undefined}
+                        >
+                          {removingAccountId === a.id ? "Removing…" : "Remove"}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
+          )}
+
+          {editError && (
+            <p className="form-banner error" style={{ marginTop: 6 }}>
+              {editError}
+            </p>
+          )}
+          {removeError && (
+            <p className="form-banner error" style={{ marginTop: 6 }}>
+              {removeError}
+            </p>
           )}
 
           {showAddAccount ? (

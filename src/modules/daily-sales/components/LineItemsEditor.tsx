@@ -51,7 +51,7 @@ export function LineItemsEditor({
         const product = products.find((p) => p.id === item.productId);
         return (
           <div key={i} className="field-row" style={{ marginBottom: 8, alignItems: "flex-end" }}>
-            <div className="field" style={{ marginBottom: 0, flex: 2 }}>
+            <div className="field" style={{ marginBottom: 0, flex: 1 }}>
               <select value={item.productId} onChange={(e) => updateItem(i, { productId: e.target.value })} required>
                 <option value="" disabled>
                   Select product
@@ -63,7 +63,7 @@ export function LineItemsEditor({
                 ))}
               </select>
             </div>
-            <div className="field" style={{ marginBottom: 0 }}>
+            <div className="field" style={{ marginBottom: 0, flex: "0 1 180px" }}>
               <input
                 type="number"
                 min="0"
@@ -74,7 +74,7 @@ export function LineItemsEditor({
                 required
               />
             </div>
-            <div className="field" style={{ marginBottom: 0 }}>
+            <div className="field" style={{ marginBottom: 0, flex: "0 1 180px" }}>
               <input
                 type="number"
                 min="0"

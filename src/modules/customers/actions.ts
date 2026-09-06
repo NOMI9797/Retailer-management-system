@@ -79,6 +79,69 @@ export async function addCustomerAccount(customerId: string, accountTypeId: stri
   return { ...account, currentBalance: Number(account.currentBalance) };
 }
 
+// Swaps which account type an existing account slot represents (e.g.
+// a customer's account was set up as "Regular" but should actually be
+// "Udhar") rather than detaching one type and attaching another,
+// which would lose the account's id/history. Blocked whenever the
+// account has any balance or transactions — a swap would silently
+// reattribute that history to a different account type, which is
+// exactly the kind of financial-record corruption CLAUDE.md's "ask
+// rather than guess" rule exists to prevent. The shopkeeper must
+// resolve the balance first (e.g. via a correcting transaction) if
+// they truly need to change it.
+export async function changeCustomerAccountType(customerAccountId: string, newAccountTypeId: string) {
+  const shopId = await getCurrentShopId();
+
+  const account = await db.customerAccount.findFirst({
+    where: { id: customerAccountId, customer: { shopId } },
+    include: { transactions: true },
+  });
+  if (!account) throw new Error("Account not found");
+
+  if (Number(account.currentBalance) !== 0 || account.transactions.length > 0) {
+    throw new Error(
+      "This account has a balance or transaction history — clear it before changing its account type."
+    );
+  }
+
+  const newAccountType = await db.accountType.findFirst({ where: { id: newAccountTypeId, shopId } });
+  if (!newAccountType) throw new Error("Account type not found");
+
+  const alreadyHeld = await db.customerAccount.findFirst({
+    where: { customerId: account.customerId, accountTypeId: newAccountTypeId },
+  });
+  if (alreadyHeld) throw new Error("This customer already has an account of that type");
+
+  const updated = await db.customerAccount.update({
+    where: { id: customerAccountId },
+    data: { accountTypeId: newAccountTypeId },
+  });
+
+  return { ...updated, currentBalance: Number(updated.currentBalance) };
+}
+
+// Permanently removes an account slot from a customer — blocked
+// whenever it has any balance or transaction history, for the same
+// reason changeCustomerAccountType blocks a swap: deleting an account
+// with real financial history attached would silently erase it.
+export async function removeCustomerAccount(customerAccountId: string) {
+  const shopId = await getCurrentShopId();
+
+  const account = await db.customerAccount.findFirst({
+    where: { id: customerAccountId, customer: { shopId } },
+    include: { transactions: true },
+  });
+  if (!account) throw new Error("Account not found");
+
+  if (Number(account.currentBalance) !== 0 || account.transactions.length > 0) {
+    throw new Error(
+      "This account has a balance or transaction history — it can't be removed."
+    );
+  }
+
+  await db.customerAccount.delete({ where: { id: customerAccountId } });
+}
+
 export async function updateCustomer(input: UpdateCustomerInput) {
   const shopId = await getCurrentShopId();
   const { id, ...data } = updateCustomerSchema.parse(input);
