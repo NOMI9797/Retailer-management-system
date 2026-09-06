@@ -1,5 +1,8 @@
 export type DailySalesSearchParams = {
   customer?: string;
+  search?: string;
+  area?: string;
+  accountType?: string;
   from?: string;
   to?: string;
   page?: string;
@@ -14,6 +17,9 @@ export function buildDailySalesHref(
   const params = new URLSearchParams();
 
   if (merged.customer) params.set("customer", merged.customer);
+  if (merged.search) params.set("search", merged.search);
+  if (merged.area) params.set("area", merged.area);
+  if (merged.accountType) params.set("accountType", merged.accountType);
   if (merged.from) params.set("from", merged.from);
   if (merged.to) params.set("to", merged.to);
   if (merged.page && merged.page !== "1") params.set("page", merged.page);

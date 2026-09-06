@@ -455,6 +455,9 @@ export async function getDailySaleForEdit(saleId: string) {
 // doesn't live here; it's on the customer's own detail page.
 export async function listDailySales(options?: {
   customerId?: string;
+  search?: string;
+  areaId?: string;
+  accountTypeId?: string;
   fromDate?: string;
   toDate?: string;
   page?: number;
@@ -464,12 +467,30 @@ export async function listDailySales(options?: {
   const page = Math.max(1, options?.page ?? 1);
   const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE;
 
+  // toDate is a plain "YYYY-MM-DD" from a <input type="date">, which
+  // parses to that day's UTC midnight — using it directly as `lte`
+  // would exclude every sale later that same day, since saleDate
+  // stores a full timestamp. Push it to the end of that calendar day
+  // so the filter is inclusive of the whole "to" date, matching what
+  // a shopkeeper picking a date range actually expects.
+  const toDateInclusive = options?.toDate ? new Date(options.toDate) : undefined;
+  toDateInclusive?.setHours(23, 59, 59, 999);
+
   const where = {
     shopId,
     customerId: options?.customerId || undefined,
     saleDate: {
       gte: options?.fromDate ? new Date(options.fromDate) : undefined,
-      lte: options?.toDate ? new Date(options.toDate) : undefined,
+      lte: toDateInclusive,
+    },
+    // Filtering by the buyer's name, area, or account type — this is
+    // "find what this customer bought right now" support, not a sales
+    // report; it goes through the customer relation since none of
+    // these live on DailySale itself.
+    customer: {
+      name: options?.search ? { contains: options.search, mode: "insensitive" as const } : undefined,
+      areaId: options?.areaId || undefined,
+      accounts: options?.accountTypeId ? { some: { accountTypeId: options.accountTypeId } } : undefined,
     },
   };
 

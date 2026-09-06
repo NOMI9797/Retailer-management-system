@@ -13,6 +13,9 @@ export async function SalesHistoryTable({ searchParams }: { searchParams: DailyS
   const page = searchParams.page ? Number(searchParams.page) : 1;
   const result = await listDailySales({
     customerId: searchParams.customer,
+    search: searchParams.search,
+    areaId: searchParams.area,
+    accountTypeId: searchParams.accountType,
     fromDate: searchParams.from,
     toDate: searchParams.to,
     page,
