@@ -86,6 +86,35 @@ export async function listProducts(options?: {
   };
 }
 
+// The Products page's stat row — shop-wide totals, unaffected by
+// whatever the active tab/filters are currently narrowed to.
+export async function getProductStats() {
+  const shopId = await getCurrentShopId();
+
+  const [simpleCount, grainCount, categoryCount, simpleProducts] = await Promise.all([
+    db.product.count({ where: { shopId, stockKind: "SIMPLE" } }),
+    db.product.count({ where: { shopId, stockKind: "GRAIN" } }),
+    db.category.count({ where: { shopId } }),
+    // Stock value = quantity × cost price, summed across simple-stock
+    // products only (grain isn't priced per-product — each batch
+    // carries its own rate — so it's out of scope for this figure per
+    // the "just for simple stock, for now" decision). Valued at cost,
+    // not sell price: this is what the shopkeeper has tied up in
+    // inventory, not potential revenue.
+    db.product.findMany({
+      where: { shopId, stockKind: "SIMPLE" },
+      select: { quantity: true, costPrice: true },
+    }),
+  ]);
+
+  const stockValue = simpleProducts.reduce(
+    (sum, p) => sum + Number(p.quantity) * Number(p.costPrice ?? 0),
+    0
+  );
+
+  return { simpleCount, grainCount, categoryCount, stockValue };
+}
+
 export async function createGrainProduct(input: GrainProductInput) {
   const shopId = await getCurrentShopId();
   const data = grainProductSchema.parse(input);

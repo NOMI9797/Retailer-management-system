@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { listCategories, listUnits } from "@/modules/products/actions";
 import { ProductsHeader } from "./ProductsHeader";
+import { ProductsStatRow } from "./ProductsStatRow";
 import { CategoryFilterBar } from "./CategoryFilterBar";
 import { SimpleStockTable } from "./SimpleStockTable";
 import { GrainStockPanel } from "./GrainStockPanel";
@@ -11,10 +12,10 @@ import type { ProductsSearchParams } from "./searchParamsHref";
 // props — Header, the filter bar, and the table all need the same
 // reference data, so fetching it once and sharing it beats each
 // section re-fetching its own copy (even with caching, that's still
-// 3 separate round trips instead of 1). Only the genuinely slow,
-// independent query — products or grain batches — gets its own
-// Suspense boundary; categories/units are small and cached, so
-// awaiting them directly here costs almost nothing.
+// 3 separate round trips instead of 1). The stat row and the active
+// tab's table are each their own genuinely slow, independent query,
+// so each gets its own Suspense boundary; categories/units are small
+// and cached, so awaiting them directly here costs almost nothing.
 export default async function ProductsPage({
   searchParams,
 }: {
@@ -27,6 +28,10 @@ export default async function ProductsPage({
   return (
     <div>
       <ProductsHeader searchParams={params} categories={categories} units={units} />
+
+      <Suspense fallback={<PageLoader label="Loading stats…" />}>
+        <ProductsStatRow />
+      </Suspense>
 
       {tab === "simple" && <CategoryFilterBar searchParams={params} categories={categories} />}
 

@@ -28,22 +28,21 @@ export function AccountTypeList({ accountTypes }: { accountTypes: AccountType[] 
             </tr>
           ) : (
             accountTypes.map((accountType) => (
-              <tr key={accountType.id}>
-                <td style={{ opacity: accountType.isActive ? 1 : 0.5 }}>
-                  <Link
-                    href={`/dashboard/settings/account-types/${accountType.id}`}
-                    style={{ color: "inherit", textDecoration: "underline" }}
-                  >
+              <tr key={accountType.id} style={{ opacity: accountType.isActive ? 1 : 0.6 }}>
+                <td>
+                  <Link href={`/dashboard/settings/account-types/${accountType.id}`} className="name-link">
                     {accountType.name}
                   </Link>
                 </td>
                 <td>
-                  <span className="cat-pill">{accountType.code}</span>
+                  <span className="code-tag">{accountType.code}</span>
                 </td>
                 <td>{accountType.tracksQuantity ? "Yes" : "No"}</td>
                 <td>{accountType.fields.length}</td>
                 <td>
-                  <span className="cat-pill">{accountType.isActive ? "Active" : "Inactive"}</span>
+                  <span className={`status-badge${accountType.isActive ? "" : " inactive"}`}>
+                    {accountType.isActive ? "Active" : "Inactive"}
+                  </span>
                 </td>
                 <td>
                   <div className="row-actions">

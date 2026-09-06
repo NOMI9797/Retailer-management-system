@@ -24,25 +24,33 @@ export default function SettingsPage() {
         <AddAccountTypeModal />
       </div>
 
-      <h2 style={{ fontSize: 15, fontWeight: 600, margin: "24px 0 12px" }}>Account types</h2>
-      <Suspense fallback={<PageLoader label="Loading account types…" />}>
-        <AccountTypesSection />
-      </Suspense>
+      <section className="block">
+        <h2 className="block-title">Account types</h2>
+        <Suspense fallback={<PageLoader label="Loading account types…" />}>
+          <AccountTypesSection />
+        </Suspense>
+      </section>
 
-      <h2 style={{ fontSize: 15, fontWeight: 600, margin: "28px 0 12px" }}>Categories</h2>
-      <Suspense fallback={<PageLoader label="Loading categories…" />}>
-        <CategoriesSection />
-      </Suspense>
+      <section className="block">
+        <h2 className="block-title">Categories</h2>
+        <Suspense fallback={<PageLoader label="Loading categories…" />}>
+          <CategoriesSection />
+        </Suspense>
+      </section>
 
-      <h2 style={{ fontSize: 15, fontWeight: 600, margin: "28px 0 12px" }}>Units</h2>
-      <Suspense fallback={<PageLoader label="Loading units…" />}>
-        <UnitsSection />
-      </Suspense>
+      <section className="block">
+        <h2 className="block-title">Units</h2>
+        <Suspense fallback={<PageLoader label="Loading units…" />}>
+          <UnitsSection />
+        </Suspense>
+      </section>
 
-      <h2 style={{ fontSize: 15, fontWeight: 600, margin: "28px 0 12px" }}>Areas</h2>
-      <Suspense fallback={<PageLoader label="Loading areas…" />}>
-        <AreasSection />
-      </Suspense>
+      <section className="block">
+        <h2 className="block-title">Areas</h2>
+        <Suspense fallback={<PageLoader label="Loading areas…" />}>
+          <AreasSection />
+        </Suspense>
+      </section>
     </div>
   );
 }

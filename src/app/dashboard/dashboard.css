@@ -204,6 +204,10 @@
   grid-template-columns: repeat(3, 1fr);
 }
 
+.shop-app .products-stat-grid {
+  grid-template-columns: repeat(4, 1fr);
+}
+
 .shop-app .stat-card {
   background: var(--surface);
   border: 0.5px solid var(--border);
@@ -489,6 +493,105 @@
   color: var(--consigned-600);
 }
 
+/* Settings page — section blocks, account-type name link, code/status
+   tags, and the add-row/list-row pattern Categories/Units/Areas use */
+.shop-app section.block {
+  margin-bottom: 34px;
+}
+
+.shop-app h2.block-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.shop-app .name-link {
+  color: var(--ink);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 3px;
+}
+
+.shop-app .name-link:hover {
+  text-decoration-color: var(--primary-600);
+  color: var(--primary-600);
+}
+
+.shop-app .code-tag {
+  font-family: var(--font-plex-mono), monospace;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: var(--neutral-50);
+  color: var(--neutral-600);
+  letter-spacing: 0.02em;
+}
+
+.shop-app .status-badge {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 500;
+  background: var(--primary-50);
+  color: var(--primary-600);
+}
+
+.shop-app .status-badge.inactive {
+  background: var(--neutral-50);
+  color: var(--neutral-600);
+}
+
+.shop-app .add-row {
+  display: flex;
+  gap: 10px;
+  padding: 16px 20px;
+  border-bottom: 0.5px solid var(--border);
+  background: #faf9f5;
+}
+
+.shop-app .add-row input {
+  flex: 1;
+  border: 0.5px solid var(--border);
+  border-radius: 7px;
+  padding: 9px 13px;
+  font-family: inherit;
+  font-size: 13.5px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.shop-app .add-row input::placeholder {
+  color: #b5b1a4;
+}
+
+.shop-app .add-row .btn-primary {
+  padding: 9px 20px;
+}
+
+.shop-app .list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 0.5px solid var(--border);
+}
+
+.shop-app .list-row:last-child {
+  border-bottom: none;
+}
+
+.shop-app .list-row:hover {
+  background: #fbfaf7;
+}
+
+.shop-app .list-row-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 500;
+}
+
 /* Table */
 .shop-app .panel {
   background: var(--surface);
@@ -563,16 +666,18 @@
   border: none;
   cursor: pointer;
   color: var(--ink-muted);
-  padding: 4px;
+  padding: 5px;
+  border-radius: 6px;
 }
 
 .shop-app .icon-btn:hover {
   color: var(--ink);
+  background: #f1f0ea;
 }
 
 .shop-app .qty-low {
   color: var(--consigned-600);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 /* Grain stock panel */

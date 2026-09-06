@@ -71,86 +71,80 @@ export function SimpleListManager<T extends SimpleListItem>({
   }
 
   return (
-    <div className="panel" style={{ padding: 16 }}>
-      <form onSubmit={handleAdd} className="field-row" style={{ marginBottom: 14 }}>
-        <div className="field" style={{ marginBottom: 0 }}>
-          <input
-            type="text"
-            placeholder={`New ${itemLabel} name`}
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            required
-          />
-        </div>
+    <div className="panel">
+      <form onSubmit={handleAdd} className="add-row">
+        <input
+          type="text"
+          placeholder={`New ${itemLabel} name`}
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          required
+        />
         <button type="submit" className="btn btn-primary" disabled={isSaving}>
           Add
         </button>
       </form>
 
-      {error && <p className="form-banner error">{error}</p>}
+      {error && (
+        <p className="form-banner error" style={{ margin: "0 20px 14px" }}>
+          {error}
+        </p>
+      )}
 
       {items.length === 0 ? (
-        <p style={{ color: "var(--ink-muted)", fontSize: 13.5 }}>No {itemLabel}s yet.</p>
+        <p style={{ color: "var(--ink-muted)", fontSize: 13.5, padding: "14px 20px" }}>No {itemLabel}s yet.</p>
       ) : (
-        <table>
-          <tbody>
-            {items.map((item) => (
-              <tr key={item.id}>
-                <td>
-                  {editingId === item.id ? (
-                    <input
-                      type="text"
-                      value={editingName}
-                      onChange={(e) => setEditingName(e.target.value)}
-                      autoFocus
-                    />
-                  ) : (
-                    <span style={{ opacity: item.isActive === false ? 0.5 : 1 }}>{item.name}</span>
-                  )}
-                </td>
+        items.map((item) => (
+          <div className="list-row" key={item.id}>
+            {editingId === item.id ? (
+              <input
+                type="text"
+                value={editingName}
+                onChange={(e) => setEditingName(e.target.value)}
+                autoFocus
+                style={{ flex: 1, marginRight: 12 }}
+              />
+            ) : (
+              <div className="list-row-name" style={{ opacity: item.isActive === false ? 0.6 : 1 }}>
+                {item.name}
                 {onToggleActive && (
-                  <td>
-                    <span className="cat-pill">{item.isActive ? "Active" : "Inactive"}</span>
-                  </td>
+                  <span className={`status-badge${item.isActive ? "" : " inactive"}`}>
+                    {item.isActive ? "Active" : "Inactive"}
+                  </span>
                 )}
-                <td>
-                  <div className="row-actions">
-                    {editingId === item.id ? (
-                      <>
-                        <button className="btn btn-ghost" onClick={() => handleRename(item.id)}>
-                          Save
-                        </button>
-                        <button className="btn btn-ghost" onClick={() => setEditingId(null)}>
-                          Cancel
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          className="btn btn-ghost"
-                          onClick={() => {
-                            setEditingId(item.id);
-                            setEditingName(item.name);
-                          }}
-                        >
-                          Rename
-                        </button>
-                        {onToggleActive && (
-                          <button
-                            className="btn btn-ghost"
-                            onClick={() => handleToggle(item.id, item.isActive!)}
-                          >
-                            {item.isActive ? "Deactivate" : "Activate"}
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              </div>
+            )}
+            <div className="row-actions">
+              {editingId === item.id ? (
+                <>
+                  <button className="btn btn-ghost" onClick={() => handleRename(item.id)}>
+                    Save
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => setEditingId(null)}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setEditingId(item.id);
+                      setEditingName(item.name);
+                    }}
+                  >
+                    Rename
+                  </button>
+                  {onToggleActive && (
+                    <button className="btn btn-ghost" onClick={() => handleToggle(item.id, item.isActive!)}>
+                      {item.isActive ? "Deactivate" : "Activate"}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        ))
       )}
     </div>
   );

@@ -80,6 +80,26 @@ export async function SimpleStockTable({
             )}
           </tbody>
         </table>
+
+        {result.products.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              padding: "12px 20px",
+              fontSize: 12,
+              color: "var(--ink-muted)",
+            }}
+          >
+            <span>
+              {result.totalCount} product{result.totalCount === 1 ? "" : "s"}
+            </span>
+            <span>
+              {result.totalPages > 1 ? `Page ${result.page} of ${result.totalPages}` : "Showing all results"}
+            </span>
+          </div>
+        )}
       </div>
 
       <Pagination
