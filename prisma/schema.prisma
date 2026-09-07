@@ -10,33 +10,34 @@ datasource db {
 // ── Tenancy ──────────────────────────────────────────────
 
 model Shop {
-  id        String   @id @default(uuid())
-  name      String
-  createdAt DateTime @default(now())
+  id                String   @id @default(uuid())
+  name              String
+  createdAt         DateTime @default(now())
   // Default commission rate applied to consigned grain sales when the
   // depleted batch has no commissionPercent override of its own. A
   // shop-wide setting rather than a hardcoded constant, per the
   // product document's "no hardcoded business rules" principle.
-  commissionPercent Decimal @default(0) @db.Decimal(5, 2)
+  commissionPercent Decimal  @default(0) @db.Decimal(5, 2)
 
-  areas        Area[]
-  customers    Customer[]
-  accountTypes AccountType[]
-  categories   Category[]
-  units        Unit[]
-  products     Product[]
-  dailySales   DailySale[]
-  expenses     Expense[]
+  areas         Area[]
+  customers     Customer[]
+  accountTypes  AccountType[]
+  categories    Category[]
+  units         Unit[]
+  products      Product[]
+  dailySales    DailySale[]
+  expenses      Expense[]
+  cashRegisters DailyCashRegister[]
 }
 
 model Area {
-  id           String   @id @default(uuid())
+  id           String  @id @default(uuid())
   shopId       String
-  shop         Shop     @relation(fields: [shopId], references: [id])
+  shop         Shop    @relation(fields: [shopId], references: [id])
   name         String
   parentAreaId String?
-  parentArea   Area?    @relation("AreaHierarchy", fields: [parentAreaId], references: [id])
-  subAreas     Area[]   @relation("AreaHierarchy")
+  parentArea   Area?   @relation("AreaHierarchy", fields: [parentAreaId], references: [id])
+  subAreas     Area[]  @relation("AreaHierarchy")
 
   customers Customer[]
 }
@@ -146,17 +147,17 @@ enum PaymentMethod {
 }
 
 model AccountTransaction {
-  id                 String          @id @default(uuid())
-  customerAccountId  String
-  customerAccount    CustomerAccount @relation(fields: [customerAccountId], references: [id])
-  transactionDate    DateTime        @default(now())
-  direction          TxnDirection
-  amount             Decimal         @db.Decimal(14, 2)
-  quantity           Decimal?        @db.Decimal(14, 3)
-  linkedSaleId       String?
-  linkedSale         DailySale?      @relation(fields: [linkedSaleId], references: [id])
-  paymentMethod      PaymentMethod
-  notes              String?
+  id                String          @id @default(uuid())
+  customerAccountId String
+  customerAccount   CustomerAccount @relation(fields: [customerAccountId], references: [id])
+  transactionDate   DateTime        @default(now())
+  direction         TxnDirection
+  amount            Decimal         @db.Decimal(14, 2)
+  quantity          Decimal?        @db.Decimal(14, 3)
+  linkedSaleId      String?
+  linkedSale        DailySale?      @relation(fields: [linkedSaleId], references: [id])
+  paymentMethod     PaymentMethod
+  notes             String?
 }
 
 // ── Products & stock ─────────────────────────────────────
@@ -218,20 +219,20 @@ model Product {
 // Batches let one product (e.g. "Wheat") hold both shop-owned and
 // consigned stock at once. ownerCustomerId = null means shop-owned.
 model GrainBatch {
-  id              String    @id @default(uuid())
-  productId       String
-  product         Product   @relation(fields: [productId], references: [id])
-  ownerCustomerId String?
-  ownerCustomer   Customer? @relation(fields: [ownerCustomerId], references: [id])
-  quantityIn      Decimal   @db.Decimal(14, 3)
-  quantitySold    Decimal   @default(0) @db.Decimal(14, 3)
-  rate            Decimal   @db.Decimal(12, 2)
-  receivedAt      DateTime  @default(now())
+  id                String    @id @default(uuid())
+  productId         String
+  product           Product   @relation(fields: [productId], references: [id])
+  ownerCustomerId   String?
+  ownerCustomer     Customer? @relation(fields: [ownerCustomerId], references: [id])
+  quantityIn        Decimal   @db.Decimal(14, 3)
+  quantitySold      Decimal   @default(0) @db.Decimal(14, 3)
+  rate              Decimal   @db.Decimal(12, 2)
+  receivedAt        DateTime  @default(now())
   // Overrides the shop's default commissionPercent for sales that
   // deplete this specific batch — lets one farmer's better-negotiated
   // rate stand without changing every other batch. Null = use the
   // shop default.
-  commissionPercent Decimal? @db.Decimal(5, 2)
+  commissionPercent Decimal?  @db.Decimal(5, 2)
 
   saleAllocations DailySaleItemBatch[]
 }
@@ -311,4 +312,39 @@ model Expense {
   amount        Decimal       @db.Decimal(12, 2)
   expenseDate   DateTime      @default(now())
   paymentMethod PaymentMethod
+}
+
+// ── Cash flow / daily register ────────────────────────────
+
+// One row per shop per day. openingBalance is either the shopkeeper's
+// one-time manual entry (day one) or copied forward from the prior
+// day's actualClosing when the register is opened for a new day.
+// expectedClosing is recorded at day-close time as a snapshot of
+// openingBalance + that day's cash in − cash out — a snapshot rather
+// than always-recomputed, since past days' cash sales/expenses could
+// later be edited and a closed day's expected figure shouldn't retroactively
+// shift after the shopkeeper has already reconciled and closed it.
+// variance is NOT stored — it's just expectedClosing − actualClosing,
+// trivially derived, so there's nothing to drift out of sync if either
+// value is ever corrected.
+model DailyCashRegister {
+  id                     String    @id @default(uuid())
+  shopId                 String
+  shop                   Shop      @relation(fields: [shopId], references: [id])
+  date                   DateTime
+  openingBalance         Decimal   @db.Decimal(14, 2)
+  expectedClosing        Decimal   @db.Decimal(14, 2)
+  actualClosing          Decimal?  @db.Decimal(14, 2)
+  closedAt               DateTime?
+  // True only when a shopkeeper explicitly typed this day's opening
+  // balance (via setOpeningBalance/editOpeningBalance) rather than it
+  // being carried forward from the prior day's actualClosing. Acts as
+  // a firewall for the forward-cascade when a closing balance is
+  // edited: the cascade recomputes each following day's derived
+  // opening/expected/variance until it reaches a day where this flag
+  // is true, since a manual entry always wins over whatever an
+  // earlier day's closing implies.
+  openingBalanceIsManual Boolean   @default(false)
+
+  @@unique([shopId, date])
 }
