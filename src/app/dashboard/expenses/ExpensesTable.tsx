@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { listExpenses } from "@/modules/expenses/actions";
 import { formatMoney, formatDate } from "@/lib/utils";
 import { Pagination } from "@/modules/products/components/Pagination";
@@ -30,6 +31,13 @@ export async function ExpensesTable({ searchParams }: { searchParams: ExpensesSe
 
   const pageTotal = result.expenses.reduce((sum, e) => sum + Number(e.amount), 0);
 
+  // listExpenses already orders by expenseDate desc, so same-day rows
+  // are already adjacent — a date-header row is inserted whenever the
+  // date changes, rather than repeating the date on every row, so
+  // scanning the page makes it obvious which expenses fall on which
+  // day (same grouping already used on the Sales history table).
+  let lastDateKey: string | null = null;
+
   return (
     <>
       <div className="panel">
@@ -37,7 +45,6 @@ export async function ExpensesTable({ searchParams }: { searchParams: ExpensesSe
           <thead>
             <tr>
               <th>Description</th>
-              <th>Date</th>
               <th>Payment</th>
               <th style={{ textAlign: "right" }}>Amount</th>
               <th></th>
@@ -46,27 +53,39 @@ export async function ExpensesTable({ searchParams }: { searchParams: ExpensesSe
           <tbody>
             {result.expenses.length === 0 ? (
               <tr className="empty-row">
-                <td colSpan={5}>No expenses recorded yet.</td>
+                <td colSpan={4}>No expenses recorded yet.</td>
               </tr>
             ) : (
-              result.expenses.map((expense) => (
-                <tr key={expense.id}>
-                  <td>{expense.description}</td>
-                  <td>{formatDate(expense.expenseDate)}</td>
-                  <td>
-                    <span className={`pay-badge ${PAYMENT_CLASS[expense.paymentMethod]}`}>
-                      {PAYMENT_LABEL[expense.paymentMethod]}
-                    </span>
-                  </td>
-                  <td style={{ textAlign: "right", fontWeight: 600 }}>{formatMoney(Number(expense.amount))}</td>
-                  <td>
-                    <div className="row-actions">
-                      <EditExpenseButton expense={expense} />
-                      <DeleteExpenseButton expenseId={expense.id} />
-                    </div>
-                  </td>
-                </tr>
-              ))
+              result.expenses.map((expense) => {
+                const dateKey = formatDate(expense.expenseDate);
+                const isNewDay = dateKey !== lastDateKey;
+                lastDateKey = dateKey;
+
+                return (
+                  <Fragment key={expense.id}>
+                    {isNewDay && (
+                      <tr className="table-date-header">
+                        <td colSpan={4}>{dateKey}</td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td>{expense.description}</td>
+                      <td>
+                        <span className={`pay-badge ${PAYMENT_CLASS[expense.paymentMethod]}`}>
+                          {PAYMENT_LABEL[expense.paymentMethod]}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "right", fontWeight: 600 }}>{formatMoney(Number(expense.amount))}</td>
+                      <td>
+                        <div className="row-actions">
+                          <EditExpenseButton expense={expense} />
+                          <DeleteExpenseButton expenseId={expense.id} />
+                        </div>
+                      </td>
+                    </tr>
+                  </Fragment>
+                );
+              })
             )}
           </tbody>
         </table>

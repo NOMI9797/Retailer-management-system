@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { serializeDecimals } from "@/lib/serialize";
+import { parseLocalDateStart, parseLocalDateEnd } from "@/lib/utils";
 import {
   createDailySaleSchema,
   updateDailySaleSchema,
@@ -249,18 +250,47 @@ async function reverseSaleContents(tx: Prisma.TransactionClient, shopId: string,
 // the "one record per customer per day" rule: Sales history then
 // shows one combined row (total items, total amount) rather than
 // duplicate-looking entries for the same customer/date, while the
-// Purchase History panel still lists every item bought. "Same day"
-// is calendar-day in the server's local time, matching how saleDate
-// is displayed everywhere else (toLocaleDateString()).
-async function findTodaysSale(tx: Prisma.TransactionClient, shopId: string, customerId: string) {
-  const startOfDay = new Date();
+// Purchase History panel still lists every item bought. "Same day" is
+// calendar-day in the server's local time, matching how saleDate is
+// displayed everywhere else (formatDate). `referenceDate` defaults to
+// today but can be a shopkeeper-picked past date instead (see
+// createDailySale's saleDate input) — a backdated entry still merges
+// correctly with any other sale already recorded for that customer on
+// that same picked date, exactly like a same-day entry does for today.
+function dayBoundsFor(referenceDate: Date) {
+  const startOfDay = new Date(referenceDate);
   startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date();
+  const endOfDay = new Date(referenceDate);
   endOfDay.setHours(23, 59, 59, 999);
+  return { startOfDay, endOfDay };
+}
+
+async function findTodaysSale(
+  tx: Prisma.TransactionClient,
+  shopId: string,
+  customerId: string,
+  referenceDate: Date
+) {
+  const { startOfDay, endOfDay } = dayBoundsFor(referenceDate);
 
   return tx.dailySale.findFirst({
     where: { shopId, customerId, saleDate: { gte: startOfDay, lte: endOfDay } },
   });
+}
+
+// Combines a shopkeeper-picked "YYYY-MM-DD" with the CURRENT
+// time-of-day, per the "backdated sale keeps a real time, not
+// midnight" decision — so entering several backdated sales for
+// different customers in one sitting still orders/groups them
+// distinctly rather than every one collapsing onto the same
+// midnight timestamp. Falls back to exactly `new Date()` when no date
+// is given (the normal, non-backdated path).
+function resolveSaleDateTime(saleDate?: string): Date {
+  if (!saleDate) return new Date();
+  const now = new Date();
+  const picked = parseLocalDateStart(saleDate);
+  picked.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+  return picked;
 }
 
 // The one transaction that makes a sale real, start to finish. Must
@@ -272,16 +302,17 @@ async function findTodaysSale(tx: Prisma.TransactionClient, shopId: string, cust
 export async function createDailySale(input: CreateDailySaleInput) {
   const shopId = await getCurrentShopId();
   const data = createDailySaleSchema.parse(input);
+  const targetDateTime = resolveSaleDateTime(data.saleDate);
 
   return db.$transaction(async (tx) => {
     const customer = await tx.customer.findFirst({ where: { id: data.customerId, shopId } });
     if (!customer) throw new Error("Customer not found");
 
-    const existingSale = await findTodaysSale(tx, shopId, data.customerId);
+    const existingSale = await findTodaysSale(tx, shopId, data.customerId, targetDateTime);
     const sale =
       existingSale ??
       (await tx.dailySale.create({
-        data: { shopId, customerId: data.customerId, season: data.season },
+        data: { shopId, customerId: data.customerId, season: data.season, saleDate: targetDateTime },
       }));
 
     // Only this purchase's own items count toward the payment split
@@ -290,8 +321,10 @@ export async function createDailySale(input: CreateDailySaleInput) {
     // into one combined split (per the "add a new split for just the
     // new items" decision). A single visitAt, shared by every item and
     // payment this call writes, is what lets the UI later regroup a
-    // merged day's DailySale back into "visit 1", "visit 2", etc.
-    const visitAt = new Date();
+    // merged day's DailySale back into "visit 1", "visit 2", etc. Uses
+    // the same target date/time as the sale itself, so a backdated
+    // entry's visit groups under the picked date, not under today.
+    const visitAt = targetDateTime;
     const itemTotal = await applySaleItems(tx, shopId, sale.id, data.items, visitAt);
     await applyPaymentSplit(tx, sale.id, itemTotal, data.payments, visitAt);
 
@@ -467,21 +500,12 @@ export async function listDailySales(options?: {
   const page = Math.max(1, options?.page ?? 1);
   const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE;
 
-  // toDate is a plain "YYYY-MM-DD" from a <input type="date">, which
-  // parses to that day's UTC midnight — using it directly as `lte`
-  // would exclude every sale later that same day, since saleDate
-  // stores a full timestamp. Push it to the end of that calendar day
-  // so the filter is inclusive of the whole "to" date, matching what
-  // a shopkeeper picking a date range actually expects.
-  const toDateInclusive = options?.toDate ? new Date(options.toDate) : undefined;
-  toDateInclusive?.setHours(23, 59, 59, 999);
-
   const where = {
     shopId,
     customerId: options?.customerId || undefined,
     saleDate: {
-      gte: options?.fromDate ? new Date(options.fromDate) : undefined,
-      lte: toDateInclusive,
+      gte: options?.fromDate ? parseLocalDateStart(options.fromDate) : undefined,
+      lte: options?.toDate ? parseLocalDateEnd(options.toDate) : undefined,
     },
     // Filtering by the buyer's name, area, or account type — this is
     // "find what this customer bought right now" support, not a sales

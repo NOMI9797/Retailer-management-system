@@ -3,9 +3,22 @@
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { serializeDecimals } from "@/lib/serialize";
+import { parseLocalDateStart, parseLocalDateEnd } from "@/lib/utils";
 import { expenseSchema, updateExpenseSchema, type ExpenseInput, type UpdateExpenseInput } from "./schema";
 
 const DEFAULT_PAGE_SIZE = 50;
+
+// Combines a picked "YYYY-MM-DD" with the CURRENT time-of-day (never
+// midnight) so multiple expenses entered for the same past date in
+// one sitting still sort distinctly — same convention
+// resolveSaleDateTime (daily-sales/actions.ts) uses for backdated
+// sales.
+function resolveExpenseDateTime(dateStr: string): Date {
+  const now = new Date();
+  const picked = parseLocalDateStart(dateStr);
+  picked.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+  return picked;
+}
 
 export async function createExpense(input: ExpenseInput) {
   const shopId = await getCurrentShopId();
@@ -16,7 +29,7 @@ export async function createExpense(input: ExpenseInput) {
       shopId,
       description: data.description,
       amount: data.amount,
-      expenseDate: new Date(data.expenseDate),
+      expenseDate: resolveExpenseDateTime(data.expenseDate),
       paymentMethod: data.paymentMethod,
     },
   });
@@ -35,7 +48,7 @@ export async function updateExpense(input: UpdateExpenseInput) {
     data: {
       description: data.description,
       amount: data.amount,
-      expenseDate: new Date(data.expenseDate),
+      expenseDate: resolveExpenseDateTime(data.expenseDate),
       paymentMethod: data.paymentMethod,
     },
   });
@@ -64,18 +77,11 @@ export async function listExpenses(options?: {
   const page = Math.max(1, options?.page ?? 1);
   const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE;
 
-  // toDate is a plain "YYYY-MM-DD" from a <input type="date">, which
-  // parses to that day's UTC midnight — pushed to the end of that
-  // calendar day so the filter is inclusive of the whole "to" date.
-  // Same fix as listDailySales' toDate handling.
-  const toDateInclusive = options?.toDate ? new Date(options.toDate) : undefined;
-  toDateInclusive?.setHours(23, 59, 59, 999);
-
   const where = {
     shopId,
     expenseDate: {
-      gte: options?.fromDate ? new Date(options.fromDate) : undefined,
-      lte: toDateInclusive,
+      gte: options?.fromDate ? parseLocalDateStart(options.fromDate) : undefined,
+      lte: options?.toDate ? parseLocalDateEnd(options.toDate) : undefined,
     },
   };
 

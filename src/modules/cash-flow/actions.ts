@@ -2,15 +2,26 @@
 
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
+import { parseLocalDateStart, parseLocalDateEnd } from "@/lib/utils";
 import { setOpeningBalanceSchema, closeDaySchema, type SetOpeningBalanceInput, type CloseDayInput } from "./schema";
 
 // Calendar-day bounds in server local time — same convention
 // findTodaysSale (daily-sales/actions.ts) and listExpenses use, so a
 // day here means the same thing everywhere else in the app.
 function dayBounds(dateStr: string) {
-  const start = new Date(dateStr);
+  return { start: parseLocalDateStart(dateStr), end: parseLocalDateEnd(dateStr) };
+}
+
+// Recovers calendar-day bounds directly from a Date already known to
+// be local midnight for that day (i.e. a DailyCashRegister.date
+// value) — NOT via toISOString().slice(0, 10), which reads the date
+// back in UTC and silently returns the WRONG calendar day in any
+// timezone ahead of UTC (e.g. local midnight 2026-05-01 in Pakistan is
+// 2026-04-30T19:00:00Z, so toISOString() reports "2026-04-30").
+function dayBoundsFromLocalMidnight(localMidnight: Date) {
+  const start = new Date(localMidnight);
   start.setHours(0, 0, 0, 0);
-  const end = new Date(dateStr);
+  const end = new Date(localMidnight);
   end.setHours(23, 59, 59, 999);
   return { start, end };
 }
@@ -124,7 +135,7 @@ async function cascadeForward(shopId: string, fromDate: Date) {
       break;
     }
 
-    const { start, end } = dayBounds(row.date.toISOString().slice(0, 10));
+    const { start, end } = dayBoundsFromLocalMidnight(row.date);
     const cashIn = await sumCashIn(shopId, start, end);
     const cashOut = await sumCashOut(shopId, start, end);
     const expectedClosing = priorClosing + cashIn - cashOut;
@@ -345,30 +356,59 @@ export async function editClosingBalance(input: CloseDayInput) {
 }
 
 // Historical register — past days' closes, filterable by date range.
+// expectedClosing is recomputed live for every row (opening + that
+// day's current cash in/out), never read from the stored snapshot —
+// same "always live" rule getCashFlowForDate already followed for the
+// single-day view. This is what makes a backdated sale entered after
+// a day was closed show up correctly here too: the stored
+// expectedClosing column still exists (cascadeForward keeps it
+// reasonably in sync for chain-derivation purposes), but history never
+// trusts it directly, so it can never go stale in what the shopkeeper
+// actually sees. actualClosing is untouched either way — that's the
+// one number that stays exactly what was manually counted.
 export async function listCashRegisterHistory(options?: { fromDate?: string; toDate?: string }) {
   const shopId = await getCurrentShopId();
 
-  const toDateInclusive = options?.toDate ? new Date(options.toDate) : undefined;
-  toDateInclusive?.setHours(23, 59, 59, 999);
+  // fromDate/toDate are plain "YYYY-MM-DD" strings, which parse to
+  // UTC midnight — but the `date` column is stored at LOCAL midnight
+  // (see dayBounds), which in a timezone ahead of UTC (like Pakistan's)
+  // is an earlier UTC instant than that day's UTC midnight. Comparing
+  // against raw UTC-midnight bounds would incorrectly exclude rows
+  // right at the edges of the range, so both bounds are normalized
+  // through dayBounds the same way every other date-range filter in
+  // this module already is.
+  const fromBound = options?.fromDate ? dayBounds(options.fromDate).start : undefined;
+  const toBound = options?.toDate ? dayBounds(options.toDate).end : undefined;
 
   const entries = await db.dailyCashRegister.findMany({
     where: {
       shopId,
       date: {
-        gte: options?.fromDate ? new Date(options.fromDate) : undefined,
-        lte: toDateInclusive,
+        gte: fromBound,
+        lte: toBound,
       },
     },
     orderBy: { date: "desc" },
   });
 
-  return entries.map((e) => ({
-    id: e.id,
-    date: e.date,
-    openingBalance: Number(e.openingBalance),
-    expectedClosing: Number(e.expectedClosing),
-    actualClosing: e.actualClosing != null ? Number(e.actualClosing) : null,
-    variance: e.actualClosing != null ? Number(e.actualClosing) - Number(e.expectedClosing) : null,
-    closedAt: e.closedAt,
-  }));
+  return Promise.all(
+    entries.map(async (e) => {
+      const { start, end } = dayBoundsFromLocalMidnight(e.date);
+      const cashIn = await sumCashIn(shopId, start, end);
+      const cashOut = await sumCashOut(shopId, start, end);
+      const openingBalance = Number(e.openingBalance);
+      const expectedClosing = openingBalance + cashIn - cashOut;
+      const actualClosing = e.actualClosing != null ? Number(e.actualClosing) : null;
+
+      return {
+        id: e.id,
+        date: e.date,
+        openingBalance,
+        expectedClosing,
+        actualClosing,
+        variance: actualClosing !== null ? actualClosing - expectedClosing : null,
+        closedAt: e.closedAt,
+      };
+    })
+  );
 }

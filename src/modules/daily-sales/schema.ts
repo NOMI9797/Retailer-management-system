@@ -32,6 +32,14 @@ export const createDailySaleSchema = z.object({
   season: z.string().optional(),
   items: z.array(dailySaleItemSchema).min(1, "At least one item is required"),
   payments: paymentSplitSchema,
+  // "YYYY-MM-DD" — lets a shopkeeper record a sale they forgot to
+  // enter on the day it actually happened (e.g. remembered the next
+  // morning). Defaults to today when omitted, so every existing caller
+  // that doesn't pass this keeps behaving exactly as before. This is
+  // what day the sale is merged into (see findTodaysSale) and what
+  // Cash Flow's daily aggregation keys off — there's no separate
+  // propagation step, everything downstream reads saleDate directly.
+  saleDate: z.string().optional(),
 });
 export type CreateDailySaleInput = z.infer<typeof createDailySaleSchema>;
 

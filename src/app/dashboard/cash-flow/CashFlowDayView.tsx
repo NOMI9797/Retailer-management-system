@@ -6,6 +6,12 @@ import { EditClosingBalanceButton } from "@/modules/cash-flow/components/EditClo
 
 export async function CashFlowDayView({ date }: { date: string }) {
   const flow = await getCashFlowForDate(date);
+  // Total revenue for the day across every payment method — distinct
+  // from Expected/Actual closing, which are purely a physical-cash
+  // reconciliation and deliberately exclude Account and Credit. This
+  // is "how much did the shop take in today," not "how much cash
+  // should be in the drawer."
+  const totalReceivedToday = flow.cashIn + flow.accountIn + flow.creditIn;
 
   return (
     <div className="register-panel">
@@ -84,6 +90,22 @@ export async function CashFlowDayView({ date }: { date: string }) {
             <p>{formatMoney(flow.creditOut)}</p>
           </div>
         </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginTop: 14,
+          paddingTop: 14,
+          borderTop: "0.5px solid var(--border)",
+        }}
+      >
+        <span style={{ fontSize: 13, color: "var(--ink-muted)" }}>
+          Total received today (Cash + Account + Credit)
+        </span>
+        <span style={{ fontSize: 16, fontWeight: 600 }}>{formatMoney(totalReceivedToday)}</span>
       </div>
     </div>
   );

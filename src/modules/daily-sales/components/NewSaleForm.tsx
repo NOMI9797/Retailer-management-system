@@ -13,6 +13,14 @@ import type { listProducts } from "@/modules/products/actions";
 
 type Product = Awaited<ReturnType<typeof listProducts>>["products"][number];
 
+function todayDateString() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function NewSaleForm({
   areas,
   accountTypes,
@@ -25,6 +33,7 @@ export function NewSaleForm({
   onSaved?: () => void;
 }) {
   const router = useRouter();
+  const [saleDate, setSaleDate] = useState(todayDateString());
   const [customer, setCustomer] = useState<CustomerSelection | null>(null);
   const [items, setItems] = useState<LineItemDraft[]>([{ productId: "", quantity: "", actualPrice: "" }]);
   const [payments, setPayments] = useState<PaymentSplitDraft>({ cash: "", account: "", credit: "" });
@@ -74,6 +83,7 @@ export function NewSaleForm({
 
       await createDailySale({
         customerId,
+        saleDate,
         items: items.map((i) => ({
           productId: i.productId,
           quantity: Number(i.quantity),
@@ -98,6 +108,17 @@ export function NewSaleForm({
   return (
     <form onSubmit={handleSubmit}>
       {error && <p className="form-banner error">{error}</p>}
+
+      <div className="field" style={{ maxWidth: 220 }}>
+        <label>Sale date</label>
+        <input
+          type="date"
+          value={saleDate}
+          max={todayDateString()}
+          onChange={(e) => setSaleDate(e.target.value)}
+          required
+        />
+      </div>
 
       <CustomerPicker areas={areas} accountTypes={accountTypes} onChange={setCustomer} />
 

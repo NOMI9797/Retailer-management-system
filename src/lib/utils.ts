@@ -32,6 +32,31 @@ export function formatDate(date: Date | string) {
   }).format(d);
 }
 
+// Parses a "YYYY-MM-DD" string (from a <input type="date">, a search
+// param, etc.) as LOCAL calendar midnight for that day — the START of
+// day/END of day pair every date-range filter in the app needs.
+//
+// This deliberately never goes through `new Date(dateStr)`: per the
+// ECMAScript spec, a bare "YYYY-MM-DD" string parses as UTC midnight,
+// not local midnight. In any timezone ahead of UTC (e.g. Pakistan,
+// UTC+5), calling `.setHours(0,0,0,0)` on that UTC-midnight Date then
+// shifts it backward to LOCAL midnight of the PREVIOUS UTC day — so a
+// shopkeeper picking "8 September" silently ends up querying/storing
+// against "7 September 19:00 UTC" instead of "8 September 00:00
+// local." This bug shipped multiple times across daily-sales,
+// expenses, and cash-flow before being centralized here — always
+// parse a plain date string through this helper instead of
+// `new Date(dateStr)` followed by setHours.
+export function parseLocalDateStart(dateStr: string): Date {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(year, month - 1, day, 0, 0, 0, 0);
+}
+
+export function parseLocalDateEnd(dateStr: string): Date {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(year, month - 1, day, 23, 59, 59, 999);
+}
+
 // Balance sign convention used across Customer Accounts, Reports, and
 // the Dashboard — kept in one place so it's never reimplemented per
 // screen. Positive = customer owes shop. Negative = shop owes customer.
