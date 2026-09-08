@@ -1,6 +1,7 @@
+import Link from "next/link";
 import { listCashRegisterHistory } from "@/modules/cash-flow/actions";
-import { formatMoney, formatDate } from "@/lib/utils";
-import type { CashFlowSearchParams } from "./searchParamsHref";
+import { formatMoney, formatDate, toLocalDateString } from "@/lib/utils";
+import type { RegisterHistorySearchParams } from "./searchParamsHref";
 
 // A variance this large relative to the expected closing is far more
 // likely to be a data-entry mistake (e.g. an expense logged twice, or
@@ -14,10 +15,13 @@ function isSuspiciousVariance(variance: number, expectedClosing: number) {
   return Math.abs(variance) >= threshold;
 }
 
-export async function CashRegisterHistory({ searchParams }: { searchParams: CashFlowSearchParams }) {
+// Every row links through to that day's full Cash Flow dashboard
+// (/dashboard/cash-flow?date=...) — this table is a scannable ledger
+// of past days, not where a day's numbers get edited.
+export async function RegisterHistoryTable({ searchParams }: { searchParams: RegisterHistorySearchParams }) {
   const entries = await listCashRegisterHistory({
-    fromDate: searchParams.historyFrom,
-    toDate: searchParams.historyTo,
+    fromDate: searchParams.from,
+    toDate: searchParams.to,
   });
 
   return (
@@ -42,9 +46,22 @@ export async function CashRegisterHistory({ searchParams }: { searchParams: Cash
             entries.map((entry) => {
               const suspicious =
                 entry.variance !== null && isSuspiciousVariance(entry.variance, entry.expectedClosing);
+              const dateParam = toLocalDateString(entry.date);
               return (
-                <tr key={entry.id}>
-                  <td>{formatDate(entry.date)}</td>
+                <tr key={entry.id} className="clickable-row" style={{ position: "relative" }}>
+                  <td>
+                    {/* Stretched link — covers the entire row's clickable
+                        area (via position:absolute + inset:0 relative to
+                        the <tr>) while only the date text is visible,
+                        so clicking anywhere on the row navigates, not
+                        just the date cell's text itself. */}
+                    <Link
+                      href={`/dashboard/cash-flow?date=${dateParam}`}
+                      style={{ position: "absolute", inset: 0 }}
+                      aria-label={`View Cash Flow for ${formatDate(entry.date)}`}
+                    />
+                    {formatDate(entry.date)}
+                  </td>
                   <td style={{ textAlign: "right" }}>{formatMoney(entry.openingBalance)}</td>
                   <td style={{ textAlign: "right" }}>{formatMoney(entry.expectedClosing)}</td>
                   <td style={{ textAlign: "right" }}>

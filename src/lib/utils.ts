@@ -57,6 +57,20 @@ export function parseLocalDateEnd(dateStr: string): Date {
   return new Date(year, month - 1, day, 23, 59, 59, 999);
 }
 
+// The inverse of parseLocalDateStart — reads a Date's LOCAL calendar
+// components back out as "YYYY-MM-DD" (e.g. for building a link's
+// ?date= query param from a stored DailyCashRegister.date). Never use
+// `date.toISOString().slice(0, 10)` for this: it reads the date back
+// in UTC, which silently reports the wrong calendar day in a timezone
+// ahead of UTC — the exact bug this file's other helpers exist to
+// avoid.
+export function toLocalDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 // Balance sign convention used across Customer Accounts, Reports, and
 // the Dashboard — kept in one place so it's never reimplemented per
 // screen. Positive = customer owes shop. Negative = shop owes customer.

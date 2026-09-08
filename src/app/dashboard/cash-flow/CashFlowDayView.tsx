@@ -4,20 +4,45 @@ import { DayCloseForm } from "@/modules/cash-flow/components/DayCloseForm";
 import { EditOpeningBalanceButton } from "@/modules/cash-flow/components/EditOpeningBalanceButton";
 import { EditClosingBalanceButton } from "@/modules/cash-flow/components/EditClosingBalanceButton";
 
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <p className="metric-section-label">{children}</p>;
+}
+
+// The full dashboard for one day — every metric comes from a single
+// getCashFlowForDate call, grouped into categories that each answer a
+// different question (how busy was the day / does physical cash match
+// the books / what other money moved / the day's overall totals), but
+// every card everywhere is the same consistent size. Adding a future
+// metric is just: add it to getCashFlowForDate's return, then add one
+// more card to whichever category section it belongs in.
 export async function CashFlowDayView({ date }: { date: string }) {
   const flow = await getCashFlowForDate(date);
   // Total revenue for the day across every payment method — distinct
   // from Expected/Actual closing, which are purely a physical-cash
-  // reconciliation and deliberately exclude Account and Credit. This
-  // is "how much did the shop take in today," not "how much cash
-  // should be in the drawer."
+  // reconciliation and deliberately exclude Account and Credit.
   const totalReceivedToday = flow.cashIn + flow.accountIn + flow.creditIn;
+  // Total money that left the shop today, across every method — the
+  // "daily expense" figure, parallel to totalReceivedToday.
+  const totalExpenseToday = flow.cashOut + flow.accountOut + flow.creditOut;
 
   return (
     <div className="register-panel">
       <p className="register-date">{formatDate(date)}</p>
 
-      <div className="stat-grid cash-flow-stat-grid" style={{ marginBottom: 4 }}>
+      <SectionLabel>Activity</SectionLabel>
+      <div className="stat-grid cash-flow-stat-grid">
+        <div className="stat-card">
+          <p className="stat-label">Sales recorded</p>
+          <p className="stat-value">{flow.salesCount}</p>
+        </div>
+        <div className="stat-card">
+          <p className="stat-label">Expenses recorded</p>
+          <p className="stat-value">{flow.expenseCount}</p>
+        </div>
+      </div>
+
+      <SectionLabel>Cash register</SectionLabel>
+      <div className="stat-grid cash-flow-stat-grid">
         <div className="stat-card">
           <p className="stat-label">Opening balance</p>
           <p className="stat-value">{formatMoney(flow.openingBalance)}</p>
@@ -48,9 +73,8 @@ export async function CashFlowDayView({ date }: { date: string }) {
 
       {flow.variance !== null && (
         <p
+          className="variance-note"
           style={{
-            fontSize: 13,
-            marginTop: 10,
             color: flow.variance === 0 ? "var(--ink-muted)" : flow.variance > 0 ? "var(--primary-600)" : "var(--consigned-600)",
           }}
         >
@@ -64,48 +88,36 @@ export async function CashFlowDayView({ date }: { date: string }) {
 
       <DayCloseForm date={date} needsOpeningBalance={flow.needsOpeningBalance} isClosed={flow.isClosed} />
 
-      <div className="visibility-panel">
-        <div className="visibility-header">
-          <svg className="icon" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 16v-4M12 8h.01" />
-          </svg>
-          Account &amp; credit — shown for visibility only, not counted in the cash register above
+      <SectionLabel>Account &amp; credit</SectionLabel>
+      <div className="stat-grid cash-flow-stat-grid">
+        <div className="stat-card">
+          <p className="stat-label">Account in</p>
+          <p className="stat-value tone-grain">{formatMoney(flow.accountIn)}</p>
         </div>
-        <div className="visibility-strip">
-          <div className="strip-item">
-            <p>Account in</p>
-            <p>{formatMoney(flow.accountIn)}</p>
-          </div>
-          <div className="strip-item">
-            <p>Account out</p>
-            <p>{formatMoney(flow.accountOut)}</p>
-          </div>
-          <div className="strip-item">
-            <p>Credit (sales)</p>
-            <p>{formatMoney(flow.creditIn)}</p>
-          </div>
-          <div className="strip-item">
-            <p>Credit (expenses)</p>
-            <p>{formatMoney(flow.creditOut)}</p>
-          </div>
+        <div className="stat-card">
+          <p className="stat-label">Account out</p>
+          <p className="stat-value tone-grain">{formatMoney(flow.accountOut)}</p>
+        </div>
+        <div className="stat-card">
+          <p className="stat-label">Credit (sales)</p>
+          <p className="stat-value tone-consigned">{formatMoney(flow.creditIn)}</p>
+        </div>
+        <div className="stat-card">
+          <p className="stat-label">Credit (expenses)</p>
+          <p className="stat-value tone-consigned">{formatMoney(flow.creditOut)}</p>
         </div>
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginTop: 14,
-          paddingTop: 14,
-          borderTop: "0.5px solid var(--border)",
-        }}
-      >
-        <span style={{ fontSize: 13, color: "var(--ink-muted)" }}>
-          Total received today (Cash + Account + Credit)
-        </span>
-        <span style={{ fontSize: 16, fontWeight: 600 }}>{formatMoney(totalReceivedToday)}</span>
+      <SectionLabel>Day summary</SectionLabel>
+      <div className="stat-grid cash-flow-stat-grid">
+        <div className="stat-card">
+          <p className="stat-label">Total received today</p>
+          <p className="stat-value">{formatMoney(totalReceivedToday)}</p>
+        </div>
+        <div className="stat-card">
+          <p className="stat-label">Total expense today</p>
+          <p className="stat-value">{formatMoney(totalExpenseToday)}</p>
+        </div>
       </div>
     </div>
   );

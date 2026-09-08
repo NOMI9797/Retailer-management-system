@@ -165,7 +165,7 @@ export async function getCashFlowForDate(dateStr: string) {
   const shopId = await getCurrentShopId();
   const { start, end } = dayBounds(dateStr);
 
-  const [existing, cashIn, cashOut, resolvedOpening, accountIn, accountOut, creditIn, creditOut] =
+  const [existing, cashIn, cashOut, resolvedOpening, accountIn, accountOut, creditIn, creditOut, salesCount, expenseCount] =
     await Promise.all([
       db.dailyCashRegister.findUnique({ where: { shopId_date: { shopId, date: start } } }),
       sumCashIn(shopId, start, end),
@@ -175,6 +175,13 @@ export async function getCashFlowForDate(dateStr: string) {
       sumExpensesByMethod(shopId, "ACCOUNT", start, end),
       sumSalePayments(shopId, "CREDIT", start, end),
       sumExpensesByMethod(shopId, "CREDIT", start, end),
+      // Sale/expense counts — a genuinely new "how busy was this day"
+      // metric, distinct from any of the money totals above. This is
+      // the natural place to grow the day dashboard with more metrics
+      // over time (e.g. average sale size, top product) without
+      // touching the register math itself.
+      db.dailySale.count({ where: { shopId, saleDate: { gte: start, lte: end } } }),
+      db.expense.count({ where: { shopId, expenseDate: { gte: start, lte: end } } }),
     ]);
 
   const openingBalance = existing ? Number(existing.openingBalance) : resolvedOpening;
@@ -196,6 +203,8 @@ export async function getCashFlowForDate(dateStr: string) {
     accountOut,
     creditIn,
     creditOut,
+    salesCount,
+    expenseCount,
   };
 }
 

@@ -208,12 +208,11 @@
   grid-template-columns: repeat(4, 1fr);
 }
 
+/* One consistent grid for every Cash Flow metric — auto-fill instead
+   of a fixed column count so cards stay evenly sized (no lopsided
+   trailing row) as more metrics are added over time. */
 .shop-app .cash-flow-stat-grid {
-  grid-template-columns: repeat(5, 1fr);
-}
-
-.shop-app .cash-flow-info-grid {
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
 }
 
 .shop-app .register-panel {
@@ -228,6 +227,31 @@
   font-weight: 600;
   font-size: 15px;
   margin: 0 0 16px;
+}
+
+/* Category headers grouping the Cash Flow dashboard's metric cards —
+   uppercase/letter-spaced like Settings' block-title, but smaller
+   since these sit inside one panel rather than titling a whole page
+   section. Each one introduces its own cash-flow-stat-grid below it. */
+.shop-app .metric-section-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 26px 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1.5px solid var(--primary-600);
+  display: inline-block;
+}
+
+.shop-app .metric-section-label:first-of-type {
+  margin-top: 0;
+}
+
+.shop-app .variance-note {
+  font-size: 13px;
+  margin: 12px 0 0;
 }
 
 /* De-emphasized: one strip, not four separate stat cards — the
@@ -722,6 +746,14 @@
 
 .shop-app tbody tr:hover {
   background: #fbfaf7;
+}
+
+.shop-app tbody tr.clickable-row {
+  cursor: pointer;
+}
+
+.shop-app tbody tr.clickable-row:hover {
+  background: var(--primary-50);
 }
 
 .shop-app tr.table-date-header td {

@@ -7,6 +7,7 @@ import { LineItemsEditor, type LineItemDraft } from "./LineItemsEditor";
 import { PaymentSplitEditor, type PaymentSplitDraft } from "./PaymentSplitEditor";
 import { createCustomer } from "@/modules/customers/actions";
 import { createDailySale } from "../actions";
+import { toLocalDateString } from "@/lib/utils";
 import type { listAreas } from "@/modules/settings/areas.actions";
 import type { listAccountTypes } from "@/modules/settings/accountTypes.actions";
 import type { listProducts } from "@/modules/products/actions";
@@ -14,11 +15,7 @@ import type { listProducts } from "@/modules/products/actions";
 type Product = Awaited<ReturnType<typeof listProducts>>["products"][number];
 
 function todayDateString() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return toLocalDateString(new Date());
 }
 
 export function NewSaleForm({

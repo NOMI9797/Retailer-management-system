@@ -1,15 +1,15 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { buildCashFlowHref } from "./searchParamsHref";
+import { buildRegisterHistoryHref } from "./searchParamsHref";
 
-export function CashRegisterHistoryFilter({ activeFrom, activeTo }: { activeFrom: string; activeTo: string }) {
+export function RegisterHistoryFilter({ activeFrom, activeTo }: { activeFrom: string; activeTo: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  function onChange(patch: { historyFrom?: string; historyTo?: string }) {
+  function onChange(patch: { from?: string; to?: string }) {
     const current = Object.fromEntries(searchParams.entries());
-    router.push(buildCashFlowHref(current, patch));
+    router.push(buildRegisterHistoryHref(current, patch));
   }
 
   return (
@@ -22,23 +22,23 @@ export function CashRegisterHistoryFilter({ activeFrom, activeTo }: { activeFrom
         type="date"
         value={activeFrom}
         max={activeTo || undefined}
-        onChange={(e) => onChange({ historyFrom: e.target.value || undefined })}
-        aria-label="History from date"
+        onChange={(e) => onChange({ from: e.target.value || undefined })}
+        aria-label="From date"
       />
       <span>to</span>
       <input
         type="date"
         value={activeTo}
         min={activeFrom || undefined}
-        onChange={(e) => onChange({ historyTo: e.target.value || undefined })}
-        aria-label="History to date"
+        onChange={(e) => onChange({ to: e.target.value || undefined })}
+        aria-label="To date"
       />
       {(activeFrom || activeTo) && (
         <button
           type="button"
           className="btn btn-ghost"
           style={{ padding: "4px 10px", fontSize: 11.5 }}
-          onClick={() => onChange({ historyFrom: undefined, historyTo: undefined })}
+          onClick={() => onChange({ from: undefined, to: undefined })}
         >
           Clear
         </button>
