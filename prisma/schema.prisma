@@ -19,15 +19,16 @@ model Shop {
   // product document's "no hardcoded business rules" principle.
   commissionPercent Decimal  @default(0) @db.Decimal(5, 2)
 
-  areas         Area[]
-  customers     Customer[]
-  accountTypes  AccountType[]
-  categories    Category[]
-  units         Unit[]
-  products      Product[]
-  dailySales    DailySale[]
-  expenses      Expense[]
-  cashRegisters DailyCashRegister[]
+  areas               Area[]
+  customers           Customer[]
+  accountTypes        AccountType[]
+  categories          Category[]
+  units               Unit[]
+  products            Product[]
+  dailySales          DailySale[]
+  expenses            Expense[]
+  monthlyExpenseTypes MonthlyExpenseType[]
+  cashRegisters       DailyCashRegister[]
 }
 
 model Area {
@@ -304,14 +305,49 @@ model DailySaleItemBatch {
 
 // ── Expenses ─────────────────────────────────────────────
 
+// DAILY expenses feed Cash Flow's daily register (see
+// cash-flow/actions.ts's sumCashOut). MONTHLY expenses are recorded
+// here for now but deliberately NOT wired into Cash Flow or anything
+// else yet — that's future work, once Cash Flow grows a monthly-level
+// view to fold them into. Until then a MONTHLY row is just tracked,
+// not aggregated anywhere.
+enum ExpenseType {
+  DAILY
+  MONTHLY
+}
+
+// Settings-managed list of recurring monthly expense categories
+// (Electricity bill, AC bill, Rent, ...) — same shape as Category/Unit
+// (a name the shopkeeper maintains, not hardcoded). A MONTHLY expense
+// always picks one of these instead of typing free text, since the
+// same handful of bills repeat every month; a DAILY expense still
+// just uses Expense.description directly.
+model MonthlyExpenseType {
+  id       String  @id @default(uuid())
+  shopId   String
+  shop     Shop    @relation(fields: [shopId], references: [id])
+  name     String
+  isActive Boolean @default(true)
+
+  expenses Expense[]
+
+  @@unique([shopId, name])
+}
+
 model Expense {
-  id            String        @id @default(uuid())
-  shopId        String
-  shop          Shop          @relation(fields: [shopId], references: [id])
-  description   String
-  amount        Decimal       @db.Decimal(12, 2)
-  expenseDate   DateTime      @default(now())
-  paymentMethod PaymentMethod
+  id                   String              @id @default(uuid())
+  shopId               String
+  shop                 Shop                @relation(fields: [shopId], references: [id])
+  description          String
+  amount               Decimal             @db.Decimal(12, 2)
+  expenseDate          DateTime            @default(now())
+  paymentMethod        PaymentMethod
+  expenseType          ExpenseType         @default(DAILY)
+  // Only set when expenseType = MONTHLY — which recurring bill this
+  // entry is for. Null for DAILY expenses, which have no fixed
+  // category and just use `description` freely.
+  monthlyExpenseTypeId String?
+  monthlyExpenseType   MonthlyExpenseType? @relation(fields: [monthlyExpenseTypeId], references: [id])
 }
 
 // ── Cash flow / daily register ────────────────────────────

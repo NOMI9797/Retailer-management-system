@@ -8,6 +8,8 @@ import { AddAccountTypeModal } from "@/modules/settings/components/AddAccountTyp
 import { CategoryListManager } from "@/modules/settings/components/CategoryListManager";
 import { UnitListManager } from "@/modules/settings/components/UnitListManager";
 import { AreaListManager } from "@/modules/settings/components/AreaListManager";
+import { MonthlyExpenseTypeListManager } from "@/modules/settings/components/MonthlyExpenseTypeListManager";
+import { listMonthlyExpenseTypes } from "@/modules/expenses/actions";
 
 // Same shape as the Products page: a static header (instant, no data
 // dependency) plus one Suspense-wrapped section per list. Each list
@@ -51,6 +53,13 @@ export default function SettingsPage() {
           <AreasSection />
         </Suspense>
       </section>
+
+      <section className="block">
+        <h2 className="block-title">Monthly expense types</h2>
+        <Suspense fallback={<PageLoader label="Loading monthly expense types…" />}>
+          <MonthlyExpenseTypesSection />
+        </Suspense>
+      </section>
     </div>
   );
 }
@@ -73,4 +82,9 @@ async function UnitsSection() {
 async function AreasSection() {
   const areas = await listAreas();
   return <AreaListManager areas={areas} />;
+}
+
+async function MonthlyExpenseTypesSection() {
+  const types = await listMonthlyExpenseTypes(true);
+  return <MonthlyExpenseTypeListManager types={types} />;
 }

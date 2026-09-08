@@ -1,36 +1,39 @@
 import { Suspense } from "react";
 import { PageLoader } from "@/components/shared/PageLoader";
+import { RegisterHistoryHeader } from "./RegisterHistoryHeader";
 import { RegisterHistoryFilter } from "./RegisterHistoryFilter";
 import { RegisterHistoryTable } from "./RegisterHistoryTable";
+import { MonthlyRegisterPlaceholder } from "./MonthlyRegisterPlaceholder";
 import type { RegisterHistorySearchParams } from "./searchParamsHref";
 
-// A standalone ledger of past register days — separate from Cash
-// Flow's single-day dashboard so a shopkeeper reviewing history isn't
-// mixed in with today's live entry form. Clicking any row jumps to
-// that day's full Cash Flow view.
+// Same tab shape as Products/Expenses: a header with real ?tab=
+// navigation, only the active tab's content below it. Daily register
+// is the existing fully-working ledger; Monthly register is a
+// UI-only placeholder for now (see MonthlyRegisterPlaceholder).
 export default async function RegisterHistoryPage({
   searchParams,
 }: {
   searchParams: Promise<RegisterHistorySearchParams>;
 }) {
   const params = await searchParams;
+  const tab = params.tab === "monthly" ? "monthly" : "daily";
 
   return (
     <div>
-      <div className="page-head">
-        <div>
-          <h1>Register history</h1>
-          <p>Every past day's cash register — opening, expected vs. actual closing, and variance.</p>
-        </div>
-      </div>
+      <RegisterHistoryHeader searchParams={params} />
 
-      <div className="filter-bar">
-        <RegisterHistoryFilter activeFrom={params.from ?? ""} activeTo={params.to ?? ""} />
-      </div>
-
-      <Suspense key={JSON.stringify(params)} fallback={<PageLoader label="Loading history…" />}>
-        <RegisterHistoryTable searchParams={params} />
-      </Suspense>
+      {tab === "daily" ? (
+        <>
+          <div className="filter-bar">
+            <RegisterHistoryFilter activeFrom={params.from ?? ""} activeTo={params.to ?? ""} />
+          </div>
+          <Suspense key={JSON.stringify(params)} fallback={<PageLoader label="Loading history…" />}>
+            <RegisterHistoryTable searchParams={params} />
+          </Suspense>
+        </>
+      ) : (
+        <MonthlyRegisterPlaceholder />
+      )}
     </div>
   );
 }

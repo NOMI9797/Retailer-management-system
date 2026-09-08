@@ -51,7 +51,7 @@ async function sumCashIn(shopId: string, start: Date, end: Date) {
 // Cash out for a day = sum of Expense rows tagged CASH for that day.
 async function sumCashOut(shopId: string, start: Date, end: Date) {
   const result = await db.expense.aggregate({
-    where: { shopId, paymentMethod: "CASH", expenseDate: { gte: start, lte: end } },
+    where: { shopId, expenseType: "DAILY", paymentMethod: "CASH", expenseDate: { gte: start, lte: end } },
     _sum: { amount: true },
   });
   return Number(result._sum.amount ?? 0);
@@ -72,7 +72,7 @@ async function sumSalePayments(shopId: string, method: "ACCOUNT" | "CREDIT", sta
 
 async function sumExpensesByMethod(shopId: string, method: "ACCOUNT" | "CREDIT", start: Date, end: Date) {
   const result = await db.expense.aggregate({
-    where: { shopId, paymentMethod: method, expenseDate: { gte: start, lte: end } },
+    where: { shopId, expenseType: "DAILY", paymentMethod: method, expenseDate: { gte: start, lte: end } },
     _sum: { amount: true },
   });
   return Number(result._sum.amount ?? 0);
@@ -181,7 +181,7 @@ export async function getCashFlowForDate(dateStr: string) {
       // over time (e.g. average sale size, top product) without
       // touching the register math itself.
       db.dailySale.count({ where: { shopId, saleDate: { gte: start, lte: end } } }),
-      db.expense.count({ where: { shopId, expenseDate: { gte: start, lte: end } } }),
+      db.expense.count({ where: { shopId, expenseType: "DAILY", expenseDate: { gte: start, lte: end } } }),
     ]);
 
   const openingBalance = existing ? Number(existing.openingBalance) : resolvedOpening;
