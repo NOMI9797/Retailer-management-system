@@ -81,8 +81,18 @@ const navItems = [
   },
   {
     href: "/dashboard/reports",
-    label: "Reports",
+    label: "Profit/Loss",
     icon: <path d="M4 21V10M12 21V4M20 21v-7" />,
+  },
+  {
+    href: "/dashboard/reports-history",
+    label: "Profit/Loss history",
+    icon: (
+      <>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3.5 2" />
+      </>
+    ),
   },
   {
     href: "/dashboard/settings",
@@ -102,10 +112,14 @@ export function SidebarNav() {
   return (
     <nav className="nav-list">
       {navItems.map((item) => {
+        // Exact match, or a path segment boundary ("/dashboard/reports/"),
+        // never a bare string prefix — otherwise "/dashboard/reports"
+        // also lights up while on "/dashboard/reports-history", since
+        // that path literally starts with the same characters.
         const isActive =
           item.href === "/dashboard"
             ? pathname === "/dashboard"
-            : pathname.startsWith(item.href);
+            : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
         return (
           // suppressHydrationWarning: the active class depends on

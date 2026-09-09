@@ -255,19 +255,33 @@ model DailySale {
 }
 
 model DailySaleItem {
-  id          String    @id @default(uuid())
-  dailySaleId String
-  dailySale   DailySale @relation(fields: [dailySaleId], references: [id])
-  productId   String
-  product     Product   @relation(fields: [productId], references: [id])
-  quantity    Decimal   @db.Decimal(14, 3)
-  actualPrice Decimal   @db.Decimal(12, 2)
+  id              String    @id @default(uuid())
+  dailySaleId     String
+  dailySale       DailySale @relation(fields: [dailySaleId], references: [id])
+  productId       String
+  product         Product   @relation(fields: [productId], references: [id])
+  quantity        Decimal   @db.Decimal(14, 3)
+  actualPrice     Decimal   @db.Decimal(12, 2)
+  // Snapshot of Product.costPrice at the moment this sale happened —
+  // only ever set for SIMPLE stock items (null for GRAIN). Without
+  // this, a later change to a product's cost price would silently
+  // rewrite the COGS of every past sale of that product whenever a
+  // report re-reads Product.costPrice. Grain items don't need this:
+  // each GrainBatch permanently records its own rate (a new batch is
+  // a new row, never an edit to an old one), and DailySaleItemBatch
+  // already records exactly which batch(es) a sale drew from — so
+  // grain COGS is computed at report time from batch rate × quantity,
+  // which is already historically accurate with no snapshot needed.
+  // Null on sales recorded before this field existed — reports show
+  // "cost data unavailable" for those rather than guessing, per the
+  // Milestone 4 decision.
+  costPriceAtSale Decimal?  @db.Decimal(12, 2)
   // Same value for every item (and DailySalePayment row) written by
   // one createDailySale call — lets a customer's second visit on the
   // same day, which appends to the same DailySale row rather than
   // creating a new one, still be displayed as its own distinct group
   // instead of mixing in with the first visit's items.
-  visitAt     DateTime  @default(now())
+  visitAt         DateTime  @default(now())
 
   batchAllocations DailySaleItemBatch[]
 }

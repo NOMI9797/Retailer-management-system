@@ -46,6 +46,11 @@ async function applySaleItems(
         productId: item.productId,
         quantity: item.quantity,
         actualPrice: item.actualPrice,
+        // Snapshot cost at sale time — only meaningful for SIMPLE
+        // stock (grain COGS is derived later from batch rate ×
+        // quantity via DailySaleItemBatch, since each batch already
+        // permanently records its own rate).
+        costPriceAtSale: product.stockKind === "SIMPLE" ? product.costPrice : null,
         visitAt,
       },
     });
