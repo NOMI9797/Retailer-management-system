@@ -2,64 +2,64 @@ import { Suspense } from "react";
 import { listAccountTypes } from "@/modules/settings/accountTypes.actions";
 import { listAreas } from "@/modules/settings/areas.actions";
 import { listCategories, listUnits } from "@/modules/products/actions";
+import { listMonthlyExpenseTypes } from "@/modules/expenses/actions";
 import { PageLoader } from "@/components/shared/PageLoader";
 import { AccountTypeList } from "./AccountTypeList";
-import { AddAccountTypeModal } from "@/modules/settings/components/AddAccountTypeModal";
 import { CategoryListManager } from "@/modules/settings/components/CategoryListManager";
 import { UnitListManager } from "@/modules/settings/components/UnitListManager";
 import { AreaListManager } from "@/modules/settings/components/AreaListManager";
 import { MonthlyExpenseTypeListManager } from "@/modules/settings/components/MonthlyExpenseTypeListManager";
-import { listMonthlyExpenseTypes } from "@/modules/expenses/actions";
+import { SettingsHeader, type SettingsTab } from "./SettingsHeader";
+import type { SettingsSearchParams } from "./searchParamsHref";
 
-// Same shape as the Products page: a static header (instant, no data
-// dependency) plus one Suspense-wrapped section per list. Each list
-// is independent — a slow fetch in one section never blocks the
-// others from appearing.
-export default function SettingsPage() {
+const VALID_TABS: SettingsTab[] = ["account-types", "categories", "units", "areas", "monthly-expense-types"];
+
+// Tab-based, same shape as Products/Expenses/Reports — real ?tab=
+// navigation, only the active tab's Suspense-wrapped section renders,
+// rather than every list stacked on one long scrolling page.
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<SettingsSearchParams>;
+}) {
+  const params = await searchParams;
+  const tab: SettingsTab = VALID_TABS.includes(params.tab as SettingsTab)
+    ? (params.tab as SettingsTab)
+    : "account-types";
+
   return (
     <div>
-      <div className="page-head">
-        <div>
-          <h1>Settings</h1>
-          <p>Account types, categories, units, areas — the lists the rest of the app pulls from.</p>
-        </div>
-        <AddAccountTypeModal />
-      </div>
+      <SettingsHeader tab={tab} searchParams={params} />
 
-      <section className="block">
-        <h2 className="block-title">Account types</h2>
+      {tab === "account-types" && (
         <Suspense fallback={<PageLoader label="Loading account types…" />}>
           <AccountTypesSection />
         </Suspense>
-      </section>
+      )}
 
-      <section className="block">
-        <h2 className="block-title">Categories</h2>
+      {tab === "categories" && (
         <Suspense fallback={<PageLoader label="Loading categories…" />}>
           <CategoriesSection />
         </Suspense>
-      </section>
+      )}
 
-      <section className="block">
-        <h2 className="block-title">Units</h2>
+      {tab === "units" && (
         <Suspense fallback={<PageLoader label="Loading units…" />}>
           <UnitsSection />
         </Suspense>
-      </section>
+      )}
 
-      <section className="block">
-        <h2 className="block-title">Areas</h2>
+      {tab === "areas" && (
         <Suspense fallback={<PageLoader label="Loading areas…" />}>
           <AreasSection />
         </Suspense>
-      </section>
+      )}
 
-      <section className="block">
-        <h2 className="block-title">Monthly expense types</h2>
+      {tab === "monthly-expense-types" && (
         <Suspense fallback={<PageLoader label="Loading monthly expense types…" />}>
           <MonthlyExpenseTypesSection />
         </Suspense>
-      </section>
+      )}
     </div>
   );
 }

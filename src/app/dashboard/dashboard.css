@@ -726,12 +726,13 @@
 }
 
 .shop-app .tab {
-  padding: 9px 4px;
-  margin-right: 22px;
-  font-size: 14.5px;
-  font-weight: 500;
-  color: var(--ink-muted);
-  border-bottom: 3px solid transparent;
+  padding: 10px 4px;
+  margin-right: 26px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+  opacity: 0.55;
+  border-bottom: 4px solid transparent;
   cursor: pointer;
   background: none;
   border-top: none;
@@ -740,20 +741,23 @@
   font-family: inherit;
   text-decoration: none;
   display: inline-block;
+  transition: opacity 0.12s, color 0.12s;
 }
 
 .shop-app .tab:hover {
-  color: var(--ink);
+  opacity: 0.85;
 }
 
 .shop-app .tab.active {
   color: var(--primary-600);
+  opacity: 1;
   border-bottom-color: var(--primary-600);
   font-weight: 700;
 }
 
 .shop-app .tab.active:hover {
   color: var(--primary-600);
+  opacity: 1;
 }
 
 /* Filter bar */
@@ -826,16 +830,30 @@
   align-items: center;
   gap: 6px;
   background: var(--surface);
-  border: 0.5px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: 999px;
   padding: 7px 13px;
   font-size: 12.5px;
+  font-weight: 500;
   color: var(--ink);
   position: relative;
+  box-shadow: 0 1px 2px rgba(35, 35, 31, 0.04);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.shop-app .select-pill:hover,
+.shop-app .date-pill:hover {
+  border-color: var(--primary-500);
+}
+
+.shop-app .select-pill:has(select:focus),
+.shop-app .date-pill:has(input:focus) {
+  border-color: var(--primary-600);
+  box-shadow: 0 0 0 3px var(--primary-50);
 }
 
 .shop-app .select-pill svg.icon {
-  color: var(--ink-muted);
+  color: var(--primary-600);
 }
 
 .shop-app .select-pill svg.chev {
@@ -850,11 +868,12 @@
   opacity: 0;
   cursor: pointer;
   border: none;
+  outline: none;
   width: 100%;
 }
 
 .shop-app .date-pill svg {
-  color: var(--ink-muted);
+  color: var(--primary-600);
 }
 
 .shop-app .date-pill span {
@@ -864,6 +883,7 @@
 
 .shop-app .date-pill input[type="date"] {
   border: none;
+  outline: none;
   background: none;
   font-family: inherit;
   font-size: 12.5px;
@@ -877,21 +897,33 @@
   align-items: center;
   gap: 8px;
   background: var(--surface);
-  border: 0.5px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: 999px;
   padding: 7px 14px;
   flex: 1;
   min-width: 200px;
   max-width: 300px;
   margin-left: auto;
+  box-shadow: 0 1px 2px rgba(35, 35, 31, 0.04);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.shop-app .search-pill:hover {
+  border-color: var(--primary-500);
+}
+
+.shop-app .search-pill:has(input:focus) {
+  border-color: var(--primary-600);
+  box-shadow: 0 0 0 3px var(--primary-50);
 }
 
 .shop-app .search-pill svg {
-  color: var(--ink-muted);
+  color: var(--primary-600);
 }
 
 .shop-app .search-pill input {
   border: none;
+  outline: none;
   font-family: inherit;
   font-size: 12.5px;
   flex: 1;
@@ -950,6 +982,255 @@
 .shop-app .pay-badge.pay-mixed {
   background: var(--neutral-50);
   color: var(--neutral-600);
+}
+
+/* Customer detail page — header with a large gradient avatar, a
+   dedicated Accounts panel (one row per account type with its own
+   colored icon), and Purchase history as bounded "visit cards" rather
+   than the generic grain-card/batch-row pattern borrowed from
+   Products, since a sale's shape (item table + payment line, possibly
+   several visits per day) doesn't match a grain batch's. */
+.shop-app .back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  text-decoration: none;
+  margin-bottom: 24px;
+}
+
+.shop-app .back-link:hover {
+  background: #f1f0ea;
+}
+
+.shop-app .cust-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 26px;
+}
+
+.shop-app .cust-avatar-lg {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.shop-app .cust-header h1 {
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  letter-spacing: -0.01em;
+  color: var(--primary-900);
+}
+
+.shop-app .cust-header p {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 13.5px;
+}
+
+.shop-app h2.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.shop-app .accounts-panel {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 28px;
+  max-width: 600px;
+}
+
+.shop-app .acct-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 0.5px solid var(--border);
+}
+
+.shop-app .acct-row:last-child {
+  border-bottom: none;
+}
+
+.shop-app .acct-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.shop-app .acct-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.shop-app .acct-icon.regular {
+  background: var(--primary-50);
+  color: var(--primary-600);
+}
+
+.shop-app .acct-icon.udhar {
+  background: var(--neutral-50);
+  color: var(--neutral-600);
+}
+
+.shop-app .acct-icon.consignment {
+  background: var(--consigned-50);
+  color: var(--consigned-600);
+}
+
+.shop-app .acct-name {
+  font-weight: 600;
+  font-size: 14.5px;
+  margin: 0 0 2px;
+}
+
+.shop-app .acct-meta {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.shop-app .acct-right {
+  text-align: right;
+}
+
+.shop-app .acct-status {
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin: 0 0 3px;
+}
+
+.shop-app .acct-balance {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.shop-app .acct-balance.settled {
+  color: var(--ink-muted);
+}
+
+.shop-app .visit-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 14px;
+  overflow: hidden;
+  max-width: 600px;
+}
+
+.shop-app .visit-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: #faf9f5;
+  border-bottom: 0.5px solid var(--border);
+}
+
+.shop-app .visit-date {
+  font-weight: 600;
+  font-size: 14.5px;
+  margin: 0 0 3px;
+}
+
+.shop-app .visit-meta {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.shop-app .visit-total-label {
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin: 0;
+  text-align: right;
+}
+
+.shop-app .visit-total {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 2px 0 0;
+  text-align: right;
+}
+
+.shop-app .item-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 80px 90px;
+  gap: 10px;
+  padding: 10px 20px;
+  font-size: 13.5px;
+}
+
+.shop-app .item-row.head {
+  font-size: 11px;
+  color: var(--ink-muted);
+  padding-bottom: 4px;
+  padding-top: 12px;
+}
+
+.shop-app .visit-body {
+  border-bottom: 0.5px solid var(--border);
+}
+
+.shop-app .visit-body:last-of-type {
+  border-bottom: none;
+}
+
+.shop-app .pay-line {
+  padding: 4px 20px 14px;
+}
+
+.shop-app .visit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  background: #faf9f5;
+}
+
+.shop-app .row-btn {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.shop-app .row-btn:hover {
+  background: #f1f0ea;
+}
+
+.shop-app .row-btn.danger {
+  color: var(--consigned-600);
+  border-color: var(--consigned-500);
 }
 
 /* Customers table — muted "—" placeholder, area tag, account-type

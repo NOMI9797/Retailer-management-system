@@ -19,19 +19,18 @@ export default async function CustomerDetailPage({
 
   return (
     <div>
-      <div className="page-head">
-        <div>
-          <Link href="/dashboard/customers" className="btn-ghost btn" style={{ marginBottom: 12 }}>
-            ← Back to Customers
-          </Link>
-        </div>
-      </div>
+      <Link href="/dashboard/customers" className="back-link">
+        <svg className="icon" viewBox="0 0 24 24" style={{ width: 14, height: 14 }}>
+          <path d="M19 12H5M12 19l-7-7 7-7" />
+        </svg>
+        Back to Customers
+      </Link>
 
       <Suspense fallback={<PageLoader label="Loading customer…" />}>
         <CustomerDetail id={id} />
       </Suspense>
 
-      <h2 style={{ fontSize: 15, fontWeight: 600, margin: "28px 0 12px" }}>Purchase history</h2>
+      <h2 className="section-title">Purchase history</h2>
       <Suspense fallback={<PageLoader label="Loading purchase history…" />}>
         <PurchaseHistorySection customerId={id} />
       </Suspense>
@@ -41,10 +40,12 @@ export default async function CustomerDetailPage({
 
 async function CustomerDetail({ id }: { id: string }) {
   const customer = await getCustomer(id);
+  const initial = customer.name.charAt(0).toUpperCase();
 
   return (
     <>
-      <div className="page-head">
+      <div className="cust-header">
+        <div className="cust-avatar-lg">{initial}</div>
         <div>
           <h1>{customer.name}</h1>
           <p>
@@ -58,7 +59,7 @@ async function CustomerDetail({ id }: { id: string }) {
         </div>
       </div>
 
-      <h2 style={{ fontSize: 15, fontWeight: 600, margin: "20px 0 12px" }}>Accounts</h2>
+      <h2 className="section-title">Accounts</h2>
       <CustomerAccountsList accounts={customer.accounts} />
     </>
   );
