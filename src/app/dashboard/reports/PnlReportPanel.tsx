@@ -1,6 +1,13 @@
 import { getPnlReport } from "@/modules/reports/actions";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney, formatDate } from "@/lib/utils";
 import type { ReportPeriodInput } from "@/modules/reports/schema";
+
+function periodLabel(period: ReportPeriodInput): string {
+  if (period.view === "daily") return formatDate(period.date);
+  if (period.view === "monthly") return `${period.month}/${period.year}`;
+  if (period.view === "yearly") return String(period.year);
+  return period.season;
+}
 
 // Pure aggregation, no caching — every render re-queries, per the
 // milestone's "nothing cached" requirement (stated for the Dashboard,
@@ -8,6 +15,8 @@ import type { ReportPeriodInput } from "@/modules/reports/schema";
 // same-day report to reflect it immediately).
 export async function PnlReportPanel({ period }: { period: ReportPeriodInput }) {
   const report = await getPnlReport(period);
+  const isEmpty = report.revenue === 0 && report.cogs === 0 && report.expenses === 0;
+  const isNegative = report.netProfit < 0;
 
   return (
     <div>
@@ -18,35 +27,37 @@ export async function PnlReportPanel({ period }: { period: ReportPeriodInput }) 
         </p>
       )}
 
-      <div className="stat-grid products-stat-grid">
-        <div className="stat-card">
-          <p className="stat-label">Revenue</p>
-          <p className="stat-value">{formatMoney(report.revenue)}</p>
+      {/* The calculation chain — Revenue − COGS = Gross profit −
+          Expenses, read left to right as one continuous formula
+          rather than four disconnected cards. */}
+      <div className="chain">
+        <div className="chain-card">
+          <p>Revenue</p>
+          <p className="v-neutral num">{formatMoney(report.revenue)}</p>
         </div>
-        <div className="stat-card">
-          <p className="stat-label">Cost of goods sold</p>
-          <p className="stat-value tone-grain">{formatMoney(report.cogs)}</p>
+        <div className="chain-op">−</div>
+        <div className="chain-card">
+          <p>Cost of goods sold</p>
+          <p className="v-cost num">{formatMoney(report.cogs)}</p>
         </div>
-        <div className="stat-card">
-          <p className="stat-label">Gross profit</p>
-          <p className="stat-value tone-primary">{formatMoney(report.grossProfit)}</p>
+        <div className="chain-op">=</div>
+        <div className="chain-card subtotal">
+          <p>Gross profit</p>
+          <p className="v-good num">{formatMoney(report.grossProfit)}</p>
         </div>
-        <div className="stat-card">
-          <p className="stat-label">Expenses</p>
-          <p className="stat-value tone-consigned">{formatMoney(report.expenses)}</p>
+        <div className="chain-op">−</div>
+        <div className="chain-card">
+          <p>Expenses</p>
+          <p className="v-cost num">{formatMoney(report.expenses)}</p>
         </div>
       </div>
 
-      <div className="stat-grid" style={{ marginTop: 12, gridTemplateColumns: "1fr" }}>
-        <div className="stat-card">
-          <p className="stat-label">Net profit</p>
-          <p
-            className="stat-value"
-            style={{ fontSize: 28, color: report.netProfit >= 0 ? "var(--primary-600)" : "var(--consigned-600)" }}
-          >
-            {formatMoney(report.netProfit)}
-          </p>
-        </div>
+      <div className={`hero-net${isNegative ? " negative" : ""}`}>
+        <p className="hero-net-label">
+          Net profit <span className="hero-net-formula">— gross profit minus expenses</span>
+        </p>
+        <p className={`hero-net-value num${isNegative ? " negative" : ""}`}>{formatMoney(report.netProfit)}</p>
+        {isEmpty && <p className="hero-net-sub">No sales or expenses recorded for {periodLabel(period)} yet.</p>}
       </div>
     </div>
   );

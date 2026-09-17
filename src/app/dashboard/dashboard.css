@@ -18,6 +18,11 @@
   --neutral-50: #efeee7;
   --neutral-600: #6b675c;
 
+  --sb-bg: #0e241d;
+  --sb-text: #9fb3aa;
+  --sb-hover: rgba(255, 255, 255, 0.06);
+  --sb-border: rgba(255, 255, 255, 0.08);
+
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-plex-sans), sans-serif;
@@ -42,14 +47,17 @@
 }
 
 /* Sidebar */
+/* Dark, high-contrast sidebar — visually separates navigation chrome
+   from the light content area, with the active item promoted via a
+   teal gradient + shadow rather than a flat tint, so it reads clearly
+   even against the dark background. */
 .shop-app .sidebar {
-  width: 232px;
+  width: 244px;
   flex-shrink: 0;
-  background: var(--surface);
-  border-right: 0.5px solid var(--border);
+  background: var(--sb-bg);
   display: flex;
   flex-direction: column;
-  padding: 20px 14px;
+  padding: 22px 14px;
   position: sticky;
   top: 0;
   height: 100vh;
@@ -58,85 +66,95 @@
 .shop-app .shop-id {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 4px 8px 22px;
+  gap: 11px;
+  padding: 4px 10px 26px;
   text-decoration: none;
   color: inherit;
 }
 
 .shop-app .shop-id .mark {
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
-  background: var(--primary-600);
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 600;
-  font-size: 13px;
+  font-weight: 700;
+  font-size: 15px;
+  box-shadow: 0 2px 8px rgba(15, 110, 86, 0.4);
 }
 
 .shop-app .shop-id p {
   margin: 0;
-  font-weight: 500;
-  font-size: 13.5px;
+  font-weight: 600;
+  font-size: 15px;
+  color: #fff;
+  letter-spacing: -0.01em;
 }
 
 .shop-app nav.nav-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .shop-app .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  border-radius: 7px;
-  color: var(--ink-muted);
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--sb-text);
   text-decoration: none;
-  font-size: 13.5px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.12s, color 0.12s;
 }
 
 .shop-app .nav-item:hover {
-  background: #f1f0ea;
-  color: var(--ink);
+  background: var(--sb-hover);
+  color: #fff;
 }
 
 .shop-app .nav-item.active {
-  background: var(--primary-50);
-  color: var(--primary-600);
-  font-weight: 500;
+  background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 2px 10px rgba(15, 110, 86, 0.35);
+}
+
+.shop-app .nav-item.active svg {
+  color: #fff;
 }
 
 .shop-app .sidebar-footer {
   margin-top: auto;
-  padding: 12px 8px 4px;
-  border-top: 0.5px solid var(--border);
+  padding: 14px 10px 4px;
+  border-top: 0.5px solid var(--sb-border);
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
 }
 
 .shop-app .avatar {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  background: var(--grain-50);
-  color: var(--grain-600);
+  background: var(--grain-500);
+  color: #221704;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 700;
 }
 
 .shop-app .sidebar-footer p {
   margin: 0;
   font-size: 12.5px;
-  color: var(--ink-muted);
+  color: var(--sb-text);
 }
 
 /* Main */
@@ -154,9 +172,11 @@
 }
 
 .shop-app .page-head h1 {
-  font-size: 19px;
-  font-weight: 600;
-  margin: 0 0 4px;
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  color: var(--primary-900);
+  letter-spacing: -0.01em;
 }
 
 .shop-app .page-head p {
@@ -249,9 +269,222 @@
   margin-top: 0;
 }
 
+/* Cash Flow's redesigned section grouping — each cf-section stacks
+   with consistent spacing, and section-label is the same "small
+   underlined category heading" idea as metric-section-label but
+   lighter-weight, since these sit above looser card rows (activity/
+   hero/summary) rather than a dense uniform stat-grid. */
+.shop-app section.cf-section {
+  margin-bottom: 28px;
+}
+
+.shop-app section.cf-section:last-child {
+  margin-bottom: 0;
+}
+
+.shop-app .section-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--primary-600);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 6px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--primary-600);
+  display: inline-block;
+}
+
 .shop-app .variance-note {
   font-size: 13px;
   margin: 12px 0 0;
+}
+
+/* Activity: de-emphasized counts — dashed border and muted value so
+   "how busy was the day" reads as background context, not competing
+   with the cash register numbers below it. */
+.shop-app .activity-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 460px;
+  margin-top: 14px;
+}
+
+.shop-app .count-card {
+  background: var(--bg);
+  border: 0.5px dashed var(--border);
+  border-radius: 10px;
+  padding: 13px 16px;
+}
+
+.shop-app .count-card p:first-child {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin: 0 0 5px;
+}
+
+.shop-app .count-card p:last-child {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+/* Cash register: one supporting line for opening balance (with its
+   inline edit pencil), then Expected/Actual closing as a hero pair —
+   these are the two numbers a shopkeeper actually compares at day's
+   end, so they get more visual weight than any other metric here. */
+.shop-app .opening-line {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin: 14px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shop-app .opening-line strong {
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.shop-app .hero-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.shop-app .hero-card {
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.shop-app .hero-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--border);
+}
+
+.shop-app .hero-card.expected::before {
+  background: linear-gradient(90deg, var(--primary-500), var(--primary-600));
+}
+
+.shop-app .hero-label {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  margin: 0 0 8px;
+}
+
+.shop-app .hero-value {
+  font-size: 30px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.shop-app .hero-breakdown {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  margin: 8px 0 0;
+}
+
+.shop-app .hero-breakdown .in {
+  color: var(--primary-600);
+  font-weight: 500;
+}
+
+.shop-app .hero-breakdown .out {
+  color: var(--consigned-600);
+  font-weight: 500;
+}
+
+/* Cash in/out called out as their own labeled chips beneath the
+   opening-balance line — a plain inline "+ Rs 0 in − Rs 0 out"
+   sentence read as too easy to skim past, so each gets its own
+   label + value pairing instead. */
+.shop-app .hero-chip-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.shop-app .hero-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.shop-app .hero-chip.in {
+  background: var(--primary-50);
+  color: var(--primary-600);
+}
+
+.shop-app .hero-chip.out {
+  background: var(--consigned-50);
+  color: var(--consigned-600);
+}
+
+.shop-app .hero-chip-label {
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+.shop-app .close-inline {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.shop-app .close-inline input[type="number"] {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 14px;
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: var(--ink);
+}
+
+/* Day summary: same "two cards side by side" shape as the hero row,
+   on the app's neutral background instead of the surface, since these
+   are closing totals rather than the primary reconciliation numbers. */
+.shop-app .total-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.shop-app .total-card {
+  background: var(--bg);
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+
+.shop-app .total-card p:first-child {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  margin: 0 0 6px;
+}
+
+.shop-app .total-card p:last-child {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0;
 }
 
 /* De-emphasized: one strip, not four separate stat cards — the
@@ -355,6 +588,133 @@
 }
 .shop-app .stat-value.tone-consigned {
   color: var(--consigned-600);
+}
+
+/* Profit/Loss: the calculation chain — Revenue − COGS = Gross profit
+   − Expenses, read left to right as one continuous formula rather
+   than four disconnected stat cards, with the Gross profit subtotal
+   visually promoted (tinted background) since it's the pivot value
+   the rest of the chain builds on. */
+.shop-app .chain {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin-bottom: 20px;
+}
+
+.shop-app .chain-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  flex: 1;
+  min-width: 0;
+}
+
+.shop-app .chain-card.subtotal {
+  background: var(--primary-50);
+  border-color: var(--primary-500);
+}
+
+.shop-app .chain-card p:first-child {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin: 0 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shop-app .chain-card.subtotal p:first-child {
+  color: var(--primary-600);
+}
+
+.shop-app .chain-card p:last-child {
+  font-size: 19px;
+  font-weight: 600;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.shop-app .chain-card .v-neutral {
+  color: var(--ink);
+}
+.shop-app .chain-card .v-cost {
+  color: var(--consigned-600);
+}
+.shop-app .chain-card .v-good {
+  color: var(--primary-600);
+}
+
+.shop-app .chain-op {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  flex-shrink: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+/* Net profit hero — the one number a shopkeeper actually cares about,
+   given a full-width card of its own below the chain rather than
+   folded in as a fifth chain-card, with the top accent bar and value
+   color switching to the coral "loss" tone when negative. */
+.shop-app .hero-net {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 16px;
+  padding: 28px 32px;
+  position: relative;
+  overflow: hidden;
+}
+
+.shop-app .hero-net::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--primary-500), var(--primary-600));
+}
+
+.shop-app .hero-net.negative::before {
+  background: linear-gradient(90deg, var(--consigned-500), var(--consigned-600));
+}
+
+.shop-app .hero-net-label {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin: 0 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shop-app .hero-net-formula {
+  font-size: 12px;
+  color: #b5b1a4;
+  font-weight: 400;
+}
+
+.shop-app .hero-net-value {
+  font-size: 44px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+  color: var(--primary-600);
+}
+
+.shop-app .hero-net-value.negative {
+  color: var(--consigned-600);
+}
+
+.shop-app .hero-net-sub {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  margin: 8px 0 0;
 }
 
 /* Tabs */
@@ -784,6 +1144,86 @@
   color: var(--ink-muted);
   text-align: center;
   padding: 32px 16px;
+}
+
+/* Register History's redesigned table bits — kept separate from the
+   shared .status-badge (used by Settings' AccountTypeList too) rather
+   than repurposing .inactive, so this page's amber "Open" / teal
+   "Closed" coloring never leaks into other tables using that class. */
+.shop-app tbody tr.is-open {
+  background: #fffbf2;
+}
+
+.shop-app tbody tr.is-open:hover {
+  background: #fff7e8;
+}
+
+.shop-app .status-badge.status-closed {
+  background: var(--primary-50);
+  color: var(--primary-600);
+}
+
+.shop-app .status-badge.status-open {
+  background: var(--grain-50);
+  color: var(--grain-600);
+}
+
+.shop-app .var-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.shop-app .var-chip.down {
+  color: var(--consigned-600);
+}
+
+.shop-app .var-chip.up {
+  color: var(--ink);
+}
+
+/* Profit/Loss history's own "up" meaning — a positive net profit is
+   unambiguously good, unlike Register History's cash surplus (which
+   stays neutral/dark since a large surplus there can itself be a
+   data-entry mistake) — so this gets the page's actual "good" color. */
+.shop-app .var-chip.profit {
+  color: var(--primary-600);
+}
+
+.shop-app .flag-icon {
+  width: 13px;
+  height: 13px;
+  color: var(--consigned-500);
+  margin-left: 5px;
+  vertical-align: -2px;
+}
+
+.shop-app .dash {
+  color: #c9c6ba;
+}
+
+.shop-app .row-link {
+  background: none;
+  border: 0.5px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 13px;
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.shop-app .row-link:hover {
+  background: #f1f0ea;
+}
+
+.shop-app .row-link.attention {
+  border-color: var(--grain-500);
+  color: var(--grain-600);
+  font-weight: 500;
 }
 
 .shop-app .cat-pill {
