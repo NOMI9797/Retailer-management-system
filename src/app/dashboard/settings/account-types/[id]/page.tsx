@@ -43,6 +43,12 @@ async function AccountTypeDetail({ id }: { id: string }) {
             Code: <span className="cat-pill">{accountType.code}</span>
             {" · "}
             {accountType.tracksQuantity ? "Tracks quantity" : "Money only"}
+            {accountType.isLoan && (
+              <>
+                {" · "}
+                Loan type
+              </>
+            )}
             {" · "}
             {accountType.isActive ? "Active" : "Inactive"}
           </p>

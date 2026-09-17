@@ -82,6 +82,15 @@ model AccountType {
   name           String
   code           String
   tracksQuantity Boolean @default(false)
+  // Marks a type as a deliberate loan (e.g. Udhar) rather than a
+  // normal running tab (Regular) — same pattern as tracksQuantity
+  // marking Consignment. Explicit and shopkeeper-controlled rather
+  // than inferred from `code` or `name`, since both are free text the
+  // shopkeeper can set to anything (a shop's "Udhar" type has been
+  // seen coded "123"). Powers the Debt module's "Loan" vs "On account"
+  // badge — never both true with tracksQuantity, since a consignment
+  // account isn't a customer debt at all.
+  isLoan         Boolean @default(false)
   isActive       Boolean @default(true)
 
   fields           AccountTypeField[]
@@ -158,6 +167,14 @@ model AccountTransaction {
   linkedSaleId      String?
   linkedSale        DailySale?      @relation(fields: [linkedSaleId], references: [id])
   paymentMethod     PaymentMethod
+  // Only ever set on a loan-given posting (direction OUT on a
+  // non-tracksQuantity account — Udhar/Regular) — optional, since not
+  // every loan needs a formal due date. Powers the Debt module's
+  // overdue flag: an account counts as overdue when its OLDEST unpaid
+  // transaction's dueDate has passed and currentBalance is still > 0.
+  // Deliberately not a full payment-allocation engine — see the
+  // Debt (Udhaar) Tracking milestone for why that's out of scope.
+  dueDate           DateTime?
   notes             String?
 }
 

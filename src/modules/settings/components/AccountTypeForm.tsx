@@ -14,6 +14,7 @@ export function AccountTypeForm({ onSaved }: { onSaved?: () => void }) {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [tracksQuantity, setTracksQuantity] = useState(false);
+  const [isLoan, setIsLoan] = useState(false);
   const [fields, setFields] = useState<AccountTypeFieldInput[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -42,6 +43,7 @@ export function AccountTypeForm({ onSaved }: { onSaved?: () => void }) {
         name,
         code: code.toUpperCase(),
         tracksQuantity,
+        isLoan,
         fields,
       });
       onSaved?.();
@@ -88,6 +90,18 @@ export function AccountTypeForm({ onSaved }: { onSaved?: () => void }) {
             style={{ width: "auto" }}
           />
           Tracks quantity (grain-style accounts)
+        </label>
+      </div>
+
+      <div className="field">
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input
+            type="checkbox"
+            checked={isLoan}
+            onChange={(e) => setIsLoan(e.target.checked)}
+            style={{ width: "auto" }}
+          />
+          Is this a loan type? (e.g. Udhar — shown as "Loan" on the Debts page)
         </label>
       </div>
 

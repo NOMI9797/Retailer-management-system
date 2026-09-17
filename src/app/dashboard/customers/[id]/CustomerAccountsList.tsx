@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { formatMoney, describeBalance, formatDate } from "@/lib/utils";
+import { RecordAccountTransactionModal } from "@/modules/customers/components/RecordAccountTransactionModal";
 import type { getCustomer } from "@/modules/customers/actions";
 
 type Account = Awaited<ReturnType<typeof getCustomer>>["accounts"][number];
@@ -105,6 +106,11 @@ function AccountRow({ account }: { account: Account }) {
 
       {expanded && (
         <div className="batch-list">
+          {!account.accountType.tracksQuantity && (
+            <div style={{ marginBottom: 12 }}>
+              <RecordAccountTransactionModal customerAccountId={account.id} />
+            </div>
+          )}
           {account.transactions.length === 0 ? (
             <p style={{ color: "var(--ink-muted)", fontSize: 12.5 }}>No transactions yet.</p>
           ) : (

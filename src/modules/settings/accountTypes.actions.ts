@@ -27,6 +27,7 @@ export async function createAccountType(input: AccountTypeInput) {
       name: data.name,
       code: data.code,
       tracksQuantity: data.tracksQuantity,
+      isLoan: data.isLoan,
       fields: {
         create: data.fields.map((f) => ({
           fieldName: f.fieldName,

@@ -17,7 +17,7 @@ function singleMethodSplit(method: keyof PaymentSplitDraft, total: number): Paym
 
 // Two ways to pay, per the shopkeeper's actual counter workflow: most
 // sales are 100% one method, so a single tap ("All cash" / "All
-// account" / "All credit") fills the whole bill total into that
+// account" / "All Udhaar") fills the whole bill total into that
 // method with zero typing. "Custom split" is the fallback for the
 // minority of sales that genuinely mix methods (e.g. some cash, some
 // on account, some credit), which reveals the three manual amount
@@ -92,7 +92,7 @@ export function PaymentSplitEditor({
           All account
         </button>
         <button type="button" className={!customMode && activeQuickMethod === "credit" ? "active" : ""} onClick={() => selectQuickMethod("credit")}>
-          All credit
+          All Udhaar
         </button>
         <button type="button" className={customMode ? "active" : ""} onClick={switchToCustom}>
           Custom split
@@ -124,7 +124,7 @@ export function PaymentSplitEditor({
             />
           </div>
           <div className="field" style={{ marginBottom: 0, flex: "0 1 200px" }}>
-            <label style={{ fontWeight: 400, fontSize: 12.5 }}>Credit</label>
+            <label style={{ fontWeight: 400, fontSize: 12.5 }}>Udhaar</label>
             <input
               type="number"
               min="0"

@@ -9,7 +9,7 @@ import { buildExpensesHref, type ExpensesSearchParams } from "./searchParamsHref
 const PAYMENT_LABEL: Record<string, string> = {
   CASH: "Cash",
   ACCOUNT: "On account",
-  CREDIT: "Credit",
+  CREDIT: "Udhaar",
 };
 
 const PAYMENT_CLASS: Record<string, string> = {

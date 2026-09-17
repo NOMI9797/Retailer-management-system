@@ -8,7 +8,7 @@ import { buildDailySalesHref, type DailySalesSearchParams } from "./searchParams
 const PAYMENT_LABEL: Record<string, string> = {
   CASH: "Cash",
   ACCOUNT: "On account",
-  CREDIT: "Credit",
+  CREDIT: "Udhaar",
   MIXED: "Mixed",
 };
 

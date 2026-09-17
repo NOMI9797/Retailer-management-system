@@ -21,3 +21,22 @@ export const updateCustomerSchema = z.object({
   notes: z.string().optional(),
 });
 export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
+
+// Manually records a loan given or a repayment received on a Udhar or
+// Regular account (the only two account kinds this milestone's Debt
+// tracking covers) — the one write path both the Customer Accounts
+// ledger view and the Debts page's quick action share, so there is
+// exactly one implementation of the balance math, never two that
+// could drift. Consignment/farmer payouts still post automatically
+// from applySaleItems and are NOT recorded through this action.
+export const recordAccountTransactionSchema = z.object({
+  customerAccountId: z.string().uuid(),
+  direction: z.enum(["IN", "OUT"]),
+  amount: z.number().positive("Amount must be positive"),
+  paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
+  // "YYYY-MM-DD" — only meaningful on a loan given (direction OUT);
+  // optional even then, since not every loan needs a formal due date.
+  dueDate: z.string().optional(),
+  notes: z.string().optional(),
+});
+export type RecordAccountTransactionInput = z.infer<typeof recordAccountTransactionSchema>;

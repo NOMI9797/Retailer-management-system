@@ -149,14 +149,17 @@ async function applySaleItems(
 
 // The BUYER side: validates the Cash/Account/Credit split sums to the
 // bill total and records one DailySalePayment row per method actually
-// used. Account types (Regular/Udhar/Consignment/...) are purely
-// static labels for categorizing a customer — for now, NO payment
-// method or balance is ever linked to a CustomerAccount/
-// AccountTransaction here, Credit included. This split exists only
-// for the sale's own record (and future Cash Flow reconciliation in
-// Milestone 3); it does not touch any account's ledger.
+// used. Cash/Account are purely informational, same as before — but a
+// Credit portion now posts a real debt onto the customer's Udhar
+// account (auto-created if they don't have one yet), tagged with this
+// sale's id so editing/deleting the sale reverses it correctly (see
+// reverseSaleContents). Regular/Consignment/other account types are
+// still never touched from here — only Udhar, and only for the
+// Credit amount.
 async function applyPaymentSplit(
   tx: Prisma.TransactionClient,
+  shopId: string,
+  customerId: string,
   saleId: string,
   itemTotal: number,
   payments: PaymentSplitInput,
@@ -183,6 +186,36 @@ async function applyPaymentSplit(
     await tx.dailySalePayment.create({
       data: { dailySaleId: saleId, paymentMethod: "CREDIT", amount: payments.credit, visitAt },
     });
+
+    const udharType = await tx.accountType.findFirst({ where: { shopId, name: "Udhar" } });
+    if (udharType) {
+      let udharAccount = await tx.customerAccount.findFirst({
+        where: { customerId, accountTypeId: udharType.id },
+      });
+      if (!udharAccount) {
+        udharAccount = await tx.customerAccount.create({
+          data: { customerId, accountTypeId: udharType.id },
+        });
+      }
+
+      await tx.accountTransaction.create({
+        data: {
+          customerAccountId: udharAccount.id,
+          direction: "OUT",
+          amount: payments.credit,
+          linkedSaleId: saleId,
+          paymentMethod: "CREDIT",
+          notes: "Credit sale — auto-posted to Udhar",
+        },
+      });
+      // Mirror-image debt convention (see recordAccountTransaction):
+      // OUT on a non-tracksQuantity account means the customer now
+      // owes more, so balance increments.
+      await tx.customerAccount.update({
+        where: { id: udharAccount.id },
+        data: { currentBalance: { increment: payments.credit } },
+      });
+    }
   }
 }
 
@@ -224,19 +257,28 @@ async function reverseSaleContents(tx: Prisma.TransactionClient, shopId: string,
   }
 
   // Reverse every ledger posting this sale made — both the
-  // consignment payouts and the buyer's credit charge carry the same
-  // linkedSaleId, so this one query catches both sides.
-  const transactions = await tx.accountTransaction.findMany({ where: { linkedSaleId: saleId } });
+  // consignment payouts and the buyer's Udhar credit charge carry the
+  // same linkedSaleId, so this one query catches both sides. The two
+  // kinds of account use OPPOSITE conventions for what OUT/IN do to
+  // currentBalance (see recordAccountTransaction's comment): a
+  // consignment/farmer account's OUT decrements (money leaving the
+  // shop), while a debt account's OUT increments (customer now owes
+  // more) — so which correction to apply depends on the account's
+  // tracksQuantity, not on direction alone.
+  const transactions = await tx.accountTransaction.findMany({
+    where: { linkedSaleId: saleId },
+    include: { customerAccount: { include: { accountType: true } } },
+  });
   for (const txn of transactions) {
-    // Currently only ever consignment/farmer payouts (direction OUT,
-    // which had decremented the farmer's balance) — the buyer's
-    // payment split never posts a transaction. Reversing means
-    // applying the opposite of whatever direction it was.
     const amount = Number(txn.amount);
+    const isDebtAccount = !txn.customerAccount.accountType.tracksQuantity;
+    const originalEffectWasIncrement = isDebtAccount
+      ? txn.direction === "OUT"
+      : txn.direction === "IN";
     await tx.customerAccount.update({
       where: { id: txn.customerAccountId },
       data: {
-        currentBalance: txn.direction === "OUT" ? { increment: amount } : { decrement: amount },
+        currentBalance: originalEffectWasIncrement ? { decrement: amount } : { increment: amount },
       },
     });
   }
@@ -331,7 +373,7 @@ export async function createDailySale(input: CreateDailySaleInput) {
     // entry's visit groups under the picked date, not under today.
     const visitAt = targetDateTime;
     const itemTotal = await applySaleItems(tx, shopId, sale.id, data.items, visitAt);
-    await applyPaymentSplit(tx, sale.id, itemTotal, data.payments, visitAt);
+    await applyPaymentSplit(tx, shopId, data.customerId, sale.id, itemTotal, data.payments, visitAt);
 
     const created = await tx.dailySale.findUniqueOrThrow({
       where: { id: sale.id },
@@ -365,6 +407,7 @@ export async function updateDailySale(input: UpdateDailySaleInput) {
   const data = updateDailySaleSchema.parse(input);
 
   return db.$transaction(async (tx) => {
+    const existingSale = await tx.dailySale.findFirstOrThrow({ where: { id: data.saleId, shopId } });
     await reverseSaleContents(tx, shopId, data.saleId);
 
     // The edited items/payments are written as a single fresh visit —
@@ -373,7 +416,7 @@ export async function updateDailySale(input: UpdateDailySaleInput) {
     // presents it (one combined item list, one combined split).
     const visitAt = new Date();
     const itemTotal = await applySaleItems(tx, shopId, data.saleId, data.items, visitAt);
-    await applyPaymentSplit(tx, data.saleId, itemTotal, data.payments, visitAt);
+    await applyPaymentSplit(tx, shopId, existingSale.customerId, data.saleId, itemTotal, data.payments, visitAt);
 
     const updated = await tx.dailySale.findUniqueOrThrow({
       where: { id: data.saleId },

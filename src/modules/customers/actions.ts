@@ -2,7 +2,15 @@
 
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
-import { customerSchema, updateCustomerSchema, type CustomerInput, type UpdateCustomerInput } from "./schema";
+import { parseLocalDateStart } from "@/lib/utils";
+import {
+  customerSchema,
+  updateCustomerSchema,
+  recordAccountTransactionSchema,
+  type CustomerInput,
+  type UpdateCustomerInput,
+  type RecordAccountTransactionInput,
+} from "./schema";
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -263,4 +271,55 @@ export async function getCustomer(id: string) {
       })),
     })),
   };
+}
+
+// Manually records a loan given or a repayment received on a Udhar or
+// Regular account — the one write path the Customer Accounts ledger
+// view and the Debts page's "record repayment" quick action both
+// share. NOT for consignment/farmer accounts: those only ever get
+// AccountTransactions posted automatically from applySaleItems, whose
+// OUT-decrements-balance convention has the opposite meaning (money
+// leaving the shop TO the farmer) from a customer loan (money the
+// shop is now owed MORE of). Rejecting tracksQuantity accounts here
+// keeps that existing convention completely untouched rather than
+// trying to make one direction mean two different things.
+export async function recordAccountTransaction(input: RecordAccountTransactionInput) {
+  const shopId = await getCurrentShopId();
+  const data = recordAccountTransactionSchema.parse(input);
+
+  const account = await db.customerAccount.findFirst({
+    where: { id: data.customerAccountId, customer: { shopId } },
+    include: { accountType: true },
+  });
+  if (!account) throw new Error("Account not found");
+  if (account.accountType.tracksQuantity) {
+    throw new Error("Consignment accounts are posted automatically from sales, not recorded manually here.");
+  }
+
+  return db.$transaction(async (tx) => {
+    const txn = await tx.accountTransaction.create({
+      data: {
+        customerAccountId: data.customerAccountId,
+        direction: data.direction,
+        amount: data.amount,
+        paymentMethod: data.paymentMethod,
+        dueDate: data.direction === "OUT" && data.dueDate ? parseLocalDateStart(data.dueDate) : null,
+        notes: data.notes || null,
+      },
+    });
+
+    // Mirror image of the consignment convention (see the comment
+    // above): on a debt account, OUT (loan given) means the customer
+    // now owes MORE, so balance increments; IN (repayment) means they
+    // owe LESS, so balance decrements. describeBalance's "positive =
+    // customer owes shop" convention stays correct either way.
+    await tx.customerAccount.update({
+      where: { id: data.customerAccountId },
+      data: {
+        currentBalance: data.direction === "OUT" ? { increment: data.amount } : { decrement: data.amount },
+      },
+    });
+
+    return txn;
+  });
 }

@@ -20,6 +20,10 @@ export const accountTypeSchema = z.object({
     .min(1, "Code is required")
     .regex(/^[A-Z0-9_]+$/, "Code must be uppercase letters, numbers, or underscores"),
   tracksQuantity: z.boolean().default(false),
+  // Marks this as a deliberate loan type (e.g. Udhar) for the Debt
+  // module's "Loan" vs "On account" badge — explicit, not inferred
+  // from name/code, since both are free text the shopkeeper controls.
+  isLoan: z.boolean().default(false),
   fields: z.array(accountTypeFieldSchema).default([]),
 });
 export type AccountTypeInput = z.infer<typeof accountTypeSchema>;
@@ -28,6 +32,7 @@ export const updateAccountTypeSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1, "Name is required").optional(),
   tracksQuantity: z.boolean().optional(),
+  isLoan: z.boolean().optional(),
   isActive: z.boolean().optional(),
 });
 export type UpdateAccountTypeInput = z.infer<typeof updateAccountTypeSchema>;

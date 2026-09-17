@@ -26,7 +26,7 @@ export async function DailySalesStatRow() {
         <p className="stat-value tone-grain">{formatMoney(stats.account)}</p>
       </div>
       <div className="stat-card">
-        <p className="stat-label">Credit</p>
+        <p className="stat-label">Udhaar</p>
         <p className="stat-value tone-consigned">{formatMoney(stats.credit)}</p>
       </div>
     </div>

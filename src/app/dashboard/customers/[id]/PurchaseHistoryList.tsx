@@ -17,6 +17,7 @@ function paymentBadgeClass(method: string) {
 }
 
 function paymentLabel(method: string) {
+  if (method === "CREDIT") return "Udhaar";
   return method.charAt(0) + method.slice(1).toLowerCase();
 }
 

@@ -112,11 +112,11 @@ export async function CashFlowDayView({ date }: { date: string }) {
               <p className="num">{formatMoney(flow.accountOut)}</p>
             </div>
             <div className="strip-item">
-              <p>Credit (sales)</p>
+              <p>Udhaar (sales)</p>
               <p className="num">{formatMoney(flow.creditIn)}</p>
             </div>
             <div className="strip-item">
-              <p>Credit (expenses)</p>
+              <p>Udhaar (expenses)</p>
               <p className="num">{formatMoney(flow.creditOut)}</p>
             </div>
           </div>
