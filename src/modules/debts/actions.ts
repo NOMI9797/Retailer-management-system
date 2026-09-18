@@ -7,6 +7,14 @@ import type { Prisma } from "@prisma/client";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
+// A due date passing alone doesn't make someone a defaulter — the
+// shop gives a week's grace after the due date before it's treated as
+// a real problem. This is the ONE definition of "overdue" used
+// everywhere (Regular/Long-term tabs' inline flag AND the Defaulter
+// tab's list) — not two different severities, per the "same rule,
+// Defaulter is just the consolidated view" decision.
+const GRACE_PERIOD_DAYS = 7;
+
 type AccountWithTransactions = Prisma.CustomerAccountGetPayload<{
   include: { customer: true; accountType: true; transactions: true };
 }>;
@@ -36,7 +44,9 @@ function summarizeAccount(account: AccountWithTransactions, bucket: DebtBucket):
   const daysSince = Math.max(0, Math.floor((now - debtSince.getTime()) / MS_PER_DAY));
 
   const oldestDueDated = sortedTxns.find((t) => t.dueDate !== null) ?? null;
-  const isOverdue = oldestDueDated !== null && oldestDueDated.dueDate! < new Date();
+  const isOverdue =
+    oldestDueDated !== null &&
+    oldestDueDated.dueDate!.getTime() + GRACE_PERIOD_DAYS * MS_PER_DAY < now;
 
   let totalBorrowed = 0;
   let totalPaid = 0;
@@ -52,6 +62,7 @@ function summarizeAccount(account: AccountWithTransactions, bucket: DebtBucket):
     customerPhone: account.customer.phone,
     accountTypeName: account.accountType.name,
     kind: account.accountType.isLoan ? "LOAN" : "ON_ACCOUNT",
+    bucket,
     balance: totalBorrowed - totalPaid,
     totalBorrowed,
     totalPaid,
@@ -76,8 +87,9 @@ function summarizeAccount(account: AccountWithTransactions, bucket: DebtBucket):
 // payment allocation. Instead: "debt since" is the account's EARLIEST
 // transaction (when the relationship started owing), and "overdue" is
 // keyed off the earliest transaction that actually carries a dueDate
-// (the oldest loan with a due date set) — if that date has passed and
-// the account still owes money, the whole account is flagged.
+// (the oldest loan with a due date set) — if that date PLUS a
+// GRACE_PERIOD_DAYS week has passed and the account still owes money,
+// the whole account is flagged (see GRACE_PERIOD_DAYS above).
 //
 // currentBalance can't be filtered at the database level per-bucket
 // (it's a shared total across both), so this fetches every account
@@ -135,6 +147,23 @@ export async function getDebtSummary(bucket: DebtBucket = "REGULAR"): Promise<De
     overdueCount,
     totalPaidOverall,
   };
+}
+
+// The Defaulter tab's data source — every currently-overdue debtor
+// from BOTH buckets combined into one consolidated list, per the
+// "same rule everywhere, Defaulter is just the consolidated view"
+// decision. A defaulter's loan still shows up normally on its own
+// Regular or Long-term tab too (this is a read-only view layered on
+// top, nothing is removed from where it would otherwise appear).
+// Sorted oldest-overdue first — the ones that have been sitting
+// longest past their grace period need attention soonest.
+export async function listDefaulters(): Promise<DebtRow[]> {
+  const [regular, longTerm] = await Promise.all([listDebtors("REGULAR"), listDebtors("LONG_TERM")]);
+
+  const defaulters = [...regular, ...longTerm].filter((row) => row.isOverdue);
+  defaulters.sort((a, b) => (a.dueDate?.getTime() ?? 0) - (b.dueDate?.getTime() ?? 0));
+
+  return defaulters;
 }
 
 // One customer's Udhaar account summary — powers the Udhaar Clearance

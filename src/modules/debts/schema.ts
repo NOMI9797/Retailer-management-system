@@ -14,15 +14,19 @@ export type DebtRow = {
   // account carrying a balance — the badge distinction the milestone
   // asks to preserve even in one combined list.
   kind: "LOAN" | "ON_ACCOUNT";
-  // totalBorrowed (sum of every OUT posting ever made on this
-  // account) and totalPaid (sum of every IN posting) are both
-  // lifetime totals, not tied to any single loan — same simplified
-  // whole-account approach as the overdue flag, since partial
-  // repayments don't cleanly map back to one original loan (see the
-  // milestone's explicit scope boundary). balance is always
-  // totalBorrowed - totalPaid, kept here directly from
-  // CustomerAccount.currentBalance rather than recomputed, so it can
-  // never drift from what the rest of the app reads.
+  // Which bucket (Regular/Daily vs Long-term) this row's figures are
+  // scoped to — set by summarizeAccount based on which bucket it was
+  // asked to compute. Needed on the Defaulter tab, which combines rows
+  // from both buckets into one list and must say which kind each is.
+  bucket: DebtBucket;
+  // totalBorrowed (sum of every OUT posting in THIS BUCKET) and
+  // totalPaid (sum of every IN posting in this bucket) are both
+  // lifetime totals scoped to the bucket, not tied to any single loan
+  // — same simplified whole-account approach as the overdue flag,
+  // since partial repayments don't cleanly map back to one original
+  // loan (see the milestone's explicit scope boundary). balance is
+  // always totalBorrowed - totalPaid for this bucket, NOT
+  // CustomerAccount.currentBalance (which combines both buckets).
   balance: number;
   totalBorrowed: number;
   totalPaid: number;
@@ -32,6 +36,10 @@ export type DebtRow = {
   debtSince: Date;
   daysSince: number;
   dueDate: Date | null;
+  // True once the oldest due-dated unpaid transaction's due date PLUS
+  // a grace period has passed (see GRACE_PERIOD_DAYS in actions.ts) —
+  // the one definition of "overdue" used both inline on the Regular/
+  // Long-term tabs and as the Defaulter tab's inclusion rule.
   isOverdue: boolean;
 };
 

@@ -308,11 +308,30 @@ export async function recordAccountTransaction(input: RecordAccountTransactionIn
 
   const account = await db.customerAccount.findFirst({
     where: { id: data.customerAccountId, customer: { shopId } },
-    include: { accountType: true },
+    include: { accountType: true, transactions: true },
   });
   if (!account) throw new Error("Account not found");
   if (account.accountType.tracksQuantity) {
     throw new Error("Consignment accounts are posted automatically from sales, not recorded manually here.");
+  }
+
+  // A repayment can't exceed what's actually remaining IN THIS
+  // BUCKET — Regular and Long-term are isolated (see
+  // AccountTransaction.isLongTerm's schema comment), so a customer
+  // with room on one bucket can't accidentally overpay the other.
+  // Only checked on IN (a loan given has no such ceiling).
+  if (data.direction === "IN") {
+    const bucketTxns = account.transactions.filter((t) => t.isLongTerm === data.isLongTerm);
+    const bucketBalance = bucketTxns.reduce(
+      (sum, t) => sum + (t.direction === "OUT" ? Number(t.amount) : -Number(t.amount)),
+      0
+    );
+    if (data.amount > bucketBalance + 0.01) {
+      const bucketLabel = data.isLongTerm ? "Long-term Udhaar" : "Regular/Daily Udhaar";
+      throw new Error(
+        `This repayment (Rs ${data.amount}) is more than what's remaining on ${bucketLabel} (Rs ${bucketBalance}) — a payment can't exceed what's actually owed.`
+      );
+    }
   }
 
   const txn = await db.$transaction(async (tx) => {
