@@ -5,7 +5,7 @@ import { buildDailySalesHref } from "./searchParamsHref";
 import type { listAccountTypes } from "@/modules/settings/accountTypes.actions";
 
 // Filters Sales history to customers holding a given account type
-// (Regular/Udhar/Consignment/...) — purely a lookup aid, same as the
+// (Regular/Udhaar/Consignment/...) — purely a lookup aid, same as the
 // area filter; account types stay static categorization elsewhere.
 export function DailySalesAccountTypeSelect({
   accountTypes,

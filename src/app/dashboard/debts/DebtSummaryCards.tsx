@@ -7,12 +7,12 @@ export async function DebtSummaryCards() {
   return (
     <div className="stat-grid customers-stat-grid" style={{ marginBottom: 22 }}>
       <div className="stat-card">
-        <p className="stat-label">Total loans (Udhar)</p>
+        <p className="stat-label">Total loans (Udhaar)</p>
         <p className="stat-value tone-grain">{formatMoney(summary.totalLoans)}</p>
       </div>
       <div className="stat-card">
-        <p className="stat-label">Total on-account</p>
-        <p className="stat-value tone-primary">{formatMoney(summary.totalOnAccount)}</p>
+        <p className="stat-label">Total repaid so far</p>
+        <p className="stat-value tone-primary">{formatMoney(summary.totalPaidOverall)}</p>
       </div>
       <div className="stat-card">
         <p className="stat-label">Grand total owed</p>

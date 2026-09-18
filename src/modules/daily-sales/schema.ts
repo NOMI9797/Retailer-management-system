@@ -14,7 +14,7 @@ export type DailySaleItemInput = z.infer<typeof dailySaleItemSchema>;
 // both "paid in full right now" (just different channels, tracked
 // separately for Cash Flow reconciliation), credit means "not paid
 // yet." Cash/Account never post to a CustomerAccount's ledger. Credit
-// does: it auto-posts a debt onto the customer's Udhar account (see
+// does: it auto-posts a debt onto the customer's Udhaar account (see
 // applyPaymentSplit), auto-creating that account if they don't have
 // one yet — the one exception to "account types are purely static
 // categorization, untouched by Daily Sales." All three are optional

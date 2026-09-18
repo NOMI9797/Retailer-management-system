@@ -8,7 +8,7 @@ import type { getCustomer } from "@/modules/customers/actions";
 type Account = Awaited<ReturnType<typeof getCustomer>>["accounts"][number];
 
 // A dedicated Accounts panel — one row per account type with its own
-// colored icon (teal for Regular, neutral for Udhar-style, coral for
+// colored icon (teal for Regular, neutral for Udhaar-style, coral for
 // Consignment), rather than the generic grain-card/batch-row pattern
 // borrowed from Products, since an account's shape (a balance plus a
 // flat transaction ledger) doesn't need a grain batch's structure.
@@ -38,8 +38,8 @@ export function CustomerAccountsList({ accounts }: { accounts: Account[] }) {
 // Consignment is the one account kind with a real behavioral
 // difference (tracksQuantity — farmer payouts), so it's keyed off that
 // flag rather than a specific code, which may not exist for every
-// shop. "Udhar" has no such flag to key off, so any other non-tracking
-// account type (Udhar, or a shopkeeper's own custom type) falls back
+// shop. "Udhaar" has no such flag to key off, so any other non-tracking
+// account type (Udhaar, or a shopkeeper's own custom type) falls back
 // to the same neutral icon rather than guessing from its name.
 function iconVariant(account: Account) {
   if (account.accountType.tracksQuantity) return "consignment";

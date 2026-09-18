@@ -150,11 +150,11 @@ async function applySaleItems(
 // The BUYER side: validates the Cash/Account/Credit split sums to the
 // bill total and records one DailySalePayment row per method actually
 // used. Cash/Account are purely informational, same as before — but a
-// Credit portion now posts a real debt onto the customer's Udhar
+// Credit portion now posts a real debt onto the customer's Udhaar
 // account (auto-created if they don't have one yet), tagged with this
 // sale's id so editing/deleting the sale reverses it correctly (see
 // reverseSaleContents). Regular/Consignment/other account types are
-// still never touched from here — only Udhar, and only for the
+// still never touched from here — only Udhaar, and only for the
 // Credit amount.
 async function applyPaymentSplit(
   tx: Prisma.TransactionClient,
@@ -187,7 +187,7 @@ async function applyPaymentSplit(
       data: { dailySaleId: saleId, paymentMethod: "CREDIT", amount: payments.credit, visitAt },
     });
 
-    const udharType = await tx.accountType.findFirst({ where: { shopId, name: "Udhar" } });
+    const udharType = await tx.accountType.findFirst({ where: { shopId, name: "Udhaar" } });
     if (udharType) {
       let udharAccount = await tx.customerAccount.findFirst({
         where: { customerId, accountTypeId: udharType.id },
@@ -205,7 +205,7 @@ async function applyPaymentSplit(
           amount: payments.credit,
           linkedSaleId: saleId,
           paymentMethod: "CREDIT",
-          notes: "Credit sale — auto-posted to Udhar",
+          notes: "Credit sale — auto-posted to Udhaar",
         },
       });
       // Mirror-image debt convention (see recordAccountTransaction):
@@ -257,7 +257,7 @@ async function reverseSaleContents(tx: Prisma.TransactionClient, shopId: string,
   }
 
   // Reverse every ledger posting this sale made — both the
-  // consignment payouts and the buyer's Udhar credit charge carry the
+  // consignment payouts and the buyer's Udhaar credit charge carry the
   // same linkedSaleId, so this one query catches both sides. The two
   // kinds of account use OPPOSITE conventions for what OUT/IN do to
   // currentBalance (see recordAccountTransaction's comment): a
@@ -448,7 +448,11 @@ export async function deleteDailySale(saleId: string) {
 // item bought, at what price, on what date, plus the payment split,
 // queried directly from the same DailySale/DailySaleItem/
 // DailySalePayment rows Daily Sales wrote (not a copy). Exists for
-// every sale, cash, account, or credit.
+// every sale, cash, account, or credit. Also merges in this
+// customer's Udhaar Clearances (repayments, from
+// recordAccountTransaction) as their own entries — same "sales AND
+// repayments in one history feed" merge listDailySales does for the
+// shop-wide Sales History table, just scoped to one customer.
 //
 // A single DailySale row can hold more than one visit (a customer who
 // came back later the same day appends to it rather than getting a
@@ -459,13 +463,22 @@ export async function deleteDailySale(saleId: string) {
 export async function getCustomerPurchaseHistory(customerId: string) {
   const shopId = await getCurrentShopId();
 
-  const sales = await db.dailySale.findMany({
-    where: { customerId, shopId },
-    include: { items: { include: { product: true } }, payments: true },
-    orderBy: { saleDate: "desc" },
-  });
+  const [sales, clearances] = await Promise.all([
+    db.dailySale.findMany({
+      where: { customerId, shopId },
+      include: { items: { include: { product: true } }, payments: true },
+      orderBy: { saleDate: "desc" },
+    }),
+    db.accountTransaction.findMany({
+      where: {
+        direction: "IN",
+        customerAccount: { customerId, accountType: { tracksQuantity: false }, customer: { shopId } },
+      },
+      orderBy: { transactionDate: "desc" },
+    }),
+  ]);
 
-  return sales.map((sale) => {
+  const saleEntries = sales.map((sale) => {
     const visitTimes = Array.from(new Set(sale.items.map((i) => i.visitAt.getTime()))).sort((a, b) => b - a);
 
     const visits = visitTimes.map((time) => {
@@ -490,12 +503,23 @@ export async function getCustomerPurchaseHistory(customerId: string) {
     });
 
     return {
+      kind: "SALE" as const,
       id: sale.id,
       saleDate: sale.saleDate,
       season: sale.season,
       visits,
     };
   });
+
+  const clearanceEntries = clearances.map((txn) => ({
+    kind: "UDHAAR_CLEARANCE" as const,
+    id: txn.id,
+    saleDate: txn.transactionDate,
+    amount: Number(txn.amount),
+    paymentMethod: txn.paymentMethod,
+  }));
+
+  return [...saleEntries, ...clearanceEntries].sort((a, b) => b.saleDate.getTime() - a.saleDate.getTime());
 }
 
 // The edit form's data source for one sale — same shape
@@ -534,6 +558,32 @@ export async function getDailySaleForEdit(saleId: string) {
 // Summary-only rows for the Sales history list — customer name,
 // date, item count, total bill. Full line-item detail deliberately
 // doesn't live here; it's on the customer's own detail page.
+// One row in the merged history feed — either a real product sale, or
+// an Udhaar Clearance (a repayment recorded against a customer's
+// Udhaar/Regular account, via recordAccountTransaction). Both are
+// keyed off `kind` so SalesHistoryTable can render each appropriately
+// (a clearance has no items, just an amount and a distinct badge).
+export type DailySaleHistoryRow =
+  | {
+      kind: "SALE";
+      id: string;
+      customerId: string;
+      customerName: string;
+      saleDate: Date;
+      itemCount: number;
+      total: number;
+      paymentSummary: "CASH" | "ACCOUNT" | "CREDIT" | "MIXED" | null;
+    }
+  | {
+      kind: "UDHAAR_CLEARANCE";
+      id: string;
+      customerId: string;
+      customerName: string;
+      saleDate: Date;
+      amount: number;
+      paymentMethod: "CASH" | "ACCOUNT" | "CREDIT";
+    };
+
 export async function listDailySales(options?: {
   customerId?: string;
   search?: string;
@@ -548,59 +598,100 @@ export async function listDailySales(options?: {
   const page = Math.max(1, options?.page ?? 1);
   const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE;
 
+  const customerFilter = {
+    name: options?.search ? { contains: options.search, mode: "insensitive" as const } : undefined,
+    areaId: options?.areaId || undefined,
+    accounts: options?.accountTypeId ? { some: { accountTypeId: options.accountTypeId } } : undefined,
+  };
+
+  const dateFilter = {
+    gte: options?.fromDate ? parseLocalDateStart(options.fromDate) : undefined,
+    lte: options?.toDate ? parseLocalDateEnd(options.toDate) : undefined,
+  };
+
   const where = {
     shopId,
     customerId: options?.customerId || undefined,
-    saleDate: {
-      gte: options?.fromDate ? parseLocalDateStart(options.fromDate) : undefined,
-      lte: options?.toDate ? parseLocalDateEnd(options.toDate) : undefined,
-    },
+    saleDate: dateFilter,
     // Filtering by the buyer's name, area, or account type — this is
     // "find what this customer bought right now" support, not a sales
     // report; it goes through the customer relation since none of
     // these live on DailySale itself.
-    customer: {
-      name: options?.search ? { contains: options.search, mode: "insensitive" as const } : undefined,
-      areaId: options?.areaId || undefined,
-      accounts: options?.accountTypeId ? { some: { accountTypeId: options.accountTypeId } } : undefined,
+    customer: customerFilter,
+  };
+
+  // Udhaar Clearances are fetched with the same filters (customer/
+  // date), so the merged feed reflects one consistent search across
+  // both sales and repayments — never CONSIGNMENT accounts, since
+  // those aren't a customer debt (see recordAccountTransaction).
+  const clearanceWhere = {
+    direction: "IN" as const,
+    transactionDate: dateFilter,
+    customerAccount: {
+      accountType: { tracksQuantity: false },
+      customerId: options?.customerId || undefined,
+      customer: { shopId, ...customerFilter },
     },
   };
 
-  const [sales, totalCount] = await Promise.all([
+  // No database-level pagination across two different tables — fetch
+  // every matching row from both, merge by date, then paginate the
+  // combined list in memory. Fine for a single shop's daily volume;
+  // revisit if this ever needs to scale past that.
+  const [sales, clearances] = await Promise.all([
     db.dailySale.findMany({
       where,
       include: { customer: true, items: true, payments: true },
       orderBy: { saleDate: "desc" },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
     }),
-    db.dailySale.count({ where }),
+    db.accountTransaction.findMany({
+      where: clearanceWhere,
+      include: { customerAccount: { include: { customer: true } } },
+      orderBy: { transactionDate: "desc" },
+    }),
   ]);
 
-  return {
-    sales: sales.map((sale) => {
-      const paymentTotals = { CASH: 0, ACCOUNT: 0, CREDIT: 0 };
-      for (const p of sale.payments) paymentTotals[p.paymentMethod] += Number(p.amount);
-      // A summary tag for the row — "Cash"/"Account"/"Credit" when the
-      // whole day's sale was paid one way, "Mixed" when more than one
-      // method has a nonzero amount. Purely a display label; the real
-      // breakdown lives in paymentTotals and on the customer's
-      // Purchase History panel.
-      const methodsUsed = (Object.keys(paymentTotals) as (keyof typeof paymentTotals)[]).filter(
-        (m) => paymentTotals[m] > 0
-      );
-      const paymentSummary = methodsUsed.length === 1 ? methodsUsed[0] : methodsUsed.length > 1 ? "MIXED" : null;
+  const saleRows: DailySaleHistoryRow[] = sales.map((sale) => {
+    const paymentTotals = { CASH: 0, ACCOUNT: 0, CREDIT: 0 };
+    for (const p of sale.payments) paymentTotals[p.paymentMethod] += Number(p.amount);
+    // A summary tag for the row — "Cash"/"Account"/"Credit" when the
+    // whole day's sale was paid one way, "Mixed" when more than one
+    // method has a nonzero amount. Purely a display label; the real
+    // breakdown lives in paymentTotals and on the customer's
+    // Purchase History panel.
+    const methodsUsed = (Object.keys(paymentTotals) as (keyof typeof paymentTotals)[]).filter(
+      (m) => paymentTotals[m] > 0
+    );
+    const paymentSummary = methodsUsed.length === 1 ? methodsUsed[0] : methodsUsed.length > 1 ? "MIXED" : null;
 
-      return {
-        id: sale.id,
-        customerId: sale.customerId,
-        customerName: sale.customer.name,
-        saleDate: sale.saleDate,
-        itemCount: sale.items.length,
-        total: sale.items.reduce((sum, i) => sum + Number(i.actualPrice) * Number(i.quantity), 0),
-        paymentSummary,
-      };
-    }),
+    return {
+      kind: "SALE",
+      id: sale.id,
+      customerId: sale.customerId,
+      customerName: sale.customer.name,
+      saleDate: sale.saleDate,
+      itemCount: sale.items.length,
+      total: sale.items.reduce((sum, i) => sum + Number(i.actualPrice) * Number(i.quantity), 0),
+      paymentSummary,
+    };
+  });
+
+  const clearanceRows: DailySaleHistoryRow[] = clearances.map((txn) => ({
+    kind: "UDHAAR_CLEARANCE",
+    id: txn.id,
+    customerId: txn.customerAccount.customerId,
+    customerName: txn.customerAccount.customer.name,
+    saleDate: txn.transactionDate,
+    amount: Number(txn.amount),
+    paymentMethod: txn.paymentMethod,
+  }));
+
+  const merged = [...saleRows, ...clearanceRows].sort((a, b) => b.saleDate.getTime() - a.saleDate.getTime());
+  const totalCount = merged.length;
+  const paged = merged.slice((page - 1) * pageSize, page * pageSize);
+
+  return {
+    sales: paged,
     totalCount,
     page,
     pageSize,

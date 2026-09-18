@@ -22,7 +22,10 @@ const PAYMENT_CLASS: Record<string, string> = {
 // Summary rows only, per the milestone: customer, date, item count,
 // total bill. Full line-item detail deliberately doesn't live here —
 // clicking through goes to that customer's own detail page, where
-// the purchase history panel shows the actual items.
+// the purchase history panel shows the actual items. Also includes
+// Udhaar Clearance rows (repayments) merged into the same date-sorted
+// feed — a shopkeeper scanning "what happened today" sees sales AND
+// money coming back in one list, each clearly tagged.
 export async function SalesHistoryTable({ searchParams }: { searchParams: DailySalesSearchParams }) {
   const page = searchParams.page ? Number(searchParams.page) : 1;
   const result = await listDailySales({
@@ -35,14 +38,14 @@ export async function SalesHistoryTable({ searchParams }: { searchParams: DailyS
     page,
   });
 
-  // listDailySales already orders by saleDate desc, so same-day rows
-  // are already adjacent — a date-header row is inserted whenever the
-  // date changes, rather than repeating the date on every row, so
-  // scanning the page makes it obvious which sales fall on which day
-  // (mirrors the day-grouping already used on the customer's Purchase
-  // History panel).
+  // listDailySales already orders the merged feed desc by date, so
+  // same-day rows are already adjacent — a date-header row is
+  // inserted whenever the date changes, rather than repeating the
+  // date on every row, so scanning the page makes it obvious which
+  // rows fall on which day (mirrors the day-grouping already used on
+  // the customer's Purchase History panel).
   let lastDateKey: string | null = null;
-  const pageTotal = result.sales.reduce((sum, s) => sum + s.total, 0);
+  const pageTotal = result.sales.reduce((sum, s) => sum + (s.kind === "SALE" ? s.total : s.amount), 0);
 
   return (
     <>
@@ -63,14 +66,14 @@ export async function SalesHistoryTable({ searchParams }: { searchParams: DailyS
                 <td colSpan={5}>No sales recorded yet.</td>
               </tr>
             ) : (
-              result.sales.map((sale) => {
-                const dateKey = formatDate(sale.saleDate);
+              result.sales.map((row) => {
+                const dateKey = formatDate(row.saleDate);
                 const isNewDay = dateKey !== lastDateKey;
                 lastDateKey = dateKey;
-                const initial = sale.customerName.charAt(0).toUpperCase();
+                const initial = row.customerName.charAt(0).toUpperCase();
 
                 return (
-                  <Fragment key={sale.id}>
+                  <Fragment key={row.id}>
                     {isNewDay && (
                       <tr className="table-date-header">
                         <td colSpan={5}>{dateKey}</td>
@@ -80,23 +83,37 @@ export async function SalesHistoryTable({ searchParams }: { searchParams: DailyS
                       <td>
                         <div className="cust-cell">
                           <div className="cust-avatar">{initial}</div>
-                          <span style={{ fontWeight: 500 }}>{sale.customerName}</span>
+                          <span style={{ fontWeight: 500 }}>{row.customerName}</span>
                         </div>
                       </td>
-                      <td>
-                        {sale.itemCount} item{sale.itemCount === 1 ? "" : "s"}
-                      </td>
-                      <td>
-                        {sale.paymentSummary && (
-                          <span className={`pay-badge ${PAYMENT_CLASS[sale.paymentSummary]}`}>
-                            {PAYMENT_LABEL[sale.paymentSummary]}
-                          </span>
-                        )}
-                      </td>
-                      <td style={{ textAlign: "right", fontWeight: 600 }}>{formatMoney(sale.total)}</td>
+                      {row.kind === "SALE" ? (
+                        <>
+                          <td>
+                            {row.itemCount} item{row.itemCount === 1 ? "" : "s"}
+                          </td>
+                          <td>
+                            {row.paymentSummary && (
+                              <span className={`pay-badge ${PAYMENT_CLASS[row.paymentSummary]}`}>
+                                {PAYMENT_LABEL[row.paymentSummary]}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: "right", fontWeight: 600 }}>{formatMoney(row.total)}</td>
+                        </>
+                      ) : (
+                        <>
+                          <td style={{ color: "var(--ink-muted)" }}>—</td>
+                          <td>
+                            <span className="pay-badge pay-udhaar-cleared">Udhaar Cleared</span>
+                          </td>
+                          <td style={{ textAlign: "right", fontWeight: 600, color: "var(--primary-600)" }}>
+                            +{formatMoney(row.amount)}
+                          </td>
+                        </>
+                      )}
                       <td>
                         <div className="row-actions" style={{ justifyContent: "flex-end" }}>
-                          <Link className="btn btn-ghost" href={`/dashboard/customers/${sale.customerId}`}>
+                          <Link className="btn btn-ghost" href={`/dashboard/customers/${row.customerId}`}>
                             View customer
                           </Link>
                         </div>

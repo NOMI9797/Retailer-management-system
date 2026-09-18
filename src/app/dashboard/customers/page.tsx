@@ -23,7 +23,7 @@ export default async function CustomersPage({
 
   return (
     <div>
-      <CustomersHeader areas={areas} accountTypes={accountTypes} />
+      <CustomersHeader areas={areas} />
 
       <Suspense fallback={<PageLoader label="Loading stats…" />}>
         <CustomerStatRow />

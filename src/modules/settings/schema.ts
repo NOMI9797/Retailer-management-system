@@ -20,7 +20,7 @@ export const accountTypeSchema = z.object({
     .min(1, "Code is required")
     .regex(/^[A-Z0-9_]+$/, "Code must be uppercase letters, numbers, or underscores"),
   tracksQuantity: z.boolean().default(false),
-  // Marks this as a deliberate loan type (e.g. Udhar) for the Debt
+  // Marks this as a deliberate loan type (e.g. Udhaar) for the Debt
   // module's "Loan" vs "On account" badge — explicit, not inferred
   // from name/code, since both are free text the shopkeeper controls.
   isLoan: z.boolean().default(false),

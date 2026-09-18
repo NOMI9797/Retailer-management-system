@@ -984,6 +984,16 @@
   color: var(--neutral-600);
 }
 
+/* A repayment row in Sales History/Purchase History — distinct from
+   every payment-method badge above (this isn't how a purchase was
+   paid, it's money coming back from an existing debt), so it gets its
+   own tone rather than reusing pay-cash/pay-account/pay-credit. */
+.shop-app .pay-badge.pay-udhaar-cleared {
+  background: var(--primary-50);
+  color: var(--primary-600);
+  font-weight: 600;
+}
+
 /* Customer detail page — header with a large gradient avatar, a
    dedicated Accounts panel (one row per account type with its own
    colored icon), and Purchase history as bounded "visit cards" rather

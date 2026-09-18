@@ -10,11 +10,22 @@ export type DebtRow = {
   customerName: string;
   customerPhone: string | null;
   accountTypeName: string;
-  // "LOAN" for a tracked Udhar-style debt, "ON_ACCOUNT" for a Regular
+  // "LOAN" for a tracked Udhaar-style debt, "ON_ACCOUNT" for a Regular
   // account carrying a balance — the badge distinction the milestone
   // asks to preserve even in one combined list.
   kind: "LOAN" | "ON_ACCOUNT";
+  // totalBorrowed (sum of every OUT posting ever made on this
+  // account) and totalPaid (sum of every IN posting) are both
+  // lifetime totals, not tied to any single loan — same simplified
+  // whole-account approach as the overdue flag, since partial
+  // repayments don't cleanly map back to one original loan (see the
+  // milestone's explicit scope boundary). balance is always
+  // totalBorrowed - totalPaid, kept here directly from
+  // CustomerAccount.currentBalance rather than recomputed, so it can
+  // never drift from what the rest of the app reads.
   balance: number;
+  totalBorrowed: number;
+  totalPaid: number;
   // The earliest unpaid transaction's date — "unpaid" here means the
   // simplified whole-account sense (see getDebtSummary's comment),
   // not a precise per-transaction allocation.
@@ -30,4 +41,9 @@ export type DebtSummary = {
   grandTotal: number;
   debtorCount: number;
   overdueCount: number;
+  // Lifetime sum of every repayment (IN posting) across every debtor
+  // account currently shown on this page — a shopkeeper's "how much
+  // has actually come back so far" figure, separate from the
+  // outstanding totals above.
+  totalPaidOverall: number;
 };

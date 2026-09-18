@@ -8,14 +8,17 @@ import { listCustomers } from "../actions";
 // hook per the module's server-first convention: everywhere else,
 // pages fetch directly, but a customer picker needs to refetch on
 // every keystroke while the rest of its parent form stays mounted.
-export function useCustomers(search?: string) {
+// areaId/accountTypeId are optional extra filters (used by the Udhaar
+// Clearance picker's "search by filters" requirement) — omitted
+// everywhere else, so existing callers are unaffected.
+export function useCustomers(search?: string, areaId?: string, accountTypeId?: string) {
   const [customers, setCustomers] = useState<Awaited<ReturnType<typeof listCustomers>>["customers"]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
-    listCustomers({ search }).then((result) => {
+    listCustomers({ search, areaId, accountTypeId }).then((result) => {
       if (!cancelled) {
         setCustomers(result.customers);
         setIsLoading(false);
@@ -24,7 +27,7 @@ export function useCustomers(search?: string) {
     return () => {
       cancelled = true;
     };
-  }, [search]);
+  }, [search, areaId, accountTypeId]);
 
   return { customers, isLoading };
 }

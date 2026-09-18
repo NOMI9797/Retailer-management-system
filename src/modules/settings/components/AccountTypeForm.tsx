@@ -101,7 +101,7 @@ export function AccountTypeForm({ onSaved }: { onSaved?: () => void }) {
             onChange={(e) => setIsLoan(e.target.checked)}
             style={{ width: "auto" }}
           />
-          Is this a loan type? (e.g. Udhar — shown as "Loan" on the Debts page)
+          Is this a loan type? (e.g. Udhaar — shown as "Loan" on the Debts page)
         </label>
       </div>
 

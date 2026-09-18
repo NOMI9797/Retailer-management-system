@@ -22,7 +22,7 @@ export const updateCustomerSchema = z.object({
 });
 export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
 
-// Manually records a loan given or a repayment received on a Udhar or
+// Manually records a loan given or a repayment received on a Udhaar or
 // Regular account (the only two account kinds this milestone's Debt
 // tracking covers) — the one write path both the Customer Accounts
 // ledger view and the Debts page's quick action share, so there is

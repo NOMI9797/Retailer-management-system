@@ -119,7 +119,7 @@ export type BalanceSummary = {
 };
 
 // Powers the Dashboard's "Customers owe" / "Shop owes farmers" cards.
-// Regular/Udhar-style accounts (tracksQuantity: false) are the normal
+// Regular/Udhaar-style accounts (tracksQuantity: false) are the normal
 // buyer credit ledger — a positive currentBalance there means the
 // customer owes the shop. Consignment-style accounts (tracksQuantity:
 // true) are farmers who've supplied stock — a NEGATIVE currentBalance

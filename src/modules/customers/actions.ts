@@ -23,9 +23,26 @@ const DEFAULT_PAGE_SIZE = 50;
 // types are attached to the EXISTING customer (skipping ones they
 // already hold) instead of spawning a second Customer row with its
 // own separate balance/history.
+//
+// Account types are simplified for now, per the "just keep Udhaar
+// account" decision: every customer gets a Regular account
+// automatically (a plain, unwired tag — no picker shown anywhere for
+// this), and an Udhaar account is only ever created later, on demand,
+// the first time they actually take a loan or make a Credit sale (see
+// applyPaymentSplit in daily-sales/actions.ts and
+// recordAccountTransaction). accountTypeIds still works exactly as
+// before for any OTHER account type a caller explicitly passes (e.g.
+// Consignment when registering a farmer) — nothing about that
+// capability was removed, only the New Sale/Add Customer forms no
+// longer show a picker for it.
 export async function createCustomer(input: CustomerInput) {
   const shopId = await getCurrentShopId();
   const data = customerSchema.parse(input);
+
+  const regularType = await db.accountType.findFirst({ where: { shopId, code: "REGULAR" } });
+  const accountTypeIds = regularType
+    ? Array.from(new Set([regularType.id, ...data.accountTypeIds]))
+    : data.accountTypeIds;
 
   const existing = await db.customer.findFirst({
     where: { shopId, name: { equals: data.name, mode: "insensitive" } },
@@ -34,7 +51,7 @@ export async function createCustomer(input: CustomerInput) {
 
   if (existing) {
     const heldTypeIds = new Set(existing.accounts.map((a) => a.accountTypeId));
-    const newTypeIds = data.accountTypeIds.filter((id) => !heldTypeIds.has(id));
+    const newTypeIds = accountTypeIds.filter((id) => !heldTypeIds.has(id));
     if (newTypeIds.length > 0) {
       await db.customerAccount.createMany({
         data: newTypeIds.map((accountTypeId) => ({ customerId: existing.id, accountTypeId })),
@@ -54,7 +71,7 @@ export async function createCustomer(input: CustomerInput) {
       areaId: data.areaId,
       notes: data.notes,
       accounts: {
-        create: data.accountTypeIds.map((accountTypeId) => ({
+        create: accountTypeIds.map((accountTypeId) => ({
           accountTypeId,
         })),
       },
@@ -89,7 +106,7 @@ export async function addCustomerAccount(customerId: string, accountTypeId: stri
 
 // Swaps which account type an existing account slot represents (e.g.
 // a customer's account was set up as "Regular" but should actually be
-// "Udhar") rather than detaching one type and attaching another,
+// "Udhaar") rather than detaching one type and attaching another,
 // which would lose the account's id/history. Blocked whenever the
 // account has any balance or transactions — a swap would silently
 // reattribute that history to a different account type, which is
@@ -273,7 +290,7 @@ export async function getCustomer(id: string) {
   };
 }
 
-// Manually records a loan given or a repayment received on a Udhar or
+// Manually records a loan given or a repayment received on a Udhaar or
 // Regular account — the one write path the Customer Accounts ledger
 // view and the Debts page's "record repayment" quick action both
 // share. NOT for consignment/farmer accounts: those only ever get
@@ -296,8 +313,8 @@ export async function recordAccountTransaction(input: RecordAccountTransactionIn
     throw new Error("Consignment accounts are posted automatically from sales, not recorded manually here.");
   }
 
-  return db.$transaction(async (tx) => {
-    const txn = await tx.accountTransaction.create({
+  const txn = await db.$transaction(async (tx) => {
+    const created = await tx.accountTransaction.create({
       data: {
         customerAccountId: data.customerAccountId,
         direction: data.direction,
@@ -320,6 +337,16 @@ export async function recordAccountTransaction(input: RecordAccountTransactionIn
       },
     });
 
-    return txn;
+    return created;
   });
+
+  // Decimal/Date fields aren't plain objects — must be serialized
+  // before crossing back into the Client Component that calls this
+  // (RecordAccountTransactionModal), same reasoning as every other
+  // action returning Prisma rows to a client caller.
+  return {
+    ...txn,
+    amount: Number(txn.amount),
+    quantity: txn.quantity ? Number(txn.quantity) : null,
+  };
 }

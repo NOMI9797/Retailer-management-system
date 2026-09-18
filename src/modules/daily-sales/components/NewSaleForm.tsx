@@ -9,7 +9,6 @@ import { createCustomer } from "@/modules/customers/actions";
 import { createDailySale } from "../actions";
 import { toLocalDateString } from "@/lib/utils";
 import type { listAreas } from "@/modules/settings/areas.actions";
-import type { listAccountTypes } from "@/modules/settings/accountTypes.actions";
 import type { listProducts } from "@/modules/products/actions";
 
 type Product = Awaited<ReturnType<typeof listProducts>>["products"][number];
@@ -20,12 +19,10 @@ function todayDateString() {
 
 export function NewSaleForm({
   areas,
-  accountTypes,
   products,
   onSaved,
 }: {
   areas: Awaited<ReturnType<typeof listAreas>>;
-  accountTypes: Awaited<ReturnType<typeof listAccountTypes>>;
   products: Product[];
   onSaved?: () => void;
 }) {
@@ -117,7 +114,7 @@ export function NewSaleForm({
         />
       </div>
 
-      <CustomerPicker areas={areas} accountTypes={accountTypes} onChange={setCustomer} />
+      <CustomerPicker areas={areas} onChange={setCustomer} />
 
       <LineItemsEditor products={products} items={items} onChange={setItems} />
 

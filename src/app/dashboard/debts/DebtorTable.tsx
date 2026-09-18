@@ -28,7 +28,9 @@ export async function DebtorTable() {
           <tr>
             <th>Customer</th>
             <th>Type</th>
-            <th style={{ textAlign: "right" }}>Amount owed</th>
+            <th style={{ textAlign: "right" }}>Borrowed</th>
+            <th style={{ textAlign: "right" }}>Paid</th>
+            <th style={{ textAlign: "right" }}>Remaining</th>
             <th>Udhaar since</th>
             <th>Due date</th>
             <th></th>
@@ -51,6 +53,12 @@ export async function DebtorTable() {
                 <span className={`pay-badge ${debtor.kind === "LOAN" ? "pay-account" : "pay-cash"}`}>
                   {debtor.kind === "LOAN" ? "Loan" : "On account"}
                 </span>
+              </td>
+              <td className="num" style={{ textAlign: "right" }}>
+                {formatMoney(debtor.totalBorrowed)}
+              </td>
+              <td className="num" style={{ textAlign: "right", color: "var(--primary-600)" }}>
+                {formatMoney(debtor.totalPaid)}
               </td>
               <td className="num" style={{ textAlign: "right", fontWeight: 600 }}>
                 {formatMoney(debtor.balance)}

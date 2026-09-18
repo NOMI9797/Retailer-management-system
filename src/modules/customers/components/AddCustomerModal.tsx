@@ -4,14 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CustomerForm } from "./CustomerForm";
 import type { listAreas } from "@/modules/settings/areas.actions";
-import type { listAccountTypes } from "@/modules/settings/accountTypes.actions";
 
 export function AddCustomerModal({
   areas,
-  accountTypes,
 }: {
   areas: Awaited<ReturnType<typeof listAreas>>;
-  accountTypes: Awaited<ReturnType<typeof listAccountTypes>>;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -32,7 +29,6 @@ export function AddCustomerModal({
             <p className="modal-sub">Name is the only required field — everything else can be filled in later.</p>
             <CustomerForm
               areas={areas}
-              accountTypes={accountTypes}
               onSaved={() => {
                 setOpen(false);
                 router.refresh();

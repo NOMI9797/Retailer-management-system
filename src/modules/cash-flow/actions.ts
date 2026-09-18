@@ -27,25 +27,35 @@ function dayBoundsFromLocalMidnight(localMidnight: Date) {
 }
 
 // Cash in for a day = sum of DailySalePayment rows tagged CASH for
-// sales made that day. Only Cash counts — Account and Credit amounts
-// are not physical cash, regardless of how the milestone doc's
-// original draft described AccountTransaction feeding into this: that
-// assumption predates the Cash/Account/Credit redesign (see actions.ts
-// history), and no AccountTransaction currently represents a
-// same-day physical cash movement — consignment/farmer payouts are
-// pure ledger accruals until an actual settlement flow exists, which
-// is out of scope this milestone (confirmed decision, not an
-// oversight). So this aggregation is deliberately narrower than the
-// milestone doc's original description.
+// sales made that day, PLUS any Udhaar repayment (AccountTransaction,
+// direction IN, on a non-tracksQuantity account) recorded that day
+// with paymentMethod CASH — a customer paying back a loan in cash is
+// real money landing in the drawer, same as a cash sale. Consignment/
+// farmer payouts are excluded by construction: they only ever post
+// with paymentMethod CREDIT (a ledger accrual, not cash changing
+// hands), and by the tracksQuantity filter below even if that ever
+// changed. Only Cash counts here — Account and Credit amounts are not
+// physical cash.
 async function sumCashIn(shopId: string, start: Date, end: Date) {
-  const result = await db.dailySalePayment.aggregate({
-    where: {
-      paymentMethod: "CASH",
-      dailySale: { shopId, saleDate: { gte: start, lte: end } },
-    },
-    _sum: { amount: true },
-  });
-  return Number(result._sum.amount ?? 0);
+  const [salesResult, repaymentsResult] = await Promise.all([
+    db.dailySalePayment.aggregate({
+      where: {
+        paymentMethod: "CASH",
+        dailySale: { shopId, saleDate: { gte: start, lte: end } },
+      },
+      _sum: { amount: true },
+    }),
+    db.accountTransaction.aggregate({
+      where: {
+        direction: "IN",
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        customerAccount: { accountType: { tracksQuantity: false }, customer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+  ]);
+  return Number(salesResult._sum.amount ?? 0) + Number(repaymentsResult._sum.amount ?? 0);
 }
 
 // Cash out for a day = sum of Expense rows tagged CASH for that day.
@@ -61,13 +71,30 @@ async function sumCashOut(shopId: string, start: Date, end: Date) {
 // — used for the Account and Credit info cards, which are purely
 // informational (see getCashFlowForDate) and never feed into
 // opening/expected/actual/variance, since neither is physical cash in
-// the drawer.
+// the drawer. For ACCOUNT specifically, also includes Udhaar
+// repayments paid via bank transfer (same reasoning as sumCashIn's
+// CASH case: real money genuinely moved, just through a different
+// channel) — CREDIT gets no such addition, since an Udhaar repayment
+// is never itself "not paid yet."
 async function sumSalePayments(shopId: string, method: "ACCOUNT" | "CREDIT", start: Date, end: Date) {
-  const result = await db.dailySalePayment.aggregate({
+  const salesResult = await db.dailySalePayment.aggregate({
     where: { paymentMethod: method, dailySale: { shopId, saleDate: { gte: start, lte: end } } },
     _sum: { amount: true },
   });
-  return Number(result._sum.amount ?? 0);
+  const salesTotal = Number(salesResult._sum.amount ?? 0);
+
+  if (method !== "ACCOUNT") return salesTotal;
+
+  const repaymentsResult = await db.accountTransaction.aggregate({
+    where: {
+      direction: "IN",
+      paymentMethod: "ACCOUNT",
+      transactionDate: { gte: start, lte: end },
+      customerAccount: { accountType: { tracksQuantity: false }, customer: { shopId } },
+    },
+    _sum: { amount: true },
+  });
+  return salesTotal + Number(repaymentsResult._sum.amount ?? 0);
 }
 
 async function sumExpensesByMethod(shopId: string, method: "ACCOUNT" | "CREDIT", start: Date, end: Date) {
