@@ -47,3 +47,15 @@ export type DebtSummary = {
   // outstanding totals above.
   totalPaidOverall: number;
 };
+
+// Which bucket a DebtRow/DebtSummary is scoped to. "REGULAR" =
+// isLongTerm: false transactions only (Credit-sale accrual + manually
+// recorded non-long-term loans/repayments) — the existing Udhaar
+// behavior, unchanged. "LONG_TERM" = isLongTerm: true only — a
+// deliberate cash loan with a chosen duration (see
+// AccountTransaction.isLongTerm's schema comment). The two are
+// completely isolated from each other, per the "separate totals, not
+// combined" decision — a customer's overall CustomerAccount.balance
+// still reflects both together, but this app-level split never mixes
+// them in a report.
+export type DebtBucket = "REGULAR" | "LONG_TERM";

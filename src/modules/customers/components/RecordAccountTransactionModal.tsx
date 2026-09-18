@@ -10,15 +10,26 @@ import { recordAccountTransaction } from "../actions";
 // different validation/behavior rules. Only for Udhaar/Regular
 // accounts (see recordAccountTransaction's comment on why consignment
 // is rejected there).
+//
+// lockBucket, when set, hides the Regular/Long-term choice and always
+// posts with that fixed isLongTerm value — used when this modal is
+// opened from a context that already knows which bucket it's for
+// (e.g. the Long-term Udhaar tab's own "Record payment" button).
+// Without it, a repayment shows a picker, since there's no automatic
+// way to tell which loan a payment is clearing (see
+// AccountTransaction.isLongTerm's schema comment) — the shopkeeper
+// has to say.
 export function RecordAccountTransactionModal({
   customerAccountId,
   triggerLabel = "Record transaction",
   defaultDirection = "OUT",
+  lockBucket,
   onClose,
 }: {
   customerAccountId: string;
   triggerLabel?: string;
   defaultDirection?: "IN" | "OUT";
+  lockBucket?: boolean;
   onClose?: () => void;
 }) {
   const router = useRouter();
@@ -27,6 +38,7 @@ export function RecordAccountTransactionModal({
   const [amount, setAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT" | "CREDIT">("CASH");
   const [dueDate, setDueDate] = useState("");
+  const [isLongTerm, setIsLongTerm] = useState(lockBucket ?? false);
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -48,6 +60,7 @@ export function RecordAccountTransactionModal({
         paymentMethod,
         dueDate: direction === "OUT" && dueDate ? dueDate : undefined,
         notes: notes || undefined,
+        isLongTerm: lockBucket ?? isLongTerm,
       });
       setAmount("");
       setDueDate("");
@@ -115,6 +128,16 @@ export function RecordAccountTransactionModal({
                 <div className="field">
                   <label>Due date (optional)</label>
                   <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                </div>
+              )}
+
+              {lockBucket === undefined && (
+                <div className="field">
+                  <label>{direction === "OUT" ? "Loan type" : "Which loan is this clearing?"}</label>
+                  <select value={isLongTerm ? "long" : "regular"} onChange={(e) => setIsLongTerm(e.target.value === "long")}>
+                    <option value="regular">Regular / Daily Udhaar</option>
+                    <option value="long">Long-term Udhaar</option>
+                  </select>
                 </div>
               )}
 

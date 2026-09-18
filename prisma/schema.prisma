@@ -175,6 +175,19 @@ model AccountTransaction {
   // Deliberately not a full payment-allocation engine — see the
   // Debt (Udhaar) Tracking milestone for why that's out of scope.
   dueDate           DateTime?
+  // Marks this posting as belonging to a Long-term Udhaar loan (a
+  // deliberate cash loan with a chosen duration, e.g. "3 months") as
+  // opposed to Regular/Daily Udhaar (which accrues naturally from
+  // Credit sales, no fixed term). Both kinds share the same
+  // CustomerAccount/currentBalance — this flag is what lets the
+  // Udhaar page's two tabs compute isolated borrowed/paid/remaining
+  // totals for each kind separately, since they aren't otherwise
+  // distinguishable once posted. Defaults false for every existing
+  // and Regular Udhaar transaction; only the Long-term Udhaar form
+  // sets it true. A repayment against a long-term loan must also be
+  // tagged true by whoever records it — there's no automatic way to
+  // tell which "bucket" a repayment is clearing.
+  isLongTerm        Boolean         @default(false)
   notes             String?
 }
 

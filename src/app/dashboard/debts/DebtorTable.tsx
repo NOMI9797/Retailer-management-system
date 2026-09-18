@@ -2,20 +2,25 @@ import Link from "next/link";
 import { listDebtors } from "@/modules/debts/actions";
 import { formatMoney, formatDate } from "@/lib/utils";
 import { RecordAccountTransactionModal } from "@/modules/customers/components/RecordAccountTransactionModal";
+import type { DebtBucket } from "@/modules/debts/schema";
 
 // Overdue first, then oldest debt first among the rest — listDebtors
 // already returns rows in that order, so this table just renders them
 // as-is. The overdue flag is a full tinted row + a bold warning chip,
 // not a small badge lost among other columns, per the milestone's
-// explicit "genuinely hard to miss" requirement.
-export async function DebtorTable() {
-  const debtors = await listDebtors();
+// explicit "genuinely hard to miss" requirement. bucket scopes every
+// figure to just Regular or just Long-term Udhaar (see
+// DebtBucket's schema comment) — the two never mix on this table.
+export async function DebtorTable({ bucket }: { bucket: DebtBucket }) {
+  const debtors = await listDebtors(bucket);
 
   if (debtors.length === 0) {
     return (
       <div className="panel">
         <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-          No outstanding loans or on-account balances right now.
+          {bucket === "LONG_TERM"
+            ? "No outstanding long-term loans right now."
+            : "No outstanding loans or on-account balances right now."}
         </p>
       </div>
     );
@@ -100,6 +105,7 @@ export async function DebtorTable() {
                   customerAccountId={debtor.customerAccountId}
                   triggerLabel="Record repayment"
                   defaultDirection="IN"
+                  lockBucket={bucket === "LONG_TERM"}
                 />
               </td>
             </tr>

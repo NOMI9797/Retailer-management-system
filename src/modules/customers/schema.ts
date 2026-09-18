@@ -38,5 +38,37 @@ export const recordAccountTransactionSchema = z.object({
   // optional even then, since not every loan needs a formal due date.
   dueDate: z.string().optional(),
   notes: z.string().optional(),
+  // Marks this posting as belonging to the Long-term Udhaar bucket
+  // rather than Regular/Daily Udhaar — both share the same account/
+  // balance, so this is the only thing distinguishing which "tab" a
+  // loan or repayment belongs to (see AccountTransaction.isLongTerm's
+  // schema comment). A repayment must be explicitly tagged to match
+  // the loan it's clearing; there's no automatic attribution.
+  isLongTerm: z.boolean().default(false),
 });
 export type RecordAccountTransactionInput = z.infer<typeof recordAccountTransactionSchema>;
+
+// Long-term Udhaar's own creation form: amount plus a duration picked
+// from a fixed set of choices (days/months), rather than a free date
+// picker — the return date is always DERIVED (today + duration), never
+// typed directly, per the "auto-calculated" requirement. Writes
+// through recordAccountTransaction under the hood with isLongTerm:
+// true and the computed dueDate, so it's still exactly one balance-
+// math implementation, not a second one.
+export const durationUnitSchema = z.enum(["DAYS", "WEEKS", "MONTHS"]);
+export type DurationUnit = z.infer<typeof durationUnitSchema>;
+
+// Takes customerId rather than customerAccountId, since a long-term
+// loan can be the very first Udhaar activity a customer ever has —
+// the action auto-finds-or-creates their Udhar account, same pattern
+// applyPaymentSplit already uses for Credit sales (see
+// daily-sales/actions.ts).
+export const createLongTermLoanSchema = z.object({
+  customerId: z.string().uuid(),
+  amount: z.number().positive("Amount must be positive"),
+  paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
+  durationValue: z.number().int().positive("Duration must be a positive whole number"),
+  durationUnit: durationUnitSchema,
+  notes: z.string().optional(),
+});
+export type CreateLongTermLoanInput = z.infer<typeof createLongTermLoanSchema>;

@@ -1,13 +1,14 @@
 import { getDebtSummary } from "@/modules/debts/actions";
 import { formatMoney } from "@/lib/utils";
+import type { DebtBucket } from "@/modules/debts/schema";
 
-export async function DebtSummaryCards() {
-  const summary = await getDebtSummary();
+export async function DebtSummaryCards({ bucket }: { bucket: DebtBucket }) {
+  const summary = await getDebtSummary(bucket);
 
   return (
     <div className="stat-grid customers-stat-grid" style={{ marginBottom: 22 }}>
       <div className="stat-card">
-        <p className="stat-label">Total loans (Udhaar)</p>
+        <p className="stat-label">{bucket === "LONG_TERM" ? "Total long-term loans" : "Total loans (Udhaar)"}</p>
         <p className="stat-value tone-grain">{formatMoney(summary.totalLoans)}</p>
       </div>
       <div className="stat-card">

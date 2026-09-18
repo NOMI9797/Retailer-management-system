@@ -2,14 +2,16 @@
 
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
-import { parseLocalDateStart } from "@/lib/utils";
+import { parseLocalDateStart, toLocalDateString } from "@/lib/utils";
 import {
   customerSchema,
   updateCustomerSchema,
   recordAccountTransactionSchema,
+  createLongTermLoanSchema,
   type CustomerInput,
   type UpdateCustomerInput,
   type RecordAccountTransactionInput,
+  type CreateLongTermLoanInput,
 } from "./schema";
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -321,6 +323,7 @@ export async function recordAccountTransaction(input: RecordAccountTransactionIn
         amount: data.amount,
         paymentMethod: data.paymentMethod,
         dueDate: data.direction === "OUT" && data.dueDate ? parseLocalDateStart(data.dueDate) : null,
+        isLongTerm: data.isLongTerm,
         notes: data.notes || null,
       },
     });
@@ -349,4 +352,50 @@ export async function recordAccountTransaction(input: RecordAccountTransactionIn
     amount: Number(txn.amount),
     quantity: txn.quantity ? Number(txn.quantity) : null,
   };
+}
+
+// A deliberate cash loan with a chosen term (e.g. "3 months"), as
+// opposed to Regular/Daily Udhaar which accrues naturally from Credit
+// sales with no fixed term — the shopkeeper picks a duration instead
+// of typing a due date directly, and the return date is always
+// DERIVED from today + that duration, never manually entered. Takes
+// customerId (not customerAccountId): this can be the very first
+// Udhaar activity a customer ever has, so it auto-finds-or-creates
+// their Udhar account first, same pattern applyPaymentSplit already
+// uses for Credit sales. Writes through recordAccountTransaction
+// under the hood (direction OUT, isLongTerm: true) so there's still
+// exactly one implementation of the balance math and the
+// account/tracksQuantity guard, not a second one duplicated here.
+export async function createLongTermLoan(input: CreateLongTermLoanInput) {
+  const shopId = await getCurrentShopId();
+  const data = createLongTermLoanSchema.parse(input);
+
+  const udharType = await db.accountType.findFirst({ where: { shopId, isLoan: true } });
+  if (!udharType) {
+    throw new Error("No loan-type account configured for this shop — mark an account type as a loan in Settings.");
+  }
+
+  let account = await db.customerAccount.findFirst({
+    where: { customerId: data.customerId, accountTypeId: udharType.id },
+  });
+  if (!account) {
+    account = await db.customerAccount.create({
+      data: { customerId: data.customerId, accountTypeId: udharType.id },
+    });
+  }
+
+  const dueDate = new Date();
+  if (data.durationUnit === "DAYS") dueDate.setDate(dueDate.getDate() + data.durationValue);
+  else if (data.durationUnit === "WEEKS") dueDate.setDate(dueDate.getDate() + data.durationValue * 7);
+  else dueDate.setMonth(dueDate.getMonth() + data.durationValue);
+
+  return recordAccountTransaction({
+    customerAccountId: account.id,
+    direction: "OUT",
+    amount: data.amount,
+    paymentMethod: data.paymentMethod,
+    dueDate: toLocalDateString(dueDate),
+    notes: data.notes,
+    isLongTerm: true,
+  });
 }
