@@ -1,5 +1,6 @@
 import { IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import { SidebarNav } from "./SidebarNav";
+import { ToastHost } from "@/components/shared/ToastHost";
 import "./dashboard.css";
 
 const plexSans = IBM_Plex_Sans({
@@ -42,6 +43,8 @@ export default function DashboardLayout({
       </aside>
 
       <main className="main">{children}</main>
+
+      <ToastHost />
     </div>
   );
 }

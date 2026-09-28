@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { editOpeningBalance } from "../actions";
+import { showToast } from "@/components/shared/toastStore";
 
 // Overrides a day's opening balance whether it was derived from the
 // prior day's closing or previously set manually — works on any day,
@@ -20,6 +21,7 @@ export function EditOpeningBalanceButton({ date, openingBalance }: { date: strin
     setIsSaving(true);
     try {
       await editOpeningBalance({ date, openingBalance: Number(value) });
+      showToast("Opening balance updated");
       setEditing(false);
       router.refresh();
     } catch (err) {

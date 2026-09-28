@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createAccountType } from "../accountTypes.actions";
+import { showToast } from "@/components/shared/toastStore";
 import type { AccountTypeFieldInput } from "../schema";
 
 const FIELD_TYPES = ["TEXT", "NUMBER", "DATE", "DROPDOWN"] as const;
@@ -46,6 +47,7 @@ export function AccountTypeForm({ onSaved }: { onSaved?: () => void }) {
         isLoan,
         fields,
       });
+      showToast(`Account type added — ${name}`);
       onSaved?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save account type");

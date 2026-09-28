@@ -1820,3 +1820,85 @@
     transform: rotate(360deg);
   }
 }
+
+/* Confirmation popup — a centered, professional confirmation card
+   after an action succeeds (or fails), auto-dismissing, mounted once
+   in the dashboard layout (see ToastHost) so it survives a redirect
+   right after showing it. z-index above .modal-backdrop (10) so it's
+   never hidden behind an open modal it was triggered from. */
+.shop-app .toast-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 20, 17, 0.12);
+  animation: shop-toast-fade-in 0.15s ease-out;
+}
+
+@keyframes shop-toast-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.shop-app .toast-popup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 32px 40px;
+  box-shadow: 0 24px 60px rgba(20, 20, 17, 0.22);
+  min-width: 260px;
+  max-width: 90vw;
+  text-align: center;
+  animation: shop-toast-pop-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+
+@keyframes shop-toast-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.shop-app .toast-popup-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.shop-app .toast-popup-icon svg.icon {
+  width: 26px;
+  height: 26px;
+}
+
+.shop-app .toast-popup.toast-success .toast-popup-icon {
+  background: var(--primary-50);
+  color: var(--primary-600);
+}
+
+.shop-app .toast-popup.toast-error .toast-popup-icon {
+  background: var(--consigned-50);
+  color: var(--consigned-600);
+}
+
+.shop-app .toast-popup p {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+}

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { setOpeningBalance, closeDay } from "../actions";
+import { formatMoney } from "@/lib/utils";
+import { showToast } from "@/components/shared/toastStore";
 
 // Two distinct actions live here depending on the day's state:
 // - needsOpeningBalance: the shopkeeper has never used Cash Flow
@@ -31,8 +33,10 @@ export function DayCloseForm({
     try {
       if (needsOpeningBalance) {
         await setOpeningBalance({ date, openingBalance: Number(value) });
+        showToast(`Opening balance set — ${formatMoney(Number(value))}`);
       } else {
         await closeDay({ date, actualClosing: Number(value) });
+        showToast("Day closed");
       }
       setValue("");
       router.refresh();

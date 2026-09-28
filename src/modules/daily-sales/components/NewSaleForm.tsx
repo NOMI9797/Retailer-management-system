@@ -7,7 +7,8 @@ import { LineItemsEditor, type LineItemDraft } from "./LineItemsEditor";
 import { PaymentSplitEditor, type PaymentSplitDraft } from "./PaymentSplitEditor";
 import { createCustomer } from "@/modules/customers/actions";
 import { createDailySale } from "../actions";
-import { toLocalDateString } from "@/lib/utils";
+import { toLocalDateString, formatMoney } from "@/lib/utils";
+import { showToast } from "@/components/shared/toastStore";
 import type { listAreas } from "@/modules/settings/areas.actions";
 import type { listProducts } from "@/modules/products/actions";
 
@@ -85,6 +86,8 @@ export function NewSaleForm({
         })),
         payments: { cash, account, credit },
       });
+
+      showToast(`Sale recorded — ${formatMoney(itemTotal)}`);
 
       if (onSaved) {
         onSaved();

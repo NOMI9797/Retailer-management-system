@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteExpense } from "../actions";
+import { showToast } from "@/components/shared/toastStore";
 
 export function DeleteExpenseButton({ expenseId }: { expenseId: string }) {
   const router = useRouter();
@@ -15,6 +16,7 @@ export function DeleteExpenseButton({ expenseId }: { expenseId: string }) {
     setError(null);
     try {
       await deleteExpense(expenseId);
+      showToast("Expense deleted");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete expense");

@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCustomers } from "@/modules/customers/hooks/useCustomers";
 import { createLongTermLoan } from "../actions";
+import { formatMoney } from "@/lib/utils";
+import { showToast } from "@/components/shared/toastStore";
 import type { DurationUnit } from "../schema";
 
 // The Long-term Udhaar tab's "give a loan" entry point — search a
@@ -69,6 +71,7 @@ export function LongTermLoanModal() {
         durationUnit,
         notes: notes || undefined,
       });
+      showToast(`Long-term loan given — ${formatMoney(Number(amount))}`);
       close();
       router.refresh();
     } catch (err) {

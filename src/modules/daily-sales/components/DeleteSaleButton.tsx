@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { deleteDailySale } from "../actions";
+import { showToast } from "@/components/shared/toastStore";
 
 export function DeleteSaleButton({ saleId }: { saleId: string }) {
   const router = useRouter();
@@ -15,6 +16,7 @@ export function DeleteSaleButton({ saleId }: { saleId: string }) {
     setError(null);
     try {
       await deleteDailySale(saleId);
+      showToast("Sale deleted");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete sale");

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { updateProduct } from "../actions";
+import { showToast } from "@/components/shared/toastStore";
 import type { listCategories, listUnits, listProducts } from "../actions";
 
 type Category = Awaited<ReturnType<typeof listCategories>>[number];
@@ -55,6 +56,7 @@ export function EditProductModal({
         sellPrice: Number(sellPrice),
         quantity: Number(quantity),
       });
+      showToast("Product updated");
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update product");

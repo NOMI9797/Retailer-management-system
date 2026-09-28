@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { showToast } from "@/components/shared/toastStore";
 
 type SimpleListItem = { id: string; name: string; isActive?: boolean };
 
@@ -39,6 +40,7 @@ export function SimpleListManager<T extends SimpleListItem>({
     setIsSaving(true);
     try {
       await onCreate(newName);
+      showToast(`${itemLabel.charAt(0).toUpperCase() + itemLabel.slice(1)} added — ${newName}`);
       setNewName("");
       router.refresh();
     } catch (err) {
@@ -52,6 +54,7 @@ export function SimpleListManager<T extends SimpleListItem>({
     setError(null);
     try {
       await onRename(id, editingName);
+      showToast(`${itemLabel.charAt(0).toUpperCase() + itemLabel.slice(1)} renamed`);
       setEditingId(null);
       router.refresh();
     } catch (err) {
@@ -64,6 +67,7 @@ export function SimpleListManager<T extends SimpleListItem>({
     setError(null);
     try {
       await onToggleActive(id, isActive);
+      showToast(isActive ? `${itemLabel.charAt(0).toUpperCase() + itemLabel.slice(1)} deactivated` : `${itemLabel.charAt(0).toUpperCase() + itemLabel.slice(1)} activated`);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to update ${itemLabel}`);

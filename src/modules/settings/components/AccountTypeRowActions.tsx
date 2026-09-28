@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateAccountType } from "../accountTypes.actions";
+import { showToast } from "@/components/shared/toastStore";
 import type { listAccountTypes } from "../accountTypes.actions";
 
 type AccountType = Awaited<ReturnType<typeof listAccountTypes>>[number];
@@ -17,6 +18,7 @@ export function AccountTypeRowActions({ accountType }: { accountType: AccountTyp
     setIsSaving(true);
     try {
       await updateAccountType({ id: accountType.id, isActive: !accountType.isActive });
+      showToast(accountType.isActive ? "Account type deactivated" : "Account type activated");
       router.refresh();
     } finally {
       setIsSaving(false);

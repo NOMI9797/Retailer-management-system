@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { createExpense, updateExpense } from "../actions";
+import { formatMoney } from "@/lib/utils";
+import { showToast } from "@/components/shared/toastStore";
 import type { listExpenses } from "../actions";
 
 type Expense = Awaited<ReturnType<typeof listExpenses>>["expenses"][number];
@@ -49,8 +51,10 @@ export function ExpenseForm({
       };
       if (expense) {
         await updateExpense({ id: expense.id, ...data });
+        showToast("Expense updated");
       } else {
         await createExpense(data);
+        showToast(`Expense added — ${formatMoney(Number(amount))}`);
       }
       onSaved?.();
     } catch (err) {

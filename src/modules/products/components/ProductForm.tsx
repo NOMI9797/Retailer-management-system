@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createProduct, createGrainProduct } from "../actions";
+import { showToast } from "@/components/shared/toastStore";
 import type { listCategories, listUnits } from "../actions";
 
 type StockKind = "SIMPLE" | "GRAIN";
@@ -55,6 +56,7 @@ export function ProductForm({
           baseRate: Number(baseRate),
         });
       }
+      showToast(`Product added — ${name}`);
       onSaved?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save product");

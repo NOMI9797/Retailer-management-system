@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { LineItemsEditor, type LineItemDraft } from "./LineItemsEditor";
 import { PaymentSplitEditor, type PaymentSplitDraft } from "./PaymentSplitEditor";
 import { getDailySaleForEdit, updateDailySale } from "../actions";
+import { showToast } from "@/components/shared/toastStore";
 import type { listProducts } from "@/modules/products/actions";
 
 type Product = Awaited<ReturnType<typeof listProducts>>["products"][number];
@@ -92,6 +93,7 @@ export function EditSaleModal({
         })),
         payments: { cash, account, credit },
       });
+      showToast("Sale updated");
       onClose();
       router.refresh();
     } catch (err) {

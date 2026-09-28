@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { recordAccountTransaction } from "../actions";
+import { formatMoney } from "@/lib/utils";
+import { showToast } from "@/components/shared/toastStore";
 
 // Shared write path for the Customer Accounts ledger view AND the
 // Debts page's "record repayment" quick action — one implementation
@@ -62,6 +64,7 @@ export function RecordAccountTransactionModal({
         notes: notes || undefined,
         isLongTerm: lockBucket ?? isLongTerm,
       });
+      showToast(direction === "OUT" ? `Loan recorded — ${formatMoney(Number(amount))}` : `Payment recorded — ${formatMoney(Number(amount))}`);
       setAmount("");
       setDueDate("");
       setNotes("");

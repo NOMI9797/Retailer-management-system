@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useCustomers } from "@/modules/customers/hooks/useCustomers";
 import { createGrainBatch } from "../actions";
+import { showToast } from "@/components/shared/toastStore";
 
 type Owner = "SHOP" | "CUSTOMER";
 
@@ -42,6 +43,7 @@ export function GrainBatchForm({
         quantityIn: Number(quantityIn),
         rate: Number(rate),
       });
+      showToast("Batch added");
       setQuantityIn("");
       setRate("");
       setCustomerId("");

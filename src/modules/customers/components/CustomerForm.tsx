@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createCustomer } from "../actions";
+import { showToast } from "@/components/shared/toastStore";
 import type { listAreas } from "@/modules/settings/areas.actions";
 
 type Area = Awaited<ReturnType<typeof listAreas>>[number];
@@ -39,6 +40,7 @@ export function CustomerForm({
         notes: notes || undefined,
         accountTypeIds: [],
       });
+      showToast(`Customer added — ${name}`);
       onSaved?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save customer");

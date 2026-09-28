@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { editClosingBalance } from "../actions";
+import { showToast } from "@/components/shared/toastStore";
 
 // Corrects a day's actual closing after the fact (e.g. a miscount
 // noticed later) — only shown once a day has already been closed
@@ -23,6 +24,7 @@ export function EditClosingBalanceButton({ date, actualClosing }: { date: string
     setIsSaving(true);
     try {
       await editClosingBalance({ date, actualClosing: Number(value) });
+      showToast("Closing balance updated");
       setEditing(false);
       router.refresh();
     } catch (err) {
