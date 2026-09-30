@@ -3,14 +3,16 @@
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { serializeDecimals } from "@/lib/serialize";
-import { parseLocalDateStart, parseLocalDateEnd } from "@/lib/utils";
+import { parseLocalDateStart, parseLocalDateEnd, toLocalDateString } from "@/lib/utils";
 import {
   createDailySaleSchema,
   updateDailySaleSchema,
+  payGrainSaleItemCreditSchema,
   type CreateDailySaleInput,
   type UpdateDailySaleInput,
   type DailySaleItemInput,
   type PaymentSplitInput,
+  type PayGrainSaleItemCreditInput,
 } from "./schema";
 import type { Prisma } from "@prisma/client";
 
@@ -18,14 +20,13 @@ const DEFAULT_PAGE_SIZE = 50;
 const PAYMENT_SPLIT_EPSILON = 0.01; // guards against float rounding, not real mismatches
 
 // The core "make this sale real" logic for the ITEMS side — decrement
-// stock/batches, post consignment payouts. Completely independent of
-// how the buyer pays (per the "farmer's payout is unaffected by the
-// buyer's Cash/Account/Credit split" decision) — this only computes
-// and returns the item total, which applyPaymentSplit then checks the
-// payment split against. Shared by createDailySale and
-// updateDailySale so there is exactly one implementation of the
-// batch-depletion/commission math, never two copies that could drift
-// out of sync.
+// stock/batches, post Stock Udhaar when a sale draws on a customer's
+// deposited (not-yet-purchased) batch. Completely independent of how
+// the buyer pays — this only computes and returns the item total,
+// which applyPaymentSplit then checks the payment split against.
+// Shared by createDailySale and updateDailySale so there is exactly
+// one implementation of the batch-depletion/Stock Udhaar math, never
+// two copies that could drift out of sync.
 async function applySaleItems(
   tx: Prisma.TransactionClient,
   shopId: string,
@@ -33,8 +34,8 @@ async function applySaleItems(
   items: DailySaleItemInput[],
   visitAt: Date
 ) {
-  const shop = await tx.shop.findUniqueOrThrow({ where: { id: shopId } });
   let itemTotal = 0;
+  const grainItems: { id: string; creditAmount: Prisma.Decimal | null }[] = [];
 
   for (const item of items) {
     const product = await tx.product.findFirst({ where: { id: item.productId, shopId } });
@@ -51,9 +52,21 @@ async function applySaleItems(
         // quantity via DailySaleItemBatch, since each batch already
         // permanently records its own rate).
         costPriceAtSale: product.stockKind === "SIMPLE" ? product.costPrice : null,
+        // How much of THIS item's own price is Credit — only ever
+        // meaningful for GRAIN (see dailySaleItemSchema's comment);
+        // validated against the sale-level credit total in
+        // applyPaymentSplit, not here, since that total isn't known
+        // until every item has been processed.
+        creditAmount: product.stockKind === "GRAIN" ? (item.creditAmount ?? null) : null,
+        creditDueDate:
+          product.stockKind === "GRAIN" && item.creditDueDate ? parseLocalDateStart(item.creditDueDate) : null,
         visitAt,
       },
     });
+
+    if (product.stockKind === "GRAIN") {
+      grainItems.push({ id: saleItem.id, creditAmount: saleItem.creditAmount });
+    }
 
     if (product.stockKind === "SIMPLE") {
       if (Number(product.quantity) < item.quantity) {
@@ -70,15 +83,47 @@ async function applySaleItems(
       const batches = await tx.grainBatch.findMany({
         where: { productId: product.id },
         orderBy: { receivedAt: "asc" },
+        include: { ownerCustomer: true },
       });
 
       let remaining = item.quantity;
       for (const batch of batches) {
         if (remaining <= 0) break;
-        const available = Number(batch.quantityIn) - Number(batch.quantitySold);
+        // A customer batch's quantityTransferred portion has already
+        // moved to a NEW shop-owned batch (see stock/actions.ts:
+        // createTransferPurchase) and must not be sold again from
+        // here — that stock is now that other batch's row to deplete.
+        // Always 0 for shop-owned batches, so this is a no-op there.
+        const available =
+          Number(batch.quantityIn) - Number(batch.quantitySold) - Number(batch.quantityTransferred);
         if (available <= 0) continue;
 
         const takeFromBatch = Math.min(available, remaining);
+
+        // Only a customer batch can ever be rate-less (a "store for
+        // later" deposit still awaiting settlement — see
+        // GrainBatch.rate's schema comment; a shop-owned batch always
+        // has a real rate from the moment it's created). Selling from
+        // it is allowed with NO cost basis yet — the shopkeeper often
+        // can't know it at sale time, since the rate only gets agreed
+        // when they later settle with the depositor (see
+        // createTransferPurchase). Never guessed and never forced up
+        // front: if the caller happens to already know the rate (an
+        // optional override), it's saved onto the batch now; otherwise
+        // the batch stays rate-less and getPnlReport reports this
+        // portion's cost as "unknown" rather than silently treating it
+        // as 0 — see that function's hasUnknownCost handling. Once the
+        // batch is later priced (a transfer-purchase, or another sale
+        // item supplying an override), every past sale that already
+        // drew from it becomes correctly costed automatically, since
+        // getPnlReport reads the batch's rate live, not a snapshot.
+        if (batch.rate === null) {
+          const override = item.batchRateOverrides?.[batch.id];
+          if (override !== undefined) {
+            await tx.grainBatch.update({ where: { id: batch.id }, data: { rate: override } });
+          }
+        }
+
         remaining -= takeFromBatch;
 
         await tx.grainBatch.update({
@@ -90,48 +135,25 @@ async function applySaleItems(
         });
 
         if (batch.ownerCustomerId) {
-          const commissionPercent = Number(batch.commissionPercent ?? shop.commissionPercent);
-          const grossValue = takeFromBatch * Number(batch.rate);
-          const farmerShare = grossValue * (1 - commissionPercent / 100);
-
-          const consignmentType = await tx.accountType.findFirst({
-            where: { shopId, tracksQuantity: true },
-          });
-          if (!consignmentType) {
-            throw new Error("No consignment-style account type configured for this shop");
-          }
-          const farmerAccount = await tx.customerAccount.findFirst({
-            where: { customerId: batch.ownerCustomerId, accountTypeId: consignmentType.id },
-          });
-          if (!farmerAccount) {
-            throw new Error(
-              "The batch owner has no consignment account — this should have been caught when the batch was created."
-            );
-          }
-
-          // The farmer's payout is completely independent of how the
-          // BUYER paid (cash/account/credit) — it's always posted the
-          // same way, computed purely from the batch's rate and
-          // commission. It's tagged CREDIT here because it's money
-          // the shop owes the farmer that hasn't physically changed
-          // hands yet, not because it relates to the buyer's split.
-          await tx.accountTransaction.create({
+          // Selling from a customer's deposited batch BEFORE the
+          // shopkeeper has purchased/settled it with them (see Stock
+          // Management spec, "Stock Udhaar"). This must NOT reduce the
+          // customer's ownership claim (that's quantityTransferred,
+          // untouched here — only quantitySold, the physical count,
+          // moved above) and must NOT auto-pay them — payment only
+          // happens later via an explicit transfer-purchase
+          // (stock/actions.ts: createTransferPurchase). Instead this
+          // grows a tracked, auditable shortfall the shopkeeper still
+          // owes the customer in STOCK, not money.
+          await tx.stockUdhaarEntry.create({
             data: {
-              customerAccountId: farmerAccount.id,
-              direction: "OUT",
-              amount: farmerShare,
+              customerId: batch.ownerCustomerId,
+              productId: product.id,
+              grainBatchId: batch.id,
               quantity: takeFromBatch,
               linkedSaleId: saleId,
-              paymentMethod: "CREDIT",
-              notes: `Consignment share for ${product.name} sale (commission ${commissionPercent}%)`,
+              notes: `Sold from ${product.name} deposit before settlement`,
             },
-          });
-          // Shop owes the farmer their share — negative balance per
-          // the describeBalance() convention (positive = customer
-          // owes shop, negative = shop owes customer).
-          await tx.customerAccount.update({
-            where: { id: farmerAccount.id },
-            data: { currentBalance: { decrement: farmerShare } },
           });
         }
       }
@@ -144,7 +166,7 @@ async function applySaleItems(
     itemTotal += item.actualPrice * item.quantity;
   }
 
-  return itemTotal;
+  return { itemTotal, grainItems };
 }
 
 // The BUYER side: validates the Cash/Account/Credit split sums to the
@@ -153,9 +175,21 @@ async function applySaleItems(
 // Credit portion now posts a real debt onto the customer's Udhaar
 // account (auto-created if they don't have one yet), tagged with this
 // sale's id so editing/deleting the sale reverses it correctly (see
-// reverseSaleContents). Regular/Consignment/other account types are
-// still never touched from here — only Udhaar, and only for the
-// Credit amount.
+// reverseSaleContents). Every other account type is still never
+// touched from here — only Udhaar, and only for the Credit amount.
+//
+// grainItems (already-created DailySaleItem rows for this sale, GRAIN
+// only) is used to enforce the "Customer Udhaar" per-item tracking
+// invariant: when a sale has MORE THAN ONE grain item and any Credit
+// was used, each grain item's own creditAmount must be explicitly
+// set (never guessed) and they must sum to exactly the portion of
+// payments.credit attributable to grain (payments.credit itself, when
+// every item in the sale is grain — otherwise the grain items' sum
+// can be anywhere from 0 up to payments.credit, since some of that
+// credit may belong to a non-grain item instead). A single grain item
+// needs no explicit split — its own creditAmount defaults to the
+// whole payments.credit when omitted, since there's nothing to
+// disambiguate (see dailySaleItemSchema's comment).
 async function applyPaymentSplit(
   tx: Prisma.TransactionClient,
   shopId: string,
@@ -163,13 +197,40 @@ async function applyPaymentSplit(
   saleId: string,
   itemTotal: number,
   payments: PaymentSplitInput,
-  visitAt: Date
+  visitAt: Date,
+  grainItems: { id: string; creditAmount: Prisma.Decimal | null }[]
 ) {
   const splitTotal = payments.cash + payments.account + payments.credit;
   if (Math.abs(splitTotal - itemTotal) > PAYMENT_SPLIT_EPSILON) {
     throw new Error(
       `Payment split (${splitTotal}) doesn't match the bill total (${itemTotal}) — cash + account + credit must add up exactly.`
     );
+  }
+
+  if (payments.credit > 0 && grainItems.length === 1 && grainItems[0].creditAmount === null) {
+    // A single grain item is unambiguous — its own credit amount is
+    // exactly the sale's whole credit total when the shopkeeper
+    // didn't explicitly enter a per-item split (see
+    // dailySaleItemSchema's comment). Filled in here rather than
+    // required from the client, so the common "one grain item"
+    // sale keeps today's simple one-field flow.
+    await tx.dailySaleItem.update({
+      where: { id: grainItems[0].id },
+      data: { creditAmount: payments.credit },
+    });
+  } else if (payments.credit > 0 && grainItems.length > 1) {
+    const missing = grainItems.some((g) => g.creditAmount === null);
+    if (missing) {
+      throw new Error(
+        "This sale has more than one grain item and an Udhaar amount — specify how much Udhaar applies to each grain item."
+      );
+    }
+    const grainCreditTotal = grainItems.reduce((sum, g) => sum + Number(g.creditAmount), 0);
+    if (grainCreditTotal > payments.credit + PAYMENT_SPLIT_EPSILON) {
+      throw new Error(
+        `The grain items' Udhaar amounts (${grainCreditTotal}) add up to more than the sale's total Udhaar (${payments.credit}).`
+      );
+    }
   }
 
   if (payments.cash > 0) {
@@ -208,9 +269,8 @@ async function applyPaymentSplit(
           notes: "Credit sale — auto-posted to Udhaar",
         },
       });
-      // Mirror-image debt convention (see recordAccountTransaction):
-      // OUT on a non-tracksQuantity account means the customer now
-      // owes more, so balance increments.
+      // Debt convention (see recordAccountTransaction): OUT means the
+      // customer now owes more, so balance increments.
       await tx.customerAccount.update({
         where: { id: udharAccount.id },
         data: { currentBalance: { increment: payments.credit } },
@@ -219,17 +279,18 @@ async function applyPaymentSplit(
   }
 }
 
-// Completely undoes a sale's effects: restores simple stock and
-// grain batch quantities, reverses every AccountTransaction linked to
-// it (only ever the consignment/farmer payouts — the buyer's payment
-// split never posts one, see applyPaymentSplit) with an exact
-// opposite adjustment to each account's currentBalance, then deletes
-// the batch allocations, sale items, payments, and transactions.
-// Deliberately does NOT delete the DailySale row itself — that's what
-// lets updateDailySale reuse the same id after reapplying, rather
-// than the edit silently creating a new sale with a different id.
-// deleteDailySale calls this and then removes the row as its own
-// final step.
+// Completely undoes a sale's effects: restores simple stock and grain
+// batch quantities, reverses every buyer-Udhaar AccountTransaction
+// linked to it with an exact opposite adjustment to the account's
+// currentBalance, inserts a compensating entry for any Stock Udhaar
+// the sale grew (see the comment above that insert — never a hard
+// delete, since a later transfer-purchase may have already settled
+// part of it), then deletes the batch allocations, sale items,
+// payments, and transactions. Deliberately does NOT delete the
+// DailySale row itself — that's what lets updateDailySale reuse the
+// same id after reapplying, rather than the edit silently creating a
+// new sale with a different id. deleteDailySale calls this and then
+// removes the row as its own final step.
 async function reverseSaleContents(tx: Prisma.TransactionClient, shopId: string, saleId: string) {
   const sale = await tx.dailySale.findFirst({
     where: { id: saleId, shopId },
@@ -256,25 +317,19 @@ async function reverseSaleContents(tx: Prisma.TransactionClient, shopId: string,
     }
   }
 
-  // Reverse every ledger posting this sale made — both the
-  // consignment payouts and the buyer's Udhaar credit charge carry the
-  // same linkedSaleId, so this one query catches both sides. The two
-  // kinds of account use OPPOSITE conventions for what OUT/IN do to
-  // currentBalance (see recordAccountTransaction's comment): a
-  // consignment/farmer account's OUT decrements (money leaving the
-  // shop), while a debt account's OUT increments (customer now owes
-  // more) — so which correction to apply depends on the account's
-  // tracksQuantity, not on direction alone.
+  // Reverse every ledger posting this sale made — the buyer's Udhaar
+  // credit charge carries this linkedSaleId (the only kind of
+  // AccountTransaction createDailySale ever writes; a transfer-purchase's
+  // payment is a separate flow with its own linkedTransferBatchId, not
+  // reversed here). Every account now shares one debt convention: OUT
+  // increments currentBalance (customer owes more), IN decrements it
+  // (customer paid down) — see recordAccountTransaction's comment.
   const transactions = await tx.accountTransaction.findMany({
     where: { linkedSaleId: saleId },
-    include: { customerAccount: { include: { accountType: true } } },
   });
   for (const txn of transactions) {
     const amount = Number(txn.amount);
-    const isDebtAccount = !txn.customerAccount.accountType.tracksQuantity;
-    const originalEffectWasIncrement = isDebtAccount
-      ? txn.direction === "OUT"
-      : txn.direction === "IN";
+    const originalEffectWasIncrement = txn.direction === "OUT";
     await tx.customerAccount.update({
       where: { id: txn.customerAccountId },
       data: {
@@ -285,7 +340,48 @@ async function reverseSaleContents(tx: Prisma.TransactionClient, shopId: string,
   await tx.accountTransaction.deleteMany({ where: { linkedSaleId: saleId } });
   await tx.dailySalePayment.deleteMany({ where: { dailySaleId: saleId } });
 
+  // Reverse any Stock Udhaar this sale created — via a COMPENSATING
+  // entry, not a delete. A later transfer-purchase may already have
+  // settled part of this shortfall (see createTransferPurchase); a
+  // hard delete would leave that settlement's negative entries
+  // dangling with nothing to offset, silently making the customer's
+  // ledger show a phantom negative shortfall. Inserting the exact
+  // negation instead preserves full history and always nets correctly
+  // regardless of what settled in between.
+  const stockUdhaarGrowthEntries = await tx.stockUdhaarEntry.findMany({
+    where: { linkedSaleId: saleId, quantity: { gt: 0 } },
+  });
+  for (const entry of stockUdhaarGrowthEntries) {
+    await tx.stockUdhaarEntry.create({
+      data: {
+        customerId: entry.customerId,
+        productId: entry.productId,
+        grainBatchId: entry.grainBatchId,
+        quantity: -Number(entry.quantity),
+        linkedSaleId: saleId,
+        notes: "Reversed — sale edited/deleted",
+      },
+    });
+  }
+
   const itemIds = sale.items.map((i) => i.id);
+
+  // A grain item that already has a recorded Customer Udhaar
+  // repayment (see daily-sales/actions.ts: payGrainSaleItemCredit)
+  // must not be deleted out from under that payment history — the
+  // FK cascade would otherwise silently destroy real money-collected
+  // records the moment this sale is edited or deleted, same risk the
+  // Stock Udhaar handling above deliberately avoids via compensating
+  // entries instead of hard deletes.
+  const existingPayment = await tx.grainSaleCreditPayment.findFirst({
+    where: { dailySaleItemId: { in: itemIds } },
+  });
+  if (existingPayment) {
+    throw new Error(
+      "This sale has a recorded Udhaar repayment against one of its grain items — it can't be edited or deleted while that payment history exists."
+    );
+  }
+
   await tx.dailySaleItemBatch.deleteMany({ where: { dailySaleItemId: { in: itemIds } } });
   await tx.dailySaleItem.deleteMany({ where: { dailySaleId: saleId } });
 
@@ -342,10 +438,9 @@ function resolveSaleDateTime(saleDate?: string): Date {
 
 // The one transaction that makes a sale real, start to finish. Must
 // not partially apply — a failure anywhere (insufficient stock, a
-// mismatched payment split, a missing consignment account) rolls
-// back everything: the DailySale row (or the items/payments just
-// appended to today's existing one), every stock/batch decrement,
-// and every ledger posting.
+// mismatched payment split) rolls back everything: the DailySale row
+// (or the items/payments just appended to today's existing one),
+// every stock/batch decrement, and every ledger posting.
 export async function createDailySale(input: CreateDailySaleInput) {
   const shopId = await getCurrentShopId();
   const data = createDailySaleSchema.parse(input);
@@ -372,8 +467,8 @@ export async function createDailySale(input: CreateDailySaleInput) {
     // the same target date/time as the sale itself, so a backdated
     // entry's visit groups under the picked date, not under today.
     const visitAt = targetDateTime;
-    const itemTotal = await applySaleItems(tx, shopId, sale.id, data.items, visitAt);
-    await applyPaymentSplit(tx, shopId, data.customerId, sale.id, itemTotal, data.payments, visitAt);
+    const { itemTotal, grainItems } = await applySaleItems(tx, shopId, sale.id, data.items, visitAt);
+    await applyPaymentSplit(tx, shopId, data.customerId, sale.id, itemTotal, data.payments, visitAt, grainItems);
 
     const created = await tx.dailySale.findUniqueOrThrow({
       where: { id: sale.id },
@@ -415,8 +510,17 @@ export async function updateDailySale(input: UpdateDailySaleInput) {
     // into the one edited version, which matches how the edit form
     // presents it (one combined item list, one combined split).
     const visitAt = new Date();
-    const itemTotal = await applySaleItems(tx, shopId, data.saleId, data.items, visitAt);
-    await applyPaymentSplit(tx, shopId, existingSale.customerId, data.saleId, itemTotal, data.payments, visitAt);
+    const { itemTotal, grainItems } = await applySaleItems(tx, shopId, data.saleId, data.items, visitAt);
+    await applyPaymentSplit(
+      tx,
+      shopId,
+      existingSale.customerId,
+      data.saleId,
+      itemTotal,
+      data.payments,
+      visitAt,
+      grainItems
+    );
 
     const updated = await tx.dailySale.findUniqueOrThrow({
       where: { id: data.saleId },
@@ -472,7 +576,7 @@ export async function getCustomerPurchaseHistory(customerId: string) {
     db.accountTransaction.findMany({
       where: {
         direction: "IN",
-        customerAccount: { customerId, accountType: { tracksQuantity: false }, customer: { shopId } },
+        customerAccount: { customerId, customer: { shopId } },
       },
       orderBy: { transactionDate: "desc" },
     }),
@@ -522,6 +626,122 @@ export async function getCustomerPurchaseHistory(customerId: string) {
   return [...saleEntries, ...clearanceEntries].sort((a, b) => b.saleDate.getTime() - a.saleDate.getTime());
 }
 
+// ── Customer Udhaar (a customer buying grain FROM the shop on
+// Credit, not yet paid) ──────────────────────────────────────
+// The mirror of Shop Udhaar (stock/actions.ts: getShopOwedForGrain —
+// money the SHOP owes a customer for grain it bought from them). Here
+// the customer is the one who owes: they bought grain from the shop
+// at a settled rate and paid via Credit. Scoped to GRAIN items only
+// (creditAmount is only ever set on those — see DailySaleItem's
+// schema comment); a Credit purchase of a SIMPLE product still posts
+// to the customer's whole-account Udhaar balance as before, just
+// without this per-item breakdown.
+
+// Every grain sale item with a recorded Credit amount, optionally
+// scoped to one customer — the "Customer Udhaar" subtab's table data
+// source, both shop-wide (Grain page) and per-customer (customer
+// detail page), depending on whether customerId is passed.
+export async function getCustomerGrainCreditPurchases(customerId?: string) {
+  const shopId = await getCurrentShopId();
+
+  const items = await db.dailySaleItem.findMany({
+    where: {
+      creditAmount: { not: null },
+      product: { shopId, stockKind: "GRAIN" },
+      dailySale: { customerId: customerId || undefined, shopId },
+    },
+    include: {
+      product: { include: { unit: true } },
+      dailySale: { include: { customer: true } },
+      creditPayments: true,
+    },
+    orderBy: { visitAt: "desc" },
+  });
+
+  // Same week-long grace period the Debts page's overdue flag uses
+  // (see modules/debts/actions.ts: GRACE_PERIOD_DAYS) — one definition
+  // of "overdue" everywhere a due date is checked against today.
+  const GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  return items
+    .map((item) => {
+      const borrowed = Number(item.creditAmount);
+      const paid = item.creditPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+      return {
+        dailySaleItemId: item.id,
+        customerId: item.dailySale.customerId,
+        customerName: item.dailySale.customer.name,
+        productId: item.productId,
+        productName: item.product.name,
+        unitName: item.product.unit.name,
+        quantity: Number(item.quantity),
+        rate: Number(item.actualPrice),
+        purchaseDate: item.visitAt,
+        dueDate: item.creditDueDate,
+        isOverdue: item.creditDueDate !== null && item.creditDueDate.getTime() + GRACE_PERIOD_MS < now,
+        borrowed,
+        paid,
+        remaining: borrowed - paid,
+      };
+    })
+    .filter((row) => row.remaining > 0.01);
+}
+
+// Stat-card totals for the Customer Udhaar subtab — same shape as
+// getShopExpenseUdhaarSummary/getShopBorrowedSummary.
+export async function getCustomerGrainCreditSummary(customerId?: string) {
+  const rows = await getCustomerGrainCreditPurchases(customerId);
+
+  const totalBorrowed = rows.reduce((sum, r) => sum + r.borrowed, 0);
+  const totalPaid = rows.reduce((sum, r) => sum + r.paid, 0);
+  const totalRemaining = rows.reduce((sum, r) => sum + r.remaining, 0);
+  const customerCount = new Set(rows.map((r) => r.customerId)).size;
+
+  return { totalBorrowed, totalPaid, totalRemaining, count: rows.length, customerCount };
+}
+
+// Pays down a customer's Credit purchase of a specific grain sale
+// item — amount is capped at that item's own outstanding remainder,
+// never trusted from the client. Supports partial payments; the item
+// simply stops appearing in getCustomerGrainCreditPurchases once its
+// remainder reaches zero. Deliberately does NOT touch the customer's
+// Udhaar CustomerAccount.currentBalance — that balance was already
+// incremented once, at sale time, by the sale's own AccountTransaction
+// (see applyPaymentSplit); this per-item ledger is a finer-grained
+// VIEW into that same debt, not a second, parallel source of truth,
+// so double-counting a repayment here against currentBalance would
+// silently understate what the customer still owes. A shopkeeper
+// wanting to reduce currentBalance still uses the existing "Record
+// repayment" action on the Regular/Daily Udhaar tab for that.
+export async function payGrainSaleItemCredit(input: PayGrainSaleItemCreditInput) {
+  const shopId = await getCurrentShopId();
+  const data = payGrainSaleItemCreditSchema.parse(input);
+
+  const item = await db.dailySaleItem.findFirst({
+    where: { id: data.dailySaleItemId, product: { shopId } },
+    include: { creditPayments: true },
+  });
+  if (!item || item.creditAmount === null) throw new Error("Grain sale item not found");
+
+  const paidSoFar = item.creditPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+  const remaining = Number(item.creditAmount) - paidSoFar;
+  if (data.amount > remaining + 0.01) {
+    throw new Error(
+      `This payment (Rs ${data.amount}) is more than what's actually owed (Rs ${remaining}) — a payment can't exceed what's owed.`
+    );
+  }
+
+  await db.grainSaleCreditPayment.create({
+    data: {
+      dailySaleItemId: item.id,
+      amount: data.amount,
+      paymentMethod: data.paymentMethod,
+      notes: data.notes,
+    },
+  });
+}
+
 // The edit form's data source for one sale — same shape
 // getCustomerPurchaseHistory's per-sale entries use, so the edit
 // modal can be pre-filled with exactly what's already there.
@@ -546,6 +766,8 @@ export async function getDailySaleForEdit(saleId: string) {
       productName: item.product.name,
       quantity: Number(item.quantity),
       actualPrice: Number(item.actualPrice),
+      creditAmount: item.creditAmount !== null ? Number(item.creditAmount) : undefined,
+      creditDueDate: item.creditDueDate ? toLocalDateString(item.creditDueDate) : undefined,
     })),
     payments: {
       cash: paymentsByMethod.CASH ?? 0,
@@ -622,13 +844,11 @@ export async function listDailySales(options?: {
 
   // Udhaar Clearances are fetched with the same filters (customer/
   // date), so the merged feed reflects one consistent search across
-  // both sales and repayments — never CONSIGNMENT accounts, since
-  // those aren't a customer debt (see recordAccountTransaction).
+  // both sales and repayments.
   const clearanceWhere = {
     direction: "IN" as const,
     transactionDate: dateFilter,
     customerAccount: {
-      accountType: { tracksQuantity: false },
       customerId: options?.customerId || undefined,
       customer: { shopId, ...customerFilter },
     },

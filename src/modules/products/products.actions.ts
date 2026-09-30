@@ -18,6 +18,17 @@ export async function createProduct(input: ProductInput) {
   const shopId = await getCurrentShopId();
   const data = productSchema.parse(input);
 
+  // A SIMPLE product must file under a SIMPLE category — never
+  // trusted purely from the form's own filtering (see
+  // Category.stockKind's schema comment on why the two must always
+  // agree; a mismatch here previously let grain products silently
+  // leak into Product categories and vice versa).
+  const category = await db.category.findFirst({ where: { id: data.categoryId, shopId } });
+  if (!category) throw new Error("Category not found");
+  if (category.stockKind !== "SIMPLE") {
+    throw new Error(`"${category.name}" is a Grain category — pick a Product category for this item.`);
+  }
+
   const product = await db.product.create({
     data: {
       shopId,
@@ -39,6 +50,18 @@ export async function updateProduct(input: UpdateProductInput) {
 
   const existing = await db.product.findFirst({ where: { id, shopId } });
   if (!existing) throw new Error("Product not found");
+
+  // Same category/stockKind agreement createProduct/createGrainProduct
+  // enforce — a re-category must still match this product's own kind.
+  if (data.categoryId) {
+    const category = await db.category.findFirst({ where: { id: data.categoryId, shopId } });
+    if (!category) throw new Error("Category not found");
+    if (category.stockKind !== existing.stockKind) {
+      throw new Error(
+        `"${category.name}" is a ${category.stockKind === "GRAIN" ? "Grain" : "Product"} category — it doesn't match this item's stock type.`
+      );
+    }
+  }
 
   const product = await db.product.update({ where: { id }, data });
   return serializeDecimals(product);
@@ -119,6 +142,14 @@ export async function createGrainProduct(input: GrainProductInput) {
   const shopId = await getCurrentShopId();
   const data = grainProductSchema.parse(input);
 
+  // Mirror of createProduct's own check — a GRAIN product must file
+  // under a GRAIN category.
+  const category = await db.category.findFirst({ where: { id: data.categoryId, shopId } });
+  if (!category) throw new Error("Category not found");
+  if (category.stockKind !== "GRAIN") {
+    throw new Error(`"${category.name}" is a Product category — pick a Grain category for this item.`);
+  }
+
   const product = await db.product.create({
     data: {
       shopId,
@@ -126,7 +157,6 @@ export async function createGrainProduct(input: GrainProductInput) {
       unitId: data.unitId,
       name: data.name,
       stockKind: "GRAIN",
-      baseRate: data.baseRate,
     },
   });
   return serializeDecimals(product);

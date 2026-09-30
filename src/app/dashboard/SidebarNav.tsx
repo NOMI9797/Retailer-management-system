@@ -50,6 +50,15 @@ const navItems = [
     ),
   },
   {
+    href: "/dashboard/grain",
+    label: "Grain",
+    icon: (
+      <>
+        <path d="M12 2v20M8 6l4-4 4 4M8 12l4-4 4 4M8 18l4-4 4 4" />
+      </>
+    ),
+  },
+  {
     href: "/dashboard/debts",
     label: "Udhaar",
     icon: (

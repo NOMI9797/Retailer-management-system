@@ -1,5 +1,6 @@
-// New Sale and Udhaar Clearance are tabs on the same page — real
-// ?tab= navigation, same pattern as Settings/Expenses/Reports.
+// New Sale, Udhaar Clearance, and Stock from customer are tabs on the
+// same page — real ?tab= navigation, same pattern as
+// Settings/Expenses/Reports.
 export type NewSalePageSearchParams = {
   tab?: string;
 };

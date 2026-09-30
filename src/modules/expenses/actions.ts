@@ -9,10 +9,12 @@ import {
   updateExpenseSchema,
   monthlyExpenseSchema,
   updateMonthlyExpenseSchema,
+  payExpenseDebtSchema,
   type ExpenseInput,
   type UpdateExpenseInput,
   type MonthlyExpenseInput,
   type UpdateMonthlyExpenseInput,
+  type PayExpenseDebtInput,
 } from "./schema";
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -123,6 +125,95 @@ export async function listExpenses(options?: {
     pageSize,
     totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
   };
+}
+
+// ── Shop Udhaar (unpaid Credit expenses) ────────────────────
+// A CREDIT expense (Daily or Monthly — a shop debt is a shop debt
+// either way) is recorded once, same as any expense, but isn't
+// actually paid yet. This section tracks paying it off later via
+// ExpensePayment, mirroring stock/actions.ts's payGrainDebt.
+
+// Every CREDIT expense that still has a positive remainder, with its
+// own borrowed/paid/remaining figures — the Udhaar (Shop) tab's table
+// data source. Unlike listExpenses, this spans BOTH Daily and Monthly
+// (a shop debt is a shop debt regardless of which expense list it
+// came from) and is never paginated — a shop realistically has few
+// outstanding Credit expenses at once, same scale assumption
+// listDebtors makes for customer accounts.
+export async function listShopExpenseUdhaar() {
+  const shopId = await getCurrentShopId();
+
+  const expenses = await db.expense.findMany({
+    where: { shopId, paymentMethod: "CREDIT" },
+    include: { payments: true, monthlyExpenseType: true },
+    orderBy: { expenseDate: "desc" },
+  });
+
+  return expenses
+    .map((e) => {
+      const borrowed = Number(e.amount);
+      const paid = e.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+      return {
+        id: e.id,
+        description: e.monthlyExpenseType?.name ?? e.description,
+        expenseType: e.expenseType,
+        expenseDate: e.expenseDate,
+        borrowed,
+        paid,
+        remaining: borrowed - paid,
+      };
+    })
+    .filter((e) => e.remaining > 0.01);
+}
+
+// Stat-card totals for the Udhaar (Shop) tab — same shape as
+// getDebtSummary, scoped to Credit expenses instead of customer
+// accounts.
+export async function getShopExpenseUdhaarSummary() {
+  const rows = await listShopExpenseUdhaar();
+
+  const totalBorrowed = rows.reduce((sum, r) => sum + r.borrowed, 0);
+  const totalPaid = rows.reduce((sum, r) => sum + r.paid, 0);
+  const totalRemaining = rows.reduce((sum, r) => sum + r.remaining, 0);
+
+  return {
+    totalBorrowed,
+    totalPaid,
+    totalRemaining,
+    count: rows.length,
+  };
+}
+
+// Pays down a CREDIT expense — amount is capped at that expense's own
+// outstanding remainder, never trusted from the client. Supports
+// partial payments; the expense simply stops appearing in
+// listShopExpenseUdhaar once its remainder reaches zero.
+export async function payExpenseDebt(input: PayExpenseDebtInput) {
+  const shopId = await getCurrentShopId();
+  const data = payExpenseDebtSchema.parse(input);
+
+  const expense = await db.expense.findFirst({
+    where: { id: data.expenseId, shopId, paymentMethod: "CREDIT" },
+    include: { payments: true },
+  });
+  if (!expense) throw new Error("Expense not found");
+
+  const paidSoFar = expense.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+  const remaining = Number(expense.amount) - paidSoFar;
+  if (data.amount > remaining + 0.01) {
+    throw new Error(
+      `This payment (Rs ${data.amount}) is more than what's actually owed (Rs ${remaining}) — a payment can't exceed what's owed.`
+    );
+  }
+
+  await db.expensePayment.create({
+    data: {
+      expenseId: expense.id,
+      amount: data.amount,
+      paymentMethod: data.paymentMethod,
+      notes: data.notes,
+    },
+  });
 }
 
 // ── Monthly expense types (Settings-managed) ────────────────

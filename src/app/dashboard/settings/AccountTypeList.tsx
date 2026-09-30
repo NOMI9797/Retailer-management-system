@@ -15,7 +15,6 @@ export function AccountTypeList({ accountTypes }: { accountTypes: AccountType[] 
           <tr>
             <th>Name</th>
             <th>Code</th>
-            <th>Tracks quantity</th>
             <th>Loan type</th>
             <th>Custom fields</th>
             <th>Status</th>
@@ -25,7 +24,7 @@ export function AccountTypeList({ accountTypes }: { accountTypes: AccountType[] 
         <tbody>
           {accountTypes.length === 0 ? (
             <tr className="empty-row">
-              <td colSpan={7}>No account types yet.</td>
+              <td colSpan={6}>No account types yet.</td>
             </tr>
           ) : (
             accountTypes.map((accountType) => (
@@ -38,7 +37,6 @@ export function AccountTypeList({ accountTypes }: { accountTypes: AccountType[] 
                 <td>
                   <span className="code-tag">{accountType.code}</span>
                 </td>
-                <td>{accountType.tracksQuantity ? "Yes" : "No"}</td>
                 <td>{accountType.isLoan ? "Yes" : "No"}</td>
                 <td>{accountType.fields.length}</td>
                 <td>

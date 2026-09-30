@@ -25,9 +25,9 @@ const plexSans = IBM_Plex_Sans({
 const ledgerRows = [
   {
     chip: "wheat",
-    title: "Grain & consignment",
+    title: "Grain & stock deposits",
     description:
-      "Wheat and channa handled on commission for farmers, tracked batch by batch, alongside stock the shop owns outright on the same shelf.",
+      "Wheat and channa customers deposit for safekeeping, tracked batch by batch and kept separate from stock the shop owns outright — even on the same shelf.",
     icon: (
       <path d="M12 2v20M8 6l4-4 4 4M8 12l4-4 4 4M8 18l4-4 4 4" />
     ),
@@ -36,7 +36,7 @@ const ledgerRows = [
     chip: "ledger",
     title: "One ledger per customer",
     description:
-      "Loans, consignment balances, and regular buying — one running account per customer, always showing exactly who owes who.",
+      "Loans, stock deposits, and regular buying — one running account per customer, always showing exactly who owes who.",
     icon: (
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15z" />
     ),
@@ -83,9 +83,9 @@ export default function HomePage() {
             Every account <em>settled true.</em>
           </h1>
           <p className="lede">
-            Wheat and channa handled on commission for farmers, everyday
-            retail sold alongside it, and one honest ledger connecting both —
-            under Shoaib Traders&apos; roof.
+            Wheat and channa held for farmers and traded on their behalf,
+            everyday retail sold alongside it, and one honest ledger
+            connecting both — under Shoaib Traders&apos; roof.
           </p>
           <div className="cta-row">
             <Link href="/dashboard" className="btn-primary">

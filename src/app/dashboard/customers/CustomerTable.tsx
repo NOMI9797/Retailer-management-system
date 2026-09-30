@@ -52,10 +52,7 @@ export async function CustomerTable({ searchParams }: { searchParams: CustomersS
                       ) : (
                         <div className="acct-tags">
                           {customer.accounts.map((a) => (
-                            <span
-                              key={a.id}
-                              className={`acct-tag${a.accountType.tracksQuantity ? " consignment" : ""}`}
-                            >
+                            <span key={a.id} className="acct-tag">
                               {a.accountType.name}
                             </span>
                           ))}

@@ -41,8 +41,6 @@ async function AccountTypeDetail({ id }: { id: string }) {
           <h1>{accountType.name}</h1>
           <p>
             Code: <span className="cat-pill">{accountType.code}</span>
-            {" · "}
-            {accountType.tracksQuantity ? "Tracks quantity" : "Money only"}
             {accountType.isLoan && (
               <>
                 {" · "}

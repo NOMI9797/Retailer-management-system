@@ -23,7 +23,7 @@ export function CategoryManager({ categories }: { categories: Category[] }) {
     e.preventDefault();
     setError(null);
     try {
-      await createCategory({ name });
+      await createCategory({ name, stockKind: "SIMPLE" });
       setName("");
       router.refresh();
     } catch (err) {

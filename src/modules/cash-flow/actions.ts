@@ -26,16 +26,22 @@ function dayBoundsFromLocalMidnight(localMidnight: Date) {
   return { start, end };
 }
 
+// A transfer-purchase payout (see stock/actions.ts: createTransferPurchase)
+// is the only AccountTransaction that ever sets `quantity` — every
+// other write path (recordAccountTransaction, applyPaymentSplit's
+// Credit-sale posting) leaves it null. That makes `quantity: { not: null }`
+// a reliable, structural way to pick out "the shop paying a customer
+// for grain" from every other direction-OUT posting (a loan given,
+// which increments a debt balance rather than paying anyone out),
+// without relying on notes text or a dedicated flag.
+const TRANSFER_PURCHASE_FILTER = { direction: "OUT" as const, quantity: { not: null } };
+
 // Cash in for a day = sum of DailySalePayment rows tagged CASH for
 // sales made that day, PLUS any Udhaar repayment (AccountTransaction,
-// direction IN, on a non-tracksQuantity account) recorded that day
-// with paymentMethod CASH — a customer paying back a loan in cash is
-// real money landing in the drawer, same as a cash sale. Consignment/
-// farmer payouts are excluded by construction: they only ever post
-// with paymentMethod CREDIT (a ledger accrual, not cash changing
-// hands), and by the tracksQuantity filter below even if that ever
-// changed. Only Cash counts here — Account and Credit amounts are not
-// physical cash.
+// direction IN) recorded that day with paymentMethod CASH — a
+// customer paying back a loan in cash is real money landing in the
+// drawer, same as a cash sale. Only Cash counts here — Account and
+// Credit amounts are not physical cash.
 async function sumCashIn(shopId: string, start: Date, end: Date) {
   const [salesResult, repaymentsResult] = await Promise.all([
     db.dailySalePayment.aggregate({
@@ -50,7 +56,7 @@ async function sumCashIn(shopId: string, start: Date, end: Date) {
         direction: "IN",
         paymentMethod: "CASH",
         transactionDate: { gte: start, lte: end },
-        customerAccount: { accountType: { tracksQuantity: false }, customer: { shopId } },
+        customerAccount: { customer: { shopId } },
       },
       _sum: { amount: true },
     }),
@@ -58,13 +64,28 @@ async function sumCashIn(shopId: string, start: Date, end: Date) {
   return Number(salesResult._sum.amount ?? 0) + Number(repaymentsResult._sum.amount ?? 0);
 }
 
-// Cash out for a day = sum of Expense rows tagged CASH for that day.
+// Cash out for a day = sum of Expense rows tagged CASH for that day,
+// PLUS any transfer-purchase payout (see TRANSFER_PURCHASE_FILTER)
+// paid CASH that day — the shop handing a customer physical cash for
+// grain it just bought from them is real money leaving the drawer,
+// same as an expense.
 async function sumCashOut(shopId: string, start: Date, end: Date) {
-  const result = await db.expense.aggregate({
-    where: { shopId, expenseType: "DAILY", paymentMethod: "CASH", expenseDate: { gte: start, lte: end } },
-    _sum: { amount: true },
-  });
-  return Number(result._sum.amount ?? 0);
+  const [expenseResult, transferResult] = await Promise.all([
+    db.expense.aggregate({
+      where: { shopId, expenseType: "DAILY", paymentMethod: "CASH", expenseDate: { gte: start, lte: end } },
+      _sum: { amount: true },
+    }),
+    db.accountTransaction.aggregate({
+      where: {
+        ...TRANSFER_PURCHASE_FILTER,
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        customerAccount: { customer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+  ]);
+  return Number(expenseResult._sum.amount ?? 0) + Number(transferResult._sum.amount ?? 0);
 }
 
 // Same shape as sumCashIn/sumCashOut, generalized to any PaymentMethod
@@ -90,16 +111,61 @@ async function sumSalePayments(shopId: string, method: "ACCOUNT" | "CREDIT", sta
       direction: "IN",
       paymentMethod: "ACCOUNT",
       transactionDate: { gte: start, lte: end },
-      customerAccount: { accountType: { tracksQuantity: false }, customer: { shopId } },
+      customerAccount: { customer: { shopId } },
     },
     _sum: { amount: true },
   });
   return salesTotal + Number(repaymentsResult._sum.amount ?? 0);
 }
 
+// Same "fold in the equivalent transfer-purchase payouts" treatment
+// sumCashOut gets, for the Account info card. An ACCOUNT
+// transfer-purchase (the shopkeeper paid a customer for grain via
+// bank transfer) genuinely belongs in "Account out" — real money
+// moved through that channel, same category as an Account-paid
+// expense.
+//
+// CREDIT deliberately does NOT fold in transfer-purchases here — per
+// the "Udhaar (expenses) vs Stock Udhaar (Grain), mutually exclusive"
+// decision, unpaid grain purchases get their own dedicated card
+// (sumGrainCreditOut below) instead of being mixed into the general
+// expense-Udhaar figure.
 async function sumExpensesByMethod(shopId: string, method: "ACCOUNT" | "CREDIT", start: Date, end: Date) {
-  const result = await db.expense.aggregate({
+  const expenseResult = await db.expense.aggregate({
     where: { shopId, expenseType: "DAILY", paymentMethod: method, expenseDate: { gte: start, lte: end } },
+    _sum: { amount: true },
+  });
+  const expenseTotal = Number(expenseResult._sum.amount ?? 0);
+
+  if (method !== "ACCOUNT") return expenseTotal;
+
+  const transferResult = await db.accountTransaction.aggregate({
+    where: {
+      ...TRANSFER_PURCHASE_FILTER,
+      paymentMethod: "ACCOUNT",
+      transactionDate: { gte: start, lte: end },
+      customerAccount: { customer: { shopId } },
+    },
+    _sum: { amount: true },
+  });
+  return expenseTotal + Number(transferResult._sum.amount ?? 0);
+}
+
+// That day's CREDIT-paid grain transfer-purchases only — money the
+// shop now owes a customer for grain it just took ownership of on
+// Credit, kept as its own card separate from Udhaar (expenses) (see
+// sumExpensesByMethod's comment on why CREDIT no longer folds this
+// in). Day-scoped to match every other Cash Flow figure, unlike the
+// Udhaar page's own all-time "Shop owes this customer" total
+// (getShopOwedForGrain).
+async function sumGrainCreditOut(shopId: string, start: Date, end: Date) {
+  const result = await db.accountTransaction.aggregate({
+    where: {
+      ...TRANSFER_PURCHASE_FILTER,
+      paymentMethod: "CREDIT",
+      transactionDate: { gte: start, lte: end },
+      customerAccount: { customer: { shopId } },
+    },
     _sum: { amount: true },
   });
   return Number(result._sum.amount ?? 0);
@@ -192,7 +258,19 @@ export async function getCashFlowForDate(dateStr: string) {
   const shopId = await getCurrentShopId();
   const { start, end } = dayBounds(dateStr);
 
-  const [existing, cashIn, cashOut, resolvedOpening, accountIn, accountOut, creditIn, creditOut, salesCount, expenseCount] =
+  const [
+    existing,
+    cashIn,
+    cashOut,
+    resolvedOpening,
+    accountIn,
+    accountOut,
+    creditIn,
+    creditOut,
+    grainCreditOut,
+    salesCount,
+    expenseCount,
+  ] =
     await Promise.all([
       db.dailyCashRegister.findUnique({ where: { shopId_date: { shopId, date: start } } }),
       sumCashIn(shopId, start, end),
@@ -202,6 +280,7 @@ export async function getCashFlowForDate(dateStr: string) {
       sumExpensesByMethod(shopId, "ACCOUNT", start, end),
       sumSalePayments(shopId, "CREDIT", start, end),
       sumExpensesByMethod(shopId, "CREDIT", start, end),
+      sumGrainCreditOut(shopId, start, end),
       // Sale/expense counts — a genuinely new "how busy was this day"
       // metric, distinct from any of the money totals above. This is
       // the natural place to grow the day dashboard with more metrics
@@ -230,6 +309,7 @@ export async function getCashFlowForDate(dateStr: string) {
     accountOut,
     creditIn,
     creditOut,
+    grainCreditOut,
     salesCount,
     expenseCount,
   };

@@ -26,7 +26,6 @@ export async function createAccountType(input: AccountTypeInput) {
       shopId,
       name: data.name,
       code: data.code,
-      tracksQuantity: data.tracksQuantity,
       isLoan: data.isLoan,
       fields: {
         create: data.fields.map((f) => ({
@@ -99,7 +98,7 @@ export async function ensureDefaultAccountType() {
   if (existing) return existing;
 
   const accountType = await db.accountType.create({
-    data: { shopId, name: "Regular", code: "REGULAR", tracksQuantity: false },
+    data: { shopId, name: "Regular", code: "REGULAR" },
   });
   invalidateShopCache(ENTITY, shopId);
   return accountType;

@@ -25,6 +25,11 @@ export function EditProductModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  // This form is SIMPLE-stock-only (see the cost/sell price fields
+  // below — grain products have no such editor) — so the dropdown
+  // only ever offers SIMPLE categories, same "matching-kind only"
+  // rule ProductForm's own dropdown now follows.
+  const simpleCategories = categories.filter((c) => c.stockKind === "SIMPLE");
   const [categoryId, setCategoryId] = useState(product.categoryId);
   const [unitId, setUnitId] = useState(product.unitId);
   const [name, setName] = useState(product.name);
@@ -77,7 +82,7 @@ export function EditProductModal({
           <div className="field">
             <label>Category</label>
             <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
-              {categories.map((c) => (
+              {simpleCategories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>

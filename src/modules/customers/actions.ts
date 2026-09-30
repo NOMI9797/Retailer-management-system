@@ -8,10 +8,14 @@ import {
   updateCustomerSchema,
   recordAccountTransactionSchema,
   createLongTermLoanSchema,
+  createShopBorrowedLoanSchema,
+  payShopBorrowedLoanSchema,
   type CustomerInput,
   type UpdateCustomerInput,
   type RecordAccountTransactionInput,
   type CreateLongTermLoanInput,
+  type CreateShopBorrowedLoanInput,
+  type PayShopBorrowedLoanInput,
 } from "./schema";
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -33,10 +37,9 @@ const DEFAULT_PAGE_SIZE = 50;
 // the first time they actually take a loan or make a Credit sale (see
 // applyPaymentSplit in daily-sales/actions.ts and
 // recordAccountTransaction). accountTypeIds still works exactly as
-// before for any OTHER account type a caller explicitly passes (e.g.
-// Consignment when registering a farmer) — nothing about that
-// capability was removed, only the New Sale/Add Customer forms no
-// longer show a picker for it.
+// before for any OTHER account type a caller explicitly passes —
+// nothing about that capability was removed, only the New Sale/Add
+// Customer forms no longer show a picker for it.
 export async function createCustomer(input: CustomerInput) {
   const shopId = await getCurrentShopId();
   const data = customerSchema.parse(input);
@@ -84,11 +87,11 @@ export async function createCustomer(input: CustomerInput) {
 }
 
 // Attaches an additional account type to an existing customer — e.g.
-// a regular walk-in buyer who's now also become a farmer supplying
-// consigned grain needs a second, Consignment-style account without
-// losing their existing Regular one. No-ops if they already hold that
-// account type (picking it again from the UI shouldn't create a
-// second row of the same type).
+// a regular walk-in buyer who's now also depositing grain for
+// safekeeping needs a second account without losing their existing
+// Regular one. No-ops if they already hold that account type (picking
+// it again from the UI shouldn't create a second row of the same
+// type).
 export async function addCustomerAccount(customerId: string, accountTypeId: string) {
   const shopId = await getCurrentShopId();
 
@@ -295,13 +298,12 @@ export async function getCustomer(id: string) {
 // Manually records a loan given or a repayment received on a Udhaar or
 // Regular account — the one write path the Customer Accounts ledger
 // view and the Debts page's "record repayment" quick action both
-// share. NOT for consignment/farmer accounts: those only ever get
-// AccountTransactions posted automatically from applySaleItems, whose
-// OUT-decrements-balance convention has the opposite meaning (money
-// leaving the shop TO the farmer) from a customer loan (money the
-// shop is now owed MORE of). Rejecting tracksQuantity accounts here
-// keeps that existing convention completely untouched rather than
-// trying to make one direction mean two different things.
+// share. Every account uses the debt convention below: OUT increments
+// (customer owes more), IN decrements (customer paid down). A
+// transfer-purchase's payment (see stock/actions.ts:
+// createTransferPurchase) posts the OPPOSITE-meaning OUT — shop owes
+// the customer, decrementing balance — directly, bypassing this
+// function entirely, so it never needs to be special-cased here.
 export async function recordAccountTransaction(input: RecordAccountTransactionInput) {
   const shopId = await getCurrentShopId();
   const data = recordAccountTransactionSchema.parse(input);
@@ -311,9 +313,6 @@ export async function recordAccountTransaction(input: RecordAccountTransactionIn
     include: { accountType: true, transactions: true },
   });
   if (!account) throw new Error("Account not found");
-  if (account.accountType.tracksQuantity) {
-    throw new Error("Consignment accounts are posted automatically from sales, not recorded manually here.");
-  }
 
   // A repayment can't exceed what's actually remaining IN THIS
   // BUCKET — Regular and Long-term are isolated (see
@@ -347,11 +346,11 @@ export async function recordAccountTransaction(input: RecordAccountTransactionIn
       },
     });
 
-    // Mirror image of the consignment convention (see the comment
-    // above): on a debt account, OUT (loan given) means the customer
-    // now owes MORE, so balance increments; IN (repayment) means they
-    // owe LESS, so balance decrements. describeBalance's "positive =
-    // customer owes shop" convention stays correct either way.
+    // Debt convention (see the comment above): OUT (loan given) means
+    // the customer now owes MORE, so balance increments; IN
+    // (repayment) means they owe LESS, so balance decrements.
+    // describeBalance's "positive = customer owes shop" convention
+    // stays correct either way.
     await tx.customerAccount.update({
       where: { id: data.customerAccountId },
       data: {
@@ -383,8 +382,8 @@ export async function recordAccountTransaction(input: RecordAccountTransactionIn
 // their Udhar account first, same pattern applyPaymentSplit already
 // uses for Credit sales. Writes through recordAccountTransaction
 // under the hood (direction OUT, isLongTerm: true) so there's still
-// exactly one implementation of the balance math and the
-// account/tracksQuantity guard, not a second one duplicated here.
+// exactly one implementation of the balance math, not a second one
+// duplicated here.
 export async function createLongTermLoan(input: CreateLongTermLoanInput) {
   const shopId = await getCurrentShopId();
   const data = createLongTermLoanSchema.parse(input);
@@ -416,5 +415,225 @@ export async function createLongTermLoan(input: CreateLongTermLoanInput) {
     dueDate: toLocalDateString(dueDate),
     notes: data.notes,
     isLongTerm: true,
+  });
+}
+
+// ── Shop (Udhaar): the shop borrowing cash FROM a customer ──
+// The mirror of Long-term Udhaar — same "pick a customer, an amount,
+// and a duration; due date is always derived" shape, but here the
+// SHOP is the borrower. Posts directly to AccountTransaction (NOT
+// through recordAccountTransaction) for the same reason
+// payCustomerForGrain/payGrainDebt do: this bucket's OUT/IN meaning
+// (shop borrows / shop repays) is the opposite of every other
+// bucket's convention, and currentBalance is deliberately left
+// untouched — see AccountTransaction.isShopBorrowed's schema comment
+// on why this must never net against the customer's real Udhaar
+// balance. Uses the same Udhar/loan account every other bucket
+// shares (auto-created if this is the customer's first Udhaar
+// activity of any kind), since isShopBorrowed alone is enough to keep
+// this bucket's totals fully isolated in every query that reads it.
+
+export async function createShopBorrowedLoan(input: CreateShopBorrowedLoanInput) {
+  const shopId = await getCurrentShopId();
+  const data = createShopBorrowedLoanSchema.parse(input);
+
+  const udharType = await db.accountType.findFirst({ where: { shopId, isLoan: true } });
+  if (!udharType) {
+    throw new Error("No loan-type account configured for this shop — mark an account type as a loan in Settings.");
+  }
+
+  const customer = await db.customer.findFirst({ where: { id: data.customerId, shopId } });
+  if (!customer) throw new Error("Customer not found");
+
+  let account = await db.customerAccount.findFirst({
+    where: { customerId: data.customerId, accountTypeId: udharType.id },
+  });
+  if (!account) {
+    account = await db.customerAccount.create({
+      data: { customerId: data.customerId, accountTypeId: udharType.id },
+    });
+  }
+
+  const dueDate = new Date();
+  if (data.durationUnit === "DAYS") dueDate.setDate(dueDate.getDate() + data.durationValue);
+  else if (data.durationUnit === "WEEKS") dueDate.setDate(dueDate.getDate() + data.durationValue * 7);
+  else dueDate.setMonth(dueDate.getMonth() + data.durationValue);
+
+  await db.accountTransaction.create({
+    data: {
+      customerAccountId: account.id,
+      direction: "OUT",
+      amount: data.amount,
+      paymentMethod: data.paymentMethod,
+      dueDate,
+      notes: data.notes || null,
+      isShopBorrowed: true,
+    },
+  });
+}
+
+// Every customer the shop currently owes money to via a Shop
+// Borrowed loan — the Udhaar (Shop) → Borrowed from Customers tab's
+// table data source. Same balance/overdue math as summarizeAccount,
+// scoped to isShopBorrowed rows only, computed fresh from the ledger
+// rather than any stored balance (this bucket never touches
+// currentBalance — see the section comment above).
+export async function listShopBorrowedLoans() {
+  const shopId = await getCurrentShopId();
+
+  const accounts = await db.customerAccount.findMany({
+    where: {
+      customer: { shopId },
+      transactions: { some: { isShopBorrowed: true } },
+    },
+    include: {
+      customer: true,
+      transactions: { where: { isShopBorrowed: true }, orderBy: { transactionDate: "asc" } },
+    },
+  });
+
+  const now = Date.now();
+  const MS_PER_DAY = 1000 * 60 * 60 * 24;
+  const GRACE_PERIOD_DAYS = 7;
+
+  const rows = accounts
+    .map((account) => {
+      const txns = account.transactions;
+      const totalBorrowed = txns.filter((t) => t.direction === "OUT").reduce((sum, t) => sum + Number(t.amount), 0);
+      const totalPaid = txns.filter((t) => t.direction === "IN").reduce((sum, t) => sum + Number(t.amount), 0);
+      const balance = totalBorrowed - totalPaid;
+
+      const earliestTxn = txns[0] ?? null;
+      const borrowedSince = earliestTxn?.transactionDate ?? account.openedDate;
+      const daysSince = Math.max(0, Math.floor((now - borrowedSince.getTime()) / MS_PER_DAY));
+
+      const oldestDueDated = txns.find((t) => t.dueDate !== null) ?? null;
+      const isOverdue =
+        oldestDueDated !== null && oldestDueDated.dueDate!.getTime() + GRACE_PERIOD_DAYS * MS_PER_DAY < now;
+
+      return {
+        customerAccountId: account.id,
+        customerId: account.customerId,
+        customerName: account.customer.name,
+        customerPhone: account.customer.phone,
+        balance,
+        totalBorrowed,
+        totalPaid,
+        borrowedSince,
+        daysSince,
+        dueDate: oldestDueDated?.dueDate ?? null,
+        isOverdue,
+      };
+    })
+    .filter((row) => row.balance > 0.01);
+
+  rows.sort((a, b) => {
+    if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
+    return a.borrowedSince.getTime() - b.borrowedSince.getTime();
+  });
+
+  return rows;
+}
+
+// Stat-card totals for the Udhaar (Shop) → Borrowed from Customers
+// tab.
+export async function getShopBorrowedSummary() {
+  const rows = await listShopBorrowedLoans();
+
+  const totalBorrowed = rows.reduce((sum, r) => sum + r.totalBorrowed, 0);
+  const totalPaid = rows.reduce((sum, r) => sum + r.totalPaid, 0);
+  const totalOwed = rows.reduce((sum, r) => sum + r.balance, 0);
+  const overdueCount = rows.filter((r) => r.isOverdue).length;
+
+  return { totalBorrowed, totalPaid, totalOwed, overdueCount, count: rows.length };
+}
+
+// One customer's full Shop Borrowed history — every loan given and
+// repayment made, in date order — powers the customer detail page's
+// "Udhaar to Shop" tab (see CustomerDetailPage). Unlike
+// listShopBorrowedLoans (one row per customer, current balance only),
+// this is transaction-level detail, same granularity
+// PurchaseHistoryList shows for sales. Always returns a shape (never
+// null) even when the customer has no Shop Borrowed activity — the
+// tab renders its own empty state, same "always show the tab" pattern
+// Stock Udhaar's own customer-detail tab already follows, so a
+// customer with no such history yet doesn't need a separate
+// conditional to hide the tab.
+export async function getCustomerShopBorrowedHistory(customerId: string) {
+  const shopId = await getCurrentShopId();
+
+  const account = await db.customerAccount.findFirst({
+    where: {
+      customerId,
+      customer: { shopId },
+      transactions: { some: { isShopBorrowed: true } },
+    },
+    include: {
+      transactions: { where: { isShopBorrowed: true }, orderBy: { transactionDate: "desc" } },
+    },
+  });
+
+  const transactions = account?.transactions ?? [];
+  const totalBorrowed = transactions
+    .filter((t) => t.direction === "OUT")
+    .reduce((sum, t) => sum + Number(t.amount), 0);
+  const totalPaid = transactions.filter((t) => t.direction === "IN").reduce((sum, t) => sum + Number(t.amount), 0);
+
+  return {
+    customerAccountId: account?.id ?? null,
+    balance: totalBorrowed - totalPaid,
+    totalBorrowed,
+    totalPaid,
+    transactions: transactions.map((t) => ({
+      id: t.id,
+      direction: t.direction,
+      amount: Number(t.amount),
+      paymentMethod: t.paymentMethod,
+      transactionDate: t.transactionDate,
+      dueDate: t.dueDate,
+      notes: t.notes,
+    })),
+  };
+}
+
+// Pays a customer back for money the shop borrowed from them — amount
+// is capped at that account's own isShopBorrowed balance, never
+// trusted from the client. Posts directly, same reasoning as
+// createShopBorrowedLoan (this bucket's IN means "shop repays," the
+// opposite of recordAccountTransaction's convention, and never
+// touches currentBalance).
+export async function payShopBorrowedLoan(input: PayShopBorrowedLoanInput) {
+  const shopId = await getCurrentShopId();
+  const data = payShopBorrowedLoanSchema.parse(input);
+
+  const account = await db.customerAccount.findFirst({
+    where: { id: data.customerAccountId, customer: { shopId } },
+    include: { transactions: { where: { isShopBorrowed: true } } },
+  });
+  if (!account) throw new Error("Account not found");
+
+  const totalBorrowed = account.transactions
+    .filter((t) => t.direction === "OUT")
+    .reduce((sum, t) => sum + Number(t.amount), 0);
+  const totalPaid = account.transactions
+    .filter((t) => t.direction === "IN")
+    .reduce((sum, t) => sum + Number(t.amount), 0);
+  const balance = totalBorrowed - totalPaid;
+
+  if (data.amount > balance + 0.01) {
+    throw new Error(
+      `This payment (Rs ${data.amount}) is more than what's actually owed (Rs ${balance}) — a payment can't exceed what's owed.`
+    );
+  }
+
+  await db.accountTransaction.create({
+    data: {
+      customerAccountId: account.id,
+      direction: "IN",
+      amount: data.amount,
+      paymentMethod: data.paymentMethod,
+      notes: data.notes || "Paid customer back for shop-borrowed money",
+      isShopBorrowed: true,
+    },
   });
 }

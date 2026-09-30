@@ -70,8 +70,11 @@ async function AccountTypesSection() {
 }
 
 async function CategoriesSection() {
-  const categories = await listCategories(true);
-  return <CategoryListManager categories={categories} />;
+  const [productCategories, grainCategories] = await Promise.all([
+    listCategories(true, "SIMPLE"),
+    listCategories(true, "GRAIN"),
+  ]);
+  return <CategoryListManager productCategories={productCategories} grainCategories={grainCategories} />;
 }
 
 async function UnitsSection() {

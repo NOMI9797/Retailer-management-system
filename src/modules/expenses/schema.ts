@@ -58,3 +58,17 @@ export const updateMonthlyExpenseSchema = z.object({
   paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
 });
 export type UpdateMonthlyExpenseInput = z.infer<typeof updateMonthlyExpenseSchema>;
+
+// Paying down a CREDIT expense (either Daily or Monthly) — mirrors
+// stock/schema.ts's payGrainDebtSchema. amount is capped against that
+// expense's own outstanding remainder in the action, not trusted from
+// the client; CREDIT is deliberately not an option here, same reason
+// payGrainDebtSchema excludes it — a payment is never itself "not yet
+// paid."
+export const payExpenseDebtSchema = z.object({
+  expenseId: z.string().uuid(),
+  amount: z.number().positive("Amount must be positive"),
+  paymentMethod: z.enum(["CASH", "ACCOUNT"]),
+  notes: z.string().optional(),
+});
+export type PayExpenseDebtInput = z.infer<typeof payExpenseDebtSchema>;

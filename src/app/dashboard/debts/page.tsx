@@ -4,32 +4,40 @@ import { PageLoader } from "@/components/shared/PageLoader";
 import { DebtSummaryCards } from "./DebtSummaryCards";
 import { DebtorTable } from "./DebtorTable";
 import { DefaulterTable } from "./DefaulterTable";
+import { ShopUdhaarSummaryCards } from "./ShopUdhaarSummaryCards";
+import { ShopUdhaarTable } from "./ShopUdhaarTable";
+import { BorrowedFromCustomersSummaryCards } from "./BorrowedFromCustomersSummaryCards";
+import { BorrowedFromCustomersTable } from "./BorrowedFromCustomersTable";
 import { LongTermLoanModal } from "@/modules/customers/components/LongTermLoanModal";
+import { ShopBorrowedLoanModal } from "@/modules/customers/components/ShopBorrowedLoanModal";
+import { listAreas } from "@/modules/settings/areas.actions";
 import { buildDebtsHref, type DebtsSearchParams } from "./searchParamsHref";
 
-type Tab = "regular" | "long-term" | "defaulters";
+type Group = "customers" | "shop";
+type CustomerTab = "regular" | "long-term" | "defaulters";
+type ShopTab = "credit-expenses" | "borrowed";
 
-// Tab-based, same pattern as Settings/Expenses/Reports/New Sale:
-// Regular/Daily Udhaar (accrues naturally from Credit sales, no fixed
-// term — the original Udhaar tracking), Long-term Udhaar (a
-// deliberate cash loan with a chosen duration), and Defaulters (a
-// consolidated view of everyone currently overdue in EITHER bucket —
-// due date past by more than the grace period, see GRACE_PERIOD_DAYS
-// in modules/debts/actions.ts). A defaulter still shows up normally
-// on their own Regular or Long-term tab too — this third tab is a
-// read-only view layered on top, not a separate status that removes
-// them from elsewhere. Not cached — a shopkeeper recording a
-// repayment right here expects this page to reflect it on the very
-// next load, same reasoning as the Dashboard/Reports "nothing cached"
-// requirement.
+// Two levels of tabs: Customers (Udhaar) — who owes the shop money —
+// vs Shop (Udhaar) — what the shop itself owes. Customers (Udhaar)
+// keeps its original three subtabs (Regular/Daily, Long-term,
+// Defaulters). Shop (Udhaar) has two subtabs of its own: Credit
+// Expenses (unpaid Expense rows) and Borrowed from Customers (cash
+// the shop itself took from a customer, not tied to any sale/expense
+// — the mirror of Long-term Udhaar). Not cached — a shopkeeper
+// recording a repayment right here expects this page to reflect it on
+// the very next load, same reasoning as the Dashboard/Reports
+// "nothing cached" requirement.
 export default async function DebtsPage({
   searchParams,
 }: {
   searchParams: Promise<DebtsSearchParams>;
 }) {
   const params = await searchParams;
-  const tab: Tab =
+  const group: Group = params.group === "shop" ? "shop" : "customers";
+  const tab: CustomerTab =
     params.tab === "long-term" ? "long-term" : params.tab === "defaulters" ? "defaulters" : "regular";
+  const shopTab: ShopTab = params.tab === "borrowed" ? "borrowed" : "credit-expenses";
+  const areas = group === "shop" && shopTab === "borrowed" ? await listAreas() : [];
 
   return (
     <div>
@@ -37,37 +45,111 @@ export default async function DebtsPage({
         <div>
           <h1>Udhaar</h1>
           <p>
-            {tab === "regular"
-              ? "Who owes the shop money from purchases — loans and on-account balances, in one place."
-              : tab === "long-term"
-                ? "Deliberate cash loans with a chosen term, separate from purchase-driven Udhaar."
-                : "Everyone more than a week past their due date, from either kind of Udhaar."}
+            {group === "shop"
+              ? shopTab === "borrowed"
+                ? "Cash the shop itself borrowed from a customer — not tied to a sale or purchase."
+                : "Money the shop itself owes — Daily/Monthly expenses not yet paid off."
+              : tab === "regular"
+                ? "Who owes the shop money from purchases — loans and on-account balances, in one place."
+                : tab === "long-term"
+                  ? "Deliberate cash loans with a chosen term, separate from purchase-driven Udhaar."
+                  : "Everyone more than a week past their due date, from either kind of Udhaar."}
           </p>
         </div>
-        {tab === "long-term" && <LongTermLoanModal />}
+        {group === "customers" && tab === "long-term" && <LongTermLoanModal />}
+        {group === "shop" && shopTab === "borrowed" && <ShopBorrowedLoanModal areas={areas} />}
       </div>
 
       <div className="tabs">
-        <Link className={`tab${tab === "regular" ? " active" : ""}`} href={buildDebtsHref({ tab: "regular" })}>
-          Regular / Daily Udhaar
+        <Link
+          className={`tab${group === "customers" ? " active" : ""}`}
+          href={buildDebtsHref({ group: "customers", tab: "regular" })}
+        >
+          Customers (Udhaar)
         </Link>
-        <Link className={`tab${tab === "long-term" ? " active" : ""}`} href={buildDebtsHref({ tab: "long-term" })}>
-          Long-term Udhaar
-        </Link>
-        <Link className={`tab${tab === "defaulters" ? " active" : ""}`} href={buildDebtsHref({ tab: "defaulters" })}>
-          Defaulters
+        <Link
+          className={`tab${group === "shop" ? " active" : ""}`}
+          href={buildDebtsHref({ group: "shop", tab: "credit-expenses" })}
+        >
+          Shop (Udhaar)
         </Link>
       </div>
 
-      {tab !== "defaulters" && (
-        <Suspense key={`summary-${tab}`} fallback={<PageLoader label="Loading summary…" />}>
-          <DebtSummaryCards bucket={tab === "long-term" ? "LONG_TERM" : "REGULAR"} />
-        </Suspense>
-      )}
+      {group === "customers" ? (
+        <>
+          <div className="tabs" style={{ marginTop: 4 }}>
+            <Link
+              className={`tab${tab === "regular" ? " active" : ""}`}
+              href={buildDebtsHref({ group: "customers", tab: "regular" })}
+            >
+              Regular / Daily Udhaar
+            </Link>
+            <Link
+              className={`tab${tab === "long-term" ? " active" : ""}`}
+              href={buildDebtsHref({ group: "customers", tab: "long-term" })}
+            >
+              Long-term Udhaar
+            </Link>
+            <Link
+              className={`tab${tab === "defaulters" ? " active" : ""}`}
+              href={buildDebtsHref({ group: "customers", tab: "defaulters" })}
+            >
+              Defaulters
+            </Link>
+          </div>
 
-      <Suspense key={`table-${tab}`} fallback={<PageLoader label="Loading…" />}>
-        {tab === "defaulters" ? <DefaulterTable /> : <DebtorTable bucket={tab === "long-term" ? "LONG_TERM" : "REGULAR"} />}
-      </Suspense>
+          {tab !== "defaulters" && (
+            <Suspense key={`summary-${tab}`} fallback={<PageLoader label="Loading summary…" />}>
+              <DebtSummaryCards bucket={tab === "long-term" ? "LONG_TERM" : "REGULAR"} />
+            </Suspense>
+          )}
+
+          <Suspense key={`table-${tab}`} fallback={<PageLoader label="Loading…" />}>
+            {tab === "defaulters" ? (
+              <DefaulterTable />
+            ) : (
+              <DebtorTable bucket={tab === "long-term" ? "LONG_TERM" : "REGULAR"} />
+            )}
+          </Suspense>
+        </>
+      ) : (
+        <>
+          <div className="tabs" style={{ marginTop: 4 }}>
+            <Link
+              className={`tab${shopTab === "credit-expenses" ? " active" : ""}`}
+              href={buildDebtsHref({ group: "shop", tab: "credit-expenses" })}
+            >
+              Daily/Monthly Udhaar
+            </Link>
+            <Link
+              className={`tab${shopTab === "borrowed" ? " active" : ""}`}
+              href={buildDebtsHref({ group: "shop", tab: "borrowed" })}
+            >
+              Borrowed from Customers
+            </Link>
+          </div>
+
+          {shopTab === "credit-expenses" ? (
+            <>
+              <Suspense key="summary-shop-expenses" fallback={<PageLoader label="Loading summary…" />}>
+                <ShopUdhaarSummaryCards />
+              </Suspense>
+              <Suspense key="table-shop-expenses" fallback={<PageLoader label="Loading…" />}>
+                <ShopUdhaarTable />
+              </Suspense>
+            </>
+          ) : (
+            <>
+              <Suspense key="summary-shop-borrowed" fallback={<PageLoader label="Loading summary…" />}>
+                <BorrowedFromCustomersSummaryCards />
+              </Suspense>
+              <Suspense key="table-shop-borrowed" fallback={<PageLoader label="Loading…" />}>
+                <BorrowedFromCustomersTable />
+              </Suspense>
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }

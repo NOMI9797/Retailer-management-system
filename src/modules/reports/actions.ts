@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { parseLocalDateStart, parseLocalDateEnd, toLocalDateString } from "@/lib/utils";
 import { reportPeriodSchema, type ReportPeriodInput } from "./schema";
+import { getStockUdhaarSummary } from "@/modules/stock/actions";
 
 export type PnlReport = {
   revenue: number;
@@ -75,10 +76,24 @@ export async function getPnlReport(input: ReportPeriodInput): Promise<PnlReport>
       }
     } else {
       // Grain: no snapshot field needed — each batch allocation
-      // already permanently records the rate that batch was bought
-      // in, so this is historically accurate with no null case.
+      // records exactly which batch(es) a sale drew from, and that
+      // batch's OWN rate is the historically accurate cost, updated
+      // live rather than frozen at sale time. A customer's "store for
+      // later" deposit can still be rate-less at the moment it's sold
+      // from (selling doesn't force a price — the rate only gets
+      // agreed later, when the shopkeeper settles with the depositor
+      // via a transfer-purchase) — same "unknown, never silently
+      // zeroed" treatment the SIMPLE branch above already gives a
+      // missing costPriceAtSale. Once that batch is later priced,
+      // this exact code path picks up the correct cost automatically
+      // on the next report pull, with no separate reconciliation step
+      // — nothing about this query is a snapshot.
       for (const alloc of item.batchAllocations) {
-        cogs += Number(alloc.quantity) * Number(alloc.grainBatch.rate);
+        if (alloc.grainBatch.rate === null) {
+          hasUnknownCost = true;
+        } else {
+          cogs += Number(alloc.quantity) * Number(alloc.grainBatch.rate);
+        }
       }
     }
   }
@@ -115,39 +130,43 @@ export async function getPnlReport(input: ReportPeriodInput): Promise<PnlReport>
 
 export type BalanceSummary = {
   customersOwe: number;
-  shopOwesFarmers: number;
 };
 
-// Powers the Dashboard's "Customers owe" / "Shop owes farmers" cards.
-// Regular/Udhaar-style accounts (tracksQuantity: false) are the normal
-// buyer credit ledger — a positive currentBalance there means the
-// customer owes the shop. Consignment-style accounts (tracksQuantity:
-// true) are farmers who've supplied stock — a NEGATIVE currentBalance
-// there means the shop still owes that farmer their share. Summed
-// with describeBalance's sign convention so this never reimplements
-// it. Not cached — always queried fresh, per the milestone's
-// "nothing cached" requirement.
+// Powers the Dashboard's "Customers owe" card. A positive
+// currentBalance means the customer owes the shop (describeBalance's
+// sign convention) — summed across every account. A negative balance
+// (e.g. from a Stock Management transfer-purchase the shop hasn't
+// finished paying out) means the shop owes the customer instead; that
+// side isn't rolled into this money summary — it shows on the
+// account itself, and Stock Udhaar (a quantity obligation, not money)
+// gets its own report surface — see stock/actions.ts:
+// getStockUdhaarSummary. Not cached — always queried fresh, per the
+// milestone's "nothing cached" requirement.
 export async function getBalanceSummary(): Promise<BalanceSummary> {
   const shopId = await getCurrentShopId();
 
   const accounts = await db.customerAccount.findMany({
     where: { customer: { shopId } },
-    select: { currentBalance: true, accountType: { select: { tracksQuantity: true } } },
+    select: { currentBalance: true },
   });
 
   let customersOwe = 0;
-  let shopOwesFarmers = 0;
-
   for (const account of accounts) {
     const balance = Number(account.currentBalance);
-    if (account.accountType.tracksQuantity) {
-      if (balance < 0) shopOwesFarmers += Math.abs(balance);
-    } else {
-      if (balance > 0) customersOwe += balance;
-    }
+    if (balance > 0) customersOwe += balance;
   }
 
-  return { customersOwe, shopOwesFarmers };
+  return { customersOwe };
+}
+
+// Shop-wide outstanding Stock Udhaar, by customer+product — kept as
+// its own report surface rather than folded into BalanceSummary,
+// since it's a QUANTITY obligation (tons/kg of grain still owed to a
+// customer), not money, and summing it into a money figure would be
+// meaningless. Thin wrapper over stock/actions.ts's own summary so
+// there's exactly one implementation of the shortfall math.
+export async function getStockUdhaarReport() {
+  return getStockUdhaarSummary();
 }
 
 export type DailyPnlHistoryEntry = {

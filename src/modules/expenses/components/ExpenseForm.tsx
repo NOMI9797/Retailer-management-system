@@ -112,7 +112,7 @@ export function ExpenseForm({
               className={paymentMethod === method ? "active" : ""}
               onClick={() => setPaymentMethod(method)}
             >
-              {method.charAt(0) + method.slice(1).toLowerCase()}
+              {method === "CREDIT" ? "Udhaar" : method.charAt(0) + method.slice(1).toLowerCase()}
             </button>
           ))}
         </div>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Settings — Shoaib Traders</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F6F5F1;
+    --surface: #FFFFFF;
+    --border: #E7E4DB;
+    --ink: #23231F;
+    --ink-muted: #8B887E;
+
+    --primary-50: #E1F5EE; --primary-500: #1D9E75; --primary-600: #0F6E56;
+    --grain-50: #FAEEDA; --grain-600: #854F0B;
+    --neutral-50: #EFEEE7; --neutral-600: #6B675C;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'IBM Plex Sans', sans-serif; font-size: 14px; }
+  svg.icon { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+
+  .app { display: flex; min-height: 100vh; }
+
+  /* ── Sidebar ── */
+  .sidebar { width: 232px; flex-shrink: 0; background: var(--surface); border-right: 0.5px solid var(--border); display: flex; flex-direction: column; padding: 20px 14px; }
+  .shop-id { display: flex; align-items: center; gap: 10px; padding: 4px 8px 22px; }
+  .shop-id .mark { width: 30px; height: 30px; border-radius: 7px; background: var(--primary-600); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; }
+  .shop-id p { margin: 0; font-weight: 500; font-size: 13.5px; }
+  nav.nav-list { display: flex; flex-direction: column; gap: 2px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 7px; color: var(--ink-muted); text-decoration: none; font-size: 13.5px; }
+  .nav-item:hover { background: #F1F0EA; color: var(--ink); }
+  .nav-item.active { background: var(--primary-50); color: var(--primary-600); font-weight: 500; }
+  .sidebar-footer { margin-top: auto; padding: 12px 8px 4px; border-top: 0.5px solid var(--border); display: flex; align-items: center; gap: 9px; }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--grain-50); color: var(--grain-600); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+  .sidebar-footer p { margin: 0; font-size: 12.5px; color: var(--ink-muted); }
+
+  /* ── Main ── */
+  .main { flex: 1; padding: 28px 36px 70px; max-width: 1260px; }
+  .page-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }
+  .page-head h1 { font-size: 19px; font-weight: 600; margin: 0 0 4px; }
+  .page-head p { margin: 0; color: var(--ink-muted); font-size: 13.5px; }
+  .btn { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 500; border-radius: 7px; cursor: pointer; border: none; padding: 9px 16px; }
+  .btn-primary { background: var(--primary-600); color: #fff; }
+  .btn-ghost { background: var(--surface); color: var(--ink); border: 0.5px solid var(--border); padding: 7px 14px; font-size: 12.5px; }
+
+  section.block { margin-bottom: 34px; }
+  h2.block-title { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
+
+  .panel { background: var(--surface); border: 0.5px solid var(--border); border-radius: 12px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { text-align: left; font-size: 11px; font-weight: 500; color: var(--ink-muted); padding: 11px 20px; border-bottom: 0.5px solid var(--border); }
+  tbody td { padding: 14px 20px; font-size: 13.5px; border-bottom: 0.5px solid var(--border); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #FBFAF7; }
+
+  .name-link { color: var(--ink); font-weight: 500; text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px; cursor: pointer; }
+  .name-link:hover { text-decoration-color: var(--primary-600); color: var(--primary-600); }
+  .code-tag { font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 3px 9px; border-radius: 6px; background: var(--neutral-50); color: var(--neutral-600); letter-spacing: 0.02em; }
+  .status-badge { font-size: 11px; padding: 3px 10px; border-radius: 999px; font-weight: 500; background: var(--primary-50); color: var(--primary-600); }
+
+  /* ── Add-new row ── */
+  .add-row { display: flex; gap: 10px; padding: 16px 20px; border-bottom: 0.5px solid var(--border); background: #FAF9F5; }
+  .add-row input { flex: 1; border: 0.5px solid var(--border); border-radius: 7px; padding: 9px 13px; font-family: inherit; font-size: 13.5px; background: var(--surface); color: var(--ink); }
+  .add-row input::placeholder { color: #B5B1A4; }
+  .add-row .btn-primary { padding: 9px 20px; }
+
+  .list-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 0.5px solid var(--border); }
+  .list-row:last-child { border-bottom: none; }
+  .list-row:hover { background: #FBFAF7; }
+  .list-row-name { display: flex; align-items: center; gap: 12px; font-weight: 500; }
+  .row-actions { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="shop-id">
+      <div class="mark">S</div>
+      <p>Shoaib Traders</p>
+    </div>
+    <nav class="nav-list">
+      <a class="nav-item" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="21" r="1.4"/><circle cx="18" cy="21" r="1.4"/><path d="M2.5 3h2.5l2.7 12.5a2 2 0 002 1.6h8.6a2 2 0 002-1.6L21.5 8H6"/></svg>
+        Daily sales
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>
+        Products
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20a6.5 6.5 0 0113 0"/><path d="M16.5 6.2a3.2 3.2 0 010 6M20 20a6 6 0 00-4.3-8.4"/></svg>
+        Customers
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="13" rx="2"/><path d="M2.5 10.5h19M6.5 15h4"/></svg>
+        Cash flow
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M6 2.5h9l4.5 4.5V21a1 1 0 01-1 1H6a1 1 0 01-1-1V3.5a1 1 0 011-1z"/><path d="M14 2.5V7h4.5M8.5 12h6M8.5 16h6"/></svg>
+        Expenses
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M4 21V10M12 21V4M20 21v-7"/></svg>
+        Reports
+      </a>
+      <a class="nav-item active" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a1.7 1.7 0 00.34 1.87l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.7 1.7 0 00-1.87-.34 1.7 1.7 0 00-1 1.55V19.6a2 2 0 11-4 0v-.09a1.7 1.7 0 00-1.11-1.55 1.7 1.7 0 00-1.87.34l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.7 1.7 0 00.34-1.87 1.7 1.7 0 00-1.55-1H4.4a2 2 0 110-4h.09a1.7 1.7 0 001.55-1.11 1.7 1.7 0 00-.34-1.87l-.06-.06a2 2 0 112.83-2.83l.06.06a1.7 1.7 0 001.87.34H10.5a1.7 1.7 0 001-1.55V4.4a2 2 0 114 0v.09a1.7 1.7 0 001 1.55 1.7 1.7 0 001.87-.34l.06-.06a2 2 0 112.83 2.83l-.06.06a1.7 1.7 0 00-.34 1.87V10.5a1.7 1.7 0 001.55 1H19.6a2 2 0 110 4h-.09a1.7 1.7 0 00-1.55 1z"/></svg>
+        Settings
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="avatar">SH</div>
+      <p>Shoaib · Owner</p>
+    </div>
+  </aside>
+
+  <!-- ── Main ── -->
+  <main class="main">
+    <div class="page-head">
+      <div>
+        <h1>Settings</h1>
+        <p>Account types, categories, units, areas — the lists the rest of the app pulls from.</p>
+      </div>
+      <button class="btn btn-primary">
+        <svg class="icon" viewBox="0 0 24 24" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Add account type
+      </button>
+    </div>
+
+    <!-- ── Account types ── -->
+    <section class="block">
+      <h2 class="block-title">Account types</h2>
+      <div class="panel">
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Code</th><th>Tracks quantity</th><th>Custom fields</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="name-link">Consignment</span></td>
+              <td><span class="code-tag">CONSIGNMENT</span></td>
+              <td>Yes</td>
+              <td>0</td>
+              <td><span class="status-badge">Active</span></td>
+              <td style="text-align:right"><button class="btn-ghost">Deactivate</button></td>
+            </tr>
+            <tr>
+              <td><span class="name-link">Regular</span></td>
+              <td><span class="code-tag">REGULAR</span></td>
+              <td>No</td>
+              <td>1</td>
+              <td><span class="status-badge">Active</span></td>
+              <td style="text-align:right"><button class="btn-ghost">Deactivate</button></td>
+            </tr>
+            <tr>
+              <td><span class="name-link">Udhar</span></td>
+              <td><span class="code-tag">123</span></td>
+              <td>No</td>
+              <td>2</td>
+              <td><span class="status-badge">Active</span></td>
+              <td style="text-align:right"><button class="btn-ghost">Deactivate</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Categories ── -->
+    <section class="block">
+      <h2 class="block-title">Categories</h2>
+      <div class="panel">
+        <div class="add-row">
+          <input type="text" placeholder="New category name" />
+          <button class="btn btn-primary">Add</button>
+        </div>
+        <div class="list-row">
+          <div class="list-row-name">Asnaad <span class="status-badge">Active</span></div>
+          <div class="row-actions"><button class="btn-ghost">Rename</button><button class="btn-ghost">Deactivate</button></div>
+        </div>
+        <div class="list-row">
+          <div class="list-row-name">Groceries <span class="status-badge">Active</span></div>
+          <div class="row-actions"><button class="btn-ghost">Rename</button><button class="btn-ghost">Deactivate</button></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Units ── -->
+    <section class="block">
+      <h2 class="block-title">Units</h2>
+      <div class="panel">
+        <div class="add-row">
+          <input type="text" placeholder="New unit name" />
+          <button class="btn btn-primary">Add</button>
+        </div>
+        <div class="list-row">
+          <div class="list-row-name">kg <span class="status-badge">Active</span></div>
+          <div class="row-actions"><button class="btn-ghost">Rename</button><button class="btn-ghost">Deactivate</button></div>
+        </div>
+        <div class="list-row">
+          <div class="list-row-name">Mg <span class="status-badge">Active</span></div>
+          <div class="row-actions"><button class="btn-ghost">Rename</button><button class="btn-ghost">Deactivate</button></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

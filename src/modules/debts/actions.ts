@@ -35,8 +35,13 @@ type AccountWithTransactions = Prisma.CustomerAccountGetPayload<{
 function summarizeAccount(account: AccountWithTransactions, bucket: DebtBucket): DebtRow {
   const now = Date.now();
   const wantsLongTerm = bucket === "LONG_TERM";
+  // isShopBorrowed rows are their own fully separate bucket (see
+  // AccountTransaction.isShopBorrowed's schema comment) — excluded
+  // here regardless of which bucket was asked for, so a Shop Borrowed
+  // loan (isLongTerm: false, same as Regular Udhaar) never leaks into
+  // and corrupts the Regular/Daily Udhaar totals.
   const sortedTxns = account.transactions
-    .filter((t) => t.isLongTerm === wantsLongTerm)
+    .filter((t) => t.isLongTerm === wantsLongTerm && !t.isShopBorrowed)
     .sort((a, b) => a.transactionDate.getTime() - b.transactionDate.getTime());
 
   const earliestTxn = sortedTxns[0] ?? null;
@@ -73,12 +78,10 @@ function summarizeAccount(account: AccountWithTransactions, bucket: DebtBucket):
   };
 }
 
-// Every account with a positive balance IN THE GIVEN BUCKET, on a
-// non-tracksQuantity account type (Udhaar/Regular — "any kind of
-// money owed to the shop by a customer," excluding consignment/farmer
-// accounts, which are a different relationship entirely and never
-// show up here). Not cached — a shopkeeper recording a repayment
-// expects this list to reflect it immediately.
+// Every account with a positive balance IN THE GIVEN BUCKET — "any
+// kind of money owed to the shop by a customer." Not cached — a
+// shopkeeper recording a repayment expects this list to reflect it
+// immediately.
 //
 // "Debt since" and the overdue flag are both deliberately simplified,
 // per the milestone's explicit scope boundary: once partial
@@ -100,7 +103,6 @@ export async function listDebtors(bucket: DebtBucket = "REGULAR"): Promise<DebtR
 
   const accounts = await db.customerAccount.findMany({
     where: {
-      accountType: { tracksQuantity: false },
       customer: { shopId },
       transactions: { some: { isLongTerm: bucket === "LONG_TERM" } },
     },

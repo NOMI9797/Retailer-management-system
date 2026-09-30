@@ -1618,6 +1618,50 @@
   margin: 2px 0 0;
 }
 
+/* Full Own/Customer/Total/Udhaar breakdown — StockSummary's fuller
+   view, used on the Grain page where all four figures matter at once
+   and must never be conflated with each other. */
+.shop-app .stock-overview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(70px, auto));
+  gap: 4px 18px;
+  text-align: right;
+}
+
+.shop-app .stock-overview-tile p:first-child {
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  margin: 0;
+  white-space: nowrap;
+}
+
+.shop-app .stock-overview-value {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 2px 0 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.shop-app .stock-overview-value.tone-primary {
+  color: var(--primary-600);
+}
+.shop-app .stock-overview-value.tone-grain {
+  color: var(--grain-600);
+}
+.shop-app .stock-overview-value.tone-consigned {
+  color: var(--consigned-600);
+}
+
+@media (max-width: 720px) {
+  .shop-app .stock-overview {
+    grid-template-columns: repeat(2, minmax(70px, auto));
+  }
+  .shop-app .category-columns {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 .shop-app .batch-list {
   margin-top: 14px;
   padding-top: 14px;
@@ -1669,6 +1713,12 @@
   align-items: center;
   justify-content: center;
   z-index: 10;
+  /* A modal is rendered as a sibling of whatever button opened it —
+     e.g. BuyFromCustomerModal's trigger sits inside a right-aligned
+     table cell — so without this it silently inherits that ancestor's
+     text-align instead of always reading left-to-right regardless of
+     where it was triggered from. */
+  text-align: left;
 }
 
 .shop-app .modal {

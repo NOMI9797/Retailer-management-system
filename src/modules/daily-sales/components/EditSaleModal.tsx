@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LineItemsEditor, type LineItemDraft } from "./LineItemsEditor";
+import { GrainItemsEditor, type GrainItemDraft } from "./GrainItemsEditor";
 import { PaymentSplitEditor, type PaymentSplitDraft } from "./PaymentSplitEditor";
 import { getDailySaleForEdit, updateDailySale } from "../actions";
 import { showToast } from "@/components/shared/toastStore";
@@ -13,10 +14,18 @@ type Product = Awaited<ReturnType<typeof listProducts>>["products"][number];
 // Fetches the sale's current items and payment split on open (the
 // full row lives behind the purchase-history Suspense boundary and
 // isn't available to this modal's ancestor), pre-fills the same
-// LineItemsEditor/PaymentSplitEditor createDailySale's form uses, and
-// calls updateDailySale on save — which reverses the original sale's
-// effects and reapplies the edited items/split, per the milestone's
-// reverse-then-reapply requirement.
+// LineItemsEditor/GrainItemsEditor + PaymentSplitEditor
+// createDailySale's form uses, and calls updateDailySale on save —
+// which reverses the original sale's effects and reapplies the
+// edited items/split, per the milestone's reverse-then-reapply
+// requirement.
+//
+// A sale is already established as all-Product or all-Grain by the
+// time it's being edited (see NewSaleForm's "one entry, either a
+// product or a grain" decision), so which editor to render is
+// DERIVED from the fetched items' own product kind — there's no
+// toggle here the way NewSaleForm has one, since switching an
+// existing sale's whole kind mid-edit isn't a supported flow.
 export function EditSaleModal({
   saleId,
   products,
@@ -27,24 +36,43 @@ export function EditSaleModal({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const [items, setItems] = useState<LineItemDraft[] | null>(null);
+  const [saleKind, setSaleKind] = useState<"PRODUCT" | "GRAIN" | null>(null);
+  const [productItems, setProductItems] = useState<LineItemDraft[]>([]);
+  const [grainItems, setGrainItems] = useState<GrainItemDraft[]>([]);
   const [payments, setPayments] = useState<PaymentSplitDraft>({ cash: "", account: "", credit: "" });
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const simpleProducts = useMemo(() => products.filter((p) => p.stockKind === "SIMPLE"), [products]);
+  const grainProducts = useMemo(() => products.filter((p) => p.stockKind === "GRAIN"), [products]);
 
   useEffect(() => {
     let cancelled = false;
     getDailySaleForEdit(saleId)
       .then((sale) => {
         if (cancelled) return;
-        setItems(
-          sale.items.map((item) => ({
-            productId: item.productId,
-            quantity: String(item.quantity),
-            actualPrice: String(item.actualPrice),
-          }))
-        );
+        const isGrain = sale.items.some((item) => grainProducts.some((p) => p.id === item.productId));
+        setSaleKind(isGrain ? "GRAIN" : "PRODUCT");
+        if (isGrain) {
+          setGrainItems(
+            sale.items.map((item) => ({
+              productId: item.productId,
+              quantity: String(item.quantity),
+              actualPrice: String(item.actualPrice),
+              creditAmount: item.creditAmount !== undefined ? String(item.creditAmount) : undefined,
+              creditDueDate: item.creditDueDate,
+            }))
+          );
+        } else {
+          setProductItems(
+            sale.items.map((item) => ({
+              productId: item.productId,
+              quantity: String(item.quantity),
+              actualPrice: String(item.actualPrice),
+            }))
+          );
+        }
         setPayments({
           cash: sale.payments.cash ? String(sale.payments.cash) : "",
           account: sale.payments.account ? String(sale.payments.account) : "",
@@ -57,16 +85,44 @@ export function EditSaleModal({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saleId]);
 
+  const items = saleKind === "PRODUCT" ? productItems : grainItems;
   const itemTotal = useMemo(
-    () => (items ?? []).reduce((sum, i) => sum + (Number(i.quantity) || 0) * (Number(i.actualPrice) || 0), 0),
+    () => items.reduce((sum, i) => sum + (Number(i.quantity) || 0) * (Number(i.actualPrice) || 0), 0),
     [items]
   );
 
+  async function submitUpdate() {
+    if (!saleKind) return;
+    const cash = Number(payments.cash) || 0;
+    const account = Number(payments.account) || 0;
+    const credit = Number(payments.credit) || 0;
+
+    await updateDailySale({
+      saleId,
+      items:
+        saleKind === "PRODUCT"
+          ? productItems.map((i) => ({
+              productId: i.productId,
+              quantity: Number(i.quantity),
+              actualPrice: Number(i.actualPrice),
+            }))
+          : grainItems.map((i) => ({
+              productId: i.productId,
+              quantity: Number(i.quantity),
+              actualPrice: Number(i.actualPrice),
+              creditAmount: i.creditAmount ? Number(i.creditAmount) : undefined,
+              creditDueDate: i.creditDueDate,
+            })),
+      payments: { cash, account, credit },
+    });
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!items) return;
+    if (!saleKind) return;
     setSaveError(null);
 
     if (items.some((i) => !i.productId || !i.quantity || !i.actualPrice)) {
@@ -82,17 +138,21 @@ export function EditSaleModal({
       return;
     }
 
+    if (saleKind === "GRAIN" && grainItems.length > 1 && credit > 0) {
+      if (grainItems.some((i) => !i.creditAmount)) {
+        setSaveError("Specify how much Udhaar applies to each grain item");
+        return;
+      }
+      const allocated = grainItems.reduce((sum, i) => sum + Number(i.creditAmount), 0);
+      if (Math.abs(allocated - credit) > 0.01) {
+        setSaveError("The grain items' Udhaar amounts must add up to the sale's total Udhaar");
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
-      await updateDailySale({
-        saleId,
-        items: items.map((i) => ({
-          productId: i.productId,
-          quantity: Number(i.quantity),
-          actualPrice: Number(i.actualPrice),
-        })),
-        payments: { cash, account, credit },
-      });
+      await submitUpdate();
       showToast("Sale updated");
       onClose();
       router.refresh();
@@ -113,13 +173,22 @@ export function EditSaleModal({
 
         {loadError ? (
           <p className="form-banner error">{loadError}</p>
-        ) : !items ? (
+        ) : !saleKind ? (
           <p style={{ color: "var(--ink-muted)", fontSize: 13.5 }}>Loading…</p>
         ) : (
           <form onSubmit={handleSubmit}>
             {saveError && <p className="form-banner error">{saveError}</p>}
 
-            <LineItemsEditor products={products} items={items} onChange={setItems} />
+            {saleKind === "PRODUCT" ? (
+              <LineItemsEditor products={simpleProducts} items={productItems} onChange={setProductItems} />
+            ) : (
+              <GrainItemsEditor
+                products={grainProducts}
+                items={grainItems}
+                onChange={setGrainItems}
+                saleCreditAmount={Number(payments.credit) || 0}
+              />
+            )}
 
             <PaymentSplitEditor total={itemTotal} payments={payments} onChange={setPayments} />
 

@@ -10,29 +10,56 @@ type Category = Awaited<ReturnType<typeof listCategories>>[number];
 type Unit = Awaited<ReturnType<typeof listUnits>>[number];
 
 // Shared shape for adding a product — category-conditional: simple
-// stock asks for cost/sell price + starting quantity, grain stock
-// asks for a base rate only (batches are added separately afterward).
-// Categories/units arrive as props (fetched server-side, cached)
-// rather than being fetched here.
+// stock asks for cost/sell price + starting quantity; grain stock
+// asks for name/unit only — no product-level rate, since a product is
+// never priced itself, only its individual batches are (added
+// separately afterward, each with its own real rate). Categories/units
+// arrive as props (fetched server-side, cached) rather than being
+// fetched here.
 export function ProductForm({
   categories,
   units,
   onSaved,
+  defaultStockKind = "SIMPLE",
+  lockStockKind = false,
 }: {
   categories: Category[];
   units: Unit[];
   onSaved?: () => void;
+  // Lets the Grain page's "Add product" modal open pre-selected to
+  // Grain (the shopkeeper is already on a grain-only screen), while
+  // Products' own modal keeps defaulting to Simple — same form, no
+  // duplicated markup.
+  defaultStockKind?: StockKind;
+  // Hides the Simple/Grain toggle entirely and pins the form to
+  // defaultStockKind — each caller already knows its own context (the
+  // Grain page only ever wants a grain product, Products only ever
+  // wants a simple one), so showing a switch that could produce the
+  // WRONG kind for that screen is pure confusion, not flexibility.
+  lockStockKind?: boolean;
 }) {
-  const [stockKind, setStockKind] = useState<StockKind>("SIMPLE");
+  const [stockKind, setStockKind] = useState<StockKind>(defaultStockKind);
   const [categoryId, setCategoryId] = useState("");
   const [unitId, setUnitId] = useState("");
   const [name, setName] = useState("");
   const [costPrice, setCostPrice] = useState("");
   const [sellPrice, setSellPrice] = useState("");
   const [quantity, setQuantity] = useState("");
-  const [baseRate, setBaseRate] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Category.stockKind means the dropdown only ever offers categories
+  // matching the active toggle (never a grain product filed under a
+  // merchandise category or vice versa) — switching the toggle clears
+  // any pick that's no longer valid, same "changing a filter clears a
+  // now-invalid selection" precedent CategorySelect/LineItemsEditor
+  // already follow elsewhere.
+  const filteredCategories = categories.filter((c) => c.stockKind === stockKind);
+
+  function switchStockKind(next: StockKind) {
+    setStockKind(next);
+    setCategoryId("");
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -53,7 +80,6 @@ export function ProductForm({
           categoryId,
           unitId,
           name,
-          baseRate: Number(baseRate),
         });
       }
       showToast(`Product added — ${name}`);
@@ -67,22 +93,24 @@ export function ProductForm({
 
   return (
     <form onSubmit={handleSubmit}>
-      <div className="stock-toggle">
-        <button
-          type="button"
-          className={stockKind === "SIMPLE" ? "active" : ""}
-          onClick={() => setStockKind("SIMPLE")}
-        >
-          Simple stock
-        </button>
-        <button
-          type="button"
-          className={stockKind === "GRAIN" ? "active" : ""}
-          onClick={() => setStockKind("GRAIN")}
-        >
-          Grain stock
-        </button>
-      </div>
+      {!lockStockKind && (
+        <div className="stock-toggle">
+          <button
+            type="button"
+            className={stockKind === "SIMPLE" ? "active" : ""}
+            onClick={() => switchStockKind("SIMPLE")}
+          >
+            Simple stock
+          </button>
+          <button
+            type="button"
+            className={stockKind === "GRAIN" ? "active" : ""}
+            onClick={() => switchStockKind("GRAIN")}
+          >
+            Grain stock
+          </button>
+        </div>
+      )}
 
       {error && <p className="form-banner error">{error}</p>}
 
@@ -92,7 +120,7 @@ export function ProductForm({
           <option value="" disabled>
             Select category
           </option>
-          {categories.map((c) => (
+          {filteredCategories.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>
@@ -167,32 +195,18 @@ export function ProductForm({
           </div>
         </>
       ) : (
-        <div className="field-row">
-          <div className="field">
-            <label>Unit</label>
-            <select value={unitId} onChange={(e) => setUnitId(e.target.value)} required>
-              <option value="" disabled>
-                Select unit
+        <div className="field">
+          <label>Unit</label>
+          <select value={unitId} onChange={(e) => setUnitId(e.target.value)} required>
+            <option value="" disabled>
+              Select unit
+            </option>
+            {units.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
               </option>
-              {units.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>Base rate</label>
-            <input
-              type="number"
-              min="0"
-              step="any"
-              placeholder="Rs 0 / unit"
-              value={baseRate}
-              onChange={(e) => setBaseRate(e.target.value)}
-              required
-            />
-          </div>
+            ))}
+          </select>
         </div>
       )}
 

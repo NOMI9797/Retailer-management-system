@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Product management — Shoaib Traders</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F6F5F1;
+    --surface: #FFFFFF;
+    --border: #E7E4DB;
+    --ink: #23231F;
+    --ink-muted: #8B887E;
+
+    --primary-50: #E1F5EE; --primary-500: #1D9E75; --primary-600: #0F6E56;
+    --grain-50: #FAEEDA; --grain-500: #EF9F27; --grain-600: #854F0B;
+    --consigned-50: #FAECE7; --consigned-500: #D85A30; --consigned-600: #993C1D;
+    --neutral-50: #EFEEE7; --neutral-600: #6B675C;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'IBM Plex Sans', sans-serif; font-size: 14px; }
+  svg.icon { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+
+  .app { display: flex; min-height: 100vh; }
+
+  /* ── Sidebar ── */
+  .sidebar { width: 232px; flex-shrink: 0; background: var(--surface); border-right: 0.5px solid var(--border); display: flex; flex-direction: column; padding: 20px 14px; }
+  .shop-id { display: flex; align-items: center; gap: 10px; padding: 4px 8px 22px; }
+  .shop-id .mark { width: 30px; height: 30px; border-radius: 7px; background: var(--primary-600); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; }
+  .shop-id p { margin: 0; font-weight: 500; font-size: 13.5px; }
+  nav.nav-list { display: flex; flex-direction: column; gap: 2px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 7px; color: var(--ink-muted); text-decoration: none; font-size: 13.5px; }
+  .nav-item:hover { background: #F1F0EA; color: var(--ink); }
+  .nav-item.active { background: var(--primary-50); color: var(--primary-600); font-weight: 500; }
+  .sidebar-footer { margin-top: auto; padding: 12px 8px 4px; border-top: 0.5px solid var(--border); display: flex; align-items: center; gap: 9px; }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--grain-50); color: var(--grain-600); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+  .sidebar-footer p { margin: 0; font-size: 12.5px; color: var(--ink-muted); }
+
+  /* ── Main ── */
+  .main { flex: 1; padding: 28px 36px 60px; max-width: 1260px; }
+  .page-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px; }
+  .page-head h1 { font-size: 19px; font-weight: 600; margin: 0 0 4px; }
+  .page-head p { margin: 0; color: var(--ink-muted); font-size: 13.5px; }
+  .btn { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 500; border-radius: 7px; cursor: pointer; border: none; padding: 9px 16px; }
+  .btn-primary { background: var(--primary-600); color: #fff; }
+
+  /* ── Stat row ── */
+  .stat-row { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; margin-bottom: 22px; max-width: 640px; }
+  .stat-card { background: var(--surface); border: 0.5px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .stat-card p:first-child { font-size: 12px; color: var(--ink-muted); margin: 0 0 6px; }
+  .stat-card p:last-child { font-size: 19px; font-weight: 600; margin: 0; }
+
+  /* ── Tabs ── */
+  .tabs { display: flex; gap: 4px; border-bottom: 0.5px solid var(--border); margin-bottom: 18px; }
+  .tab { padding: 9px 4px; margin-right: 22px; font-size: 13.5px; color: var(--ink-muted); border-bottom: 2px solid transparent; cursor: pointer; background: none; border-top: none; border-left: none; border-right: none; font-family: inherit; }
+  .tab.active { color: var(--primary-600); border-bottom-color: var(--primary-600); font-weight: 500; }
+
+  /* ── Filter bar ── */
+  .filter-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+  .select-pill { display: flex; align-items: center; gap: 6px; background: var(--surface); border: 0.5px solid var(--border); border-radius: 999px; padding: 7px 13px; font-size: 12.5px; color: var(--ink); cursor: pointer; position: relative; }
+  .select-pill svg.chev { width: 13px; height: 13px; color: var(--ink-muted); }
+  .select-pill select { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+  .search-pill { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 0.5px solid var(--border); border-radius: 999px; padding: 7px 14px; flex: 1; min-width: 220px; max-width: 320px; margin-left: auto; }
+  .search-pill svg { color: var(--ink-muted); }
+  .search-pill input { border: none; font-family: inherit; font-size: 12.5px; flex: 1; background: none; color: var(--ink); }
+
+  /* ── Table ── */
+  .panel { background: var(--surface); border: 0.5px solid var(--border); border-radius: 12px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { text-align: left; font-size: 11px; font-weight: 500; color: var(--ink-muted); padding: 11px 20px; border-bottom: 0.5px solid var(--border); }
+  tbody td { padding: 13px 20px; font-size: 13.5px; border-bottom: 0.5px solid var(--border); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #FBFAF7; }
+  .prod-name { font-weight: 500; }
+  .cat-tag { font-size: 11px; padding: 3px 9px; border-radius: 999px; background: var(--neutral-50); color: var(--neutral-600); font-weight: 500; }
+  .qty-low { color: var(--consigned-600); font-weight: 600; }
+  .icon-btn { background: none; border: none; cursor: pointer; color: var(--ink-muted); padding: 5px; border-radius: 6px; }
+  .icon-btn:hover { color: var(--ink); background: #F1F0EA; }
+  .table-footer { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; font-size: 12px; color: var(--ink-muted); }
+
+  /* ── Grain stock panel ── */
+  .grain-card { border-bottom: 0.5px solid var(--border); padding: 18px 20px; }
+  .grain-card:last-child { border-bottom: none; }
+  .grain-head { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+  .grain-head-left { display: flex; align-items: center; gap: 12px; }
+  .grain-icon { width: 34px; height: 34px; border-radius: 8px; background: var(--grain-50); color: var(--grain-600); display: flex; align-items: center; justify-content: center; }
+  .grain-name { font-weight: 500; font-size: 14.5px; margin: 0; }
+  .grain-sub { font-size: 12px; color: var(--ink-muted); margin: 2px 0 0; }
+  .grain-total { text-align: right; }
+  .grain-total p:first-child { font-size: 11px; color: var(--ink-muted); margin: 0; }
+  .grain-total p:last-child { font-size: 15px; font-weight: 600; margin: 2px 0 0; }
+  .batch-list { margin-top: 14px; padding-top: 14px; border-top: 0.5px dashed var(--border); display: none; }
+  .grain-card.expanded .batch-list { display: block; }
+  .batch-row { display: grid; grid-template-columns: 1.3fr 0.9fr 0.9fr 0.9fr 0.8fr; gap: 10px; padding: 7px 0; font-size: 12.5px; align-items: center; }
+  .batch-row.head { color: var(--ink-muted); font-size: 11px; }
+  .owner-tag { font-size: 10.5px; padding: 2px 8px; border-radius: 5px; display: inline-block; }
+  .owner-shop { background: var(--primary-50); color: var(--primary-600); }
+  .owner-customer { background: var(--consigned-50); color: var(--consigned-600); }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="shop-id">
+      <div class="mark">S</div>
+      <p>Shoaib Traders</p>
+    </div>
+    <nav class="nav-list">
+      <a class="nav-item" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="21" r="1.4"/><circle cx="18" cy="21" r="1.4"/><path d="M2.5 3h2.5l2.7 12.5a2 2 0 002 1.6h8.6a2 2 0 002-1.6L21.5 8H6"/></svg>
+        Daily sales
+      </a>
+      <a class="nav-item active" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>
+        Products
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20a6.5 6.5 0 0113 0"/><path d="M16.5 6.2a3.2 3.2 0 010 6M20 20a6 6 0 00-4.3-8.4"/></svg>
+        Customers
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="13" rx="2"/><path d="M2.5 10.5h19M6.5 15h4"/></svg>
+        Cash flow
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M6 2.5h9l4.5 4.5V21a1 1 0 01-1 1H6a1 1 0 01-1-1V3.5a1 1 0 011-1z"/><path d="M14 2.5V7h4.5M8.5 12h6M8.5 16h6"/></svg>
+        Expenses
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M4 21V10M12 21V4M20 21v-7"/></svg>
+        Reports
+      </a>
+      <a class="nav-item" href="#">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a1.7 1.7 0 00.34 1.87l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.7 1.7 0 00-1.87-.34 1.7 1.7 0 00-1 1.55V19.6a2 2 0 11-4 0v-.09a1.7 1.7 0 00-1.11-1.55 1.7 1.7 0 00-1.87.34l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.7 1.7 0 00.34-1.87 1.7 1.7 0 00-1.55-1H4.4a2 2 0 110-4h.09a1.7 1.7 0 001.55-1.11 1.7 1.7 0 00-.34-1.87l-.06-.06a2 2 0 112.83-2.83l.06.06a1.7 1.7 0 001.87.34H10.5a1.7 1.7 0 001-1.55V4.4a2 2 0 114 0v.09a1.7 1.7 0 001 1.55 1.7 1.7 0 001.87-.34l.06-.06a2 2 0 112.83 2.83l-.06.06a1.7 1.7 0 00-.34 1.87V10.5a1.7 1.7 0 001.55 1H19.6a2 2 0 110 4h-.09a1.7 1.7 0 00-1.55 1z"/></svg>
+        Settings
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="avatar">SH</div>
+      <p>Shoaib · Owner</p>
+    </div>
+  </aside>
+
+  <!-- ── Main ── -->
+  <main class="main">
+    <div class="page-head">
+      <div>
+        <h1>Product management</h1>
+        <p>Everything the shop sells — simple stock and grain, tracked separately.</p>
+      </div>
+      <button class="btn btn-primary" onclick="document.getElementById('addModal').classList.add('open')">
+        <svg class="icon" viewBox="0 0 24 24" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Add product
+      </button>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-card"><p>Simple stock items</p><p>4</p></div>
+      <div class="stat-card"><p>Grain products</p><p>2</p></div>
+      <div class="stat-card"><p>Categories</p><p>2</p></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="showTab('simple', this)">Simple stock</button>
+      <button class="tab" onclick="showTab('grain', this)">Grain stock</button>
+    </div>
+
+    <!-- ── Simple stock tab ── -->
+    <div id="tab-simple">
+      <div class="filter-bar">
+        <div class="select-pill">
+          <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>
+          <span>All categories</span>
+          <svg class="chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+          <select><option>All categories</option></select>
+        </div>
+        <div class="search-pill">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input type="text" placeholder="Search products…" />
+        </div>
+      </div>
+
+      <div class="panel">
+        <table>
+          <thead>
+            <tr><th style="width:24%">Product</th><th>Category</th><th>Unit</th><th>Cost price</th><th>Sell price</th><th>Quantity</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="prod-name">Edit Test Rice</td>
+              <td><span class="cat-tag">Asnaad</span></td>
+              <td>kg</td><td>Rs 100</td><td>Rs 130</td><td>45</td>
+              <td style="text-align:right"><button class="icon-btn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg></button></td>
+            </tr>
+            <tr>
+              <td class="prod-name">Oil</td>
+              <td><span class="cat-tag">Asnaad</span></td>
+              <td>packet</td><td>Rs 40</td><td>Rs 50</td><td>48</td>
+              <td style="text-align:right"><button class="icon-btn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg></button></td>
+            </tr>
+            <tr>
+              <td class="prod-name">Salt</td>
+              <td><span class="cat-tag">Groceries</span></td>
+              <td>kg</td><td>Rs 10</td><td>Rs 20</td><td>49</td>
+              <td style="text-align:right"><button class="icon-btn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg></button></td>
+            </tr>
+            <tr>
+              <td class="prod-name">Sugar</td>
+              <td><span class="cat-tag">Asnaad</span></td>
+              <td>kg</td><td>Rs 145</td><td>Rs 170</td><td>43</td>
+              <td style="text-align:right"><button class="icon-btn"><svg class="icon" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg></button></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="table-footer"><span>4 products</span><span>Showing all results</span></div>
+      </div>
+    </div>
+
+    <!-- ── Grain stock tab ── -->
+    <div id="tab-grain" style="display:none;">
+      <div class="panel">
+        <div class="grain-card expanded">
+          <div class="grain-head" onclick="this.parentElement.classList.toggle('expanded')">
+            <div class="grain-head-left">
+              <div class="grain-icon"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2v20M8 6l4-4 4 4M8 12l4-4 4 4M8 18l4-4 4 4"/></svg></div>
+              <div><p class="grain-name">Wheat</p><p class="grain-sub">2 batches · Groceries</p></div>
+            </div>
+            <div class="grain-total"><p>Total remaining</p><p>850 kg</p></div>
+          </div>
+          <div class="batch-list">
+            <div class="batch-row head"><span>Owner</span><span>Qty in</span><span>Sold</span><span>Remaining</span><span>Rate</span></div>
+            <div class="batch-row"><span class="owner-tag owner-shop">Shop-owned</span><span>500 kg</span><span>0 kg</span><span>500 kg</span><span>Rs 128/kg</span></div>
+            <div class="batch-row"><span class="owner-tag owner-customer">Bilal Hussain</span><span>350 kg</span><span>0 kg</span><span>350 kg</span><span>Rs 122/kg</span></div>
+          </div>
+        </div>
+        <div class="grain-card">
+          <div class="grain-head" onclick="this.parentElement.classList.toggle('expanded')">
+            <div class="grain-head-left">
+              <div class="grain-icon"><svg class="icon" viewBox="0 0 24 24"><path d="M12 2v20M8 6l4-4 4 4M8 12l4-4 4 4M8 18l4-4 4 4"/></svg></div>
+              <div><p class="grain-name">Channa</p><p class="grain-sub">1 batch · Groceries</p></div>
+            </div>
+            <div class="grain-total"><p>Total remaining</p><p>240 kg</p></div>
+          </div>
+          <div class="batch-list">
+            <div class="batch-row head"><span>Owner</span><span>Qty in</span><span>Sold</span><span>Remaining</span><span>Rate</span></div>
+            <div class="batch-row"><span class="owner-tag owner-customer">Imran Farooq</span><span>240 kg</span><span>0 kg</span><span>240 kg</span><span>Rs 195/kg</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  function showTab(tab, el) {
+    document.getElementById('tab-simple').style.display = tab === 'simple' ? 'block' : 'none';
+    document.getElementById('tab-grain').style.display = tab === 'grain' ? 'block' : 'none';
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    el.classList.add('active');
+  }
+</script>
+</body>
+</html>

@@ -24,8 +24,11 @@ export async function CashFlowDayView({ date }: { date: string }) {
   // reconciliation and deliberately exclude Account and Credit.
   const totalReceivedToday = flow.cashIn + flow.accountIn + flow.creditIn;
   // Total money that left the shop today, across every method — the
-  // "daily expense" figure, parallel to totalReceivedToday.
-  const totalExpenseToday = flow.cashOut + flow.accountOut + flow.creditOut;
+  // "daily expense" figure, parallel to totalReceivedToday. Includes
+  // grainCreditOut alongside creditOut since the two are now mutually
+  // exclusive halves of what a combined "Credit out" figure used to be
+  // (see cash-flow/actions.ts: sumExpensesByMethod's comment).
+  const totalExpenseToday = flow.cashOut + flow.accountOut + flow.creditOut + flow.grainCreditOut;
 
   return (
     <div className="register-panel">
@@ -118,6 +121,10 @@ export async function CashFlowDayView({ date }: { date: string }) {
             <div className="strip-item">
               <p>Udhaar (expenses)</p>
               <p className="num">{formatMoney(flow.creditOut)}</p>
+            </div>
+            <div className="strip-item">
+              <p>Stock Udhaar (Grain)</p>
+              <p className="num">{formatMoney(flow.grainCreditOut)}</p>
             </div>
           </div>
         </div>

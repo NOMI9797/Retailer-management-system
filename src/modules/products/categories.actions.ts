@@ -13,7 +13,7 @@ export async function createCategory(input: CategoryInput) {
   const data = categorySchema.parse(input);
 
   const category = await db.category.create({
-    data: { shopId, name: data.name },
+    data: { shopId, name: data.name, stockKind: data.stockKind },
   });
   invalidateShopCache(ENTITY, shopId);
   return category;
@@ -32,12 +32,12 @@ export async function createCategory(input: CategoryInput) {
 // cache() memoizes by arguments for the lifetime of one request, so
 // this stays a single fetch even if a future component ends up
 // calling it again instead of receiving it as a prop.
-export const listCategories = cache(async (includeInactive = false) => {
+export const listCategories = cache(async (includeInactive = false, stockKind?: "SIMPLE" | "GRAIN") => {
   const shopId = await getCurrentShopId();
 
-  return cachedShopQuery(ENTITY, shopId, [includeInactive], () =>
+  return cachedShopQuery(ENTITY, shopId, [includeInactive, stockKind ?? "ALL"], () =>
     db.category.findMany({
-      where: { shopId, isActive: includeInactive ? undefined : true },
+      where: { shopId, isActive: includeInactive ? undefined : true, stockKind },
       orderBy: { name: "asc" },
     })
   );

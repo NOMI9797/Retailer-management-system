@@ -12,8 +12,8 @@ type SimpleListItem = { id: string; name: string; isActive?: boolean };
 // button are omitted entirely rather than faked). Add, inline rename,
 // and optional deactivate, all through callbacks the caller wires to
 // its own Server Actions. Account Types isn't built on this since it
-// carries extra fields (code, tracksQuantity, custom fields) the
-// simple shape doesn't fit.
+// carries extra fields (code, isLoan, custom fields) the simple shape
+// doesn't fit.
 export function SimpleListManager<T extends SimpleListItem>({
   items,
   itemLabel,

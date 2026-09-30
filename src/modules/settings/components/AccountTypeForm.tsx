@@ -9,12 +9,11 @@ const FIELD_TYPES = ["TEXT", "NUMBER", "DATE", "DROPDOWN"] as const;
 
 // Custom fields (e.g. "guarantor name" for Loan) are added/removed
 // dynamically before submit — the whole form is one client component
-// since every part of it (name, code, tracksQuantity, the field list)
-// is user input with no server data dependency of its own.
+// since every part of it (name, code, isLoan, the field list) is user
+// input with no server data dependency of its own.
 export function AccountTypeForm({ onSaved }: { onSaved?: () => void }) {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
-  const [tracksQuantity, setTracksQuantity] = useState(false);
   const [isLoan, setIsLoan] = useState(false);
   const [fields, setFields] = useState<AccountTypeFieldInput[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +42,6 @@ export function AccountTypeForm({ onSaved }: { onSaved?: () => void }) {
       await createAccountType({
         name,
         code: code.toUpperCase(),
-        tracksQuantity,
         isLoan,
         fields,
       });
@@ -65,7 +63,7 @@ export function AccountTypeForm({ onSaved }: { onSaved?: () => void }) {
           <label>Name</label>
           <input
             type="text"
-            placeholder="e.g. Consignment — Wheat"
+            placeholder="e.g. Udhaar"
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
@@ -75,24 +73,12 @@ export function AccountTypeForm({ onSaved }: { onSaved?: () => void }) {
           <label>Code</label>
           <input
             type="text"
-            placeholder="e.g. CONSIGN_WHEAT"
+            placeholder="e.g. LOAN"
             value={code}
             onChange={(e) => setCode(e.target.value)}
             required
           />
         </div>
-      </div>
-
-      <div className="field">
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <input
-            type="checkbox"
-            checked={tracksQuantity}
-            onChange={(e) => setTracksQuantity(e.target.checked)}
-            style={{ width: "auto" }}
-          />
-          Tracks quantity (grain-style accounts)
-        </label>
       </div>
 
       <div className="field">

@@ -27,8 +27,9 @@ export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
 // tracking covers) — the one write path both the Customer Accounts
 // ledger view and the Debts page's quick action share, so there is
 // exactly one implementation of the balance math, never two that
-// could drift. Consignment/farmer payouts still post automatically
-// from applySaleItems and are NOT recorded through this action.
+// could drift. A Stock Management transfer-purchase payout posts
+// directly (see stock/actions.ts) and is NOT recorded through this
+// action, since it uses the opposite balance-sign meaning.
 export const recordAccountTransactionSchema = z.object({
   customerAccountId: z.string().uuid(),
   direction: z.enum(["IN", "OUT"]),
@@ -72,3 +73,31 @@ export const createLongTermLoanSchema = z.object({
   notes: z.string().optional(),
 });
 export type CreateLongTermLoanInput = z.infer<typeof createLongTermLoanSchema>;
+
+// The Shop (Udhaar) tab's "borrow from a customer" entry point — the
+// mirror of createLongTermLoanSchema: here the SHOP is the one taking
+// cash, with a due date for when it must pay the customer back. Same
+// "duration picked from a fixed set of choices, due date always
+// derived" shape as Long-term Udhaar, for the same reason (no free
+// date picker, per that feature's precedent).
+export const createShopBorrowedLoanSchema = z.object({
+  customerId: z.string().uuid(),
+  amount: z.number().positive("Amount must be positive"),
+  paymentMethod: z.enum(["CASH", "ACCOUNT"]),
+  durationValue: z.number().int().positive("Duration must be a positive whole number"),
+  durationUnit: durationUnitSchema,
+  notes: z.string().optional(),
+});
+export type CreateShopBorrowedLoanInput = z.infer<typeof createShopBorrowedLoanSchema>;
+
+// Paying a customer back for money the shop borrowed from them (see
+// createShopBorrowedLoanSchema) — CREDIT is deliberately not an
+// option, same reasoning as payGrainDebtSchema/payExpenseDebtSchema: a
+// repayment is never itself "not yet paid."
+export const payShopBorrowedLoanSchema = z.object({
+  customerAccountId: z.string().uuid(),
+  amount: z.number().positive("Amount must be positive"),
+  paymentMethod: z.enum(["CASH", "ACCOUNT"]),
+  notes: z.string().optional(),
+});
+export type PayShopBorrowedLoanInput = z.infer<typeof payShopBorrowedLoanSchema>;

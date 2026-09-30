@@ -20,23 +20,27 @@ export async function createGrainBatch(input: GrainBatchInput) {
   if (!product) throw new Error("Product not found");
 
   if (data.ownerCustomerId) {
+    // A customer-deposited batch just needs a valid, shop-scoped
+    // customer — no special account type required. Depositing stock
+    // for safekeeping posts no money and needs no ledger account yet;
+    // rate is genuinely optional here too — "store for later" means
+    // no price is calculated at deposit time at all (see
+    // GrainBatch.rate's schema comment). An account only gets
+    // involved later, either when the shopkeeper purchases this
+    // stock from the customer (stock/actions.ts:
+    // createTransferPurchase), or immediately via the "selling now"
+    // path (stock/actions.ts: createDepositWithSettlement), which
+    // never calls this action at all — it creates a shop-owned batch
+    // directly instead.
     const customer = await db.customer.findFirst({
       where: { id: data.ownerCustomerId, shopId },
-      include: { accounts: { include: { accountType: true } } },
     });
     if (!customer) throw new Error("Customer not found");
-
-    // A batch owner must already have a consignment-style (tracksQuantity)
-    // account before stock can be assigned to them — otherwise this
-    // gap only surfaces weeks later, mid-sale, when Daily Sales has
-    // nowhere to post the farmer's payout. Caught here instead, while
-    // the batch details are still fresh and easy to fix.
-    const hasConsignmentAccount = customer.accounts.some((a) => a.accountType.tracksQuantity);
-    if (!hasConsignmentAccount) {
-      throw new Error(
-        `${customer.name} needs a consignment-style account (an account type with "tracks quantity" enabled) before stock can be assigned to them. Add one from their customer page first.`
-      );
-    }
+  } else if (data.rate === undefined) {
+    // A shop-owned batch is the shop's actual inventory — it must
+    // always have a real cost basis, unlike a customer's
+    // store-for-later deposit.
+    throw new Error("Rate is required for a shop-owned batch");
   }
 
   const batch = await db.grainBatch.create({
@@ -44,21 +48,29 @@ export async function createGrainBatch(input: GrainBatchInput) {
       productId: data.productId,
       ownerCustomerId: data.ownerCustomerId,
       quantityIn: data.quantityIn,
-      rate: data.rate,
+      rate: data.rate ?? null,
     },
   });
   return serializeDecimals(batch);
 }
 
-function summarizeBatches(batches: { quantityIn: Prisma.Decimal; quantitySold: Prisma.Decimal }[]) {
+function summarizeBatches(
+  batches: { quantityIn: Prisma.Decimal; quantitySold: Prisma.Decimal; quantityTransferred: Prisma.Decimal }[]
+) {
   const totalIn = batches.reduce((sum, b) => sum + Number(b.quantityIn), 0);
   const totalSold = batches.reduce((sum, b) => sum + Number(b.quantitySold), 0);
+  // A customer batch's transferred-out portion is still physically on
+  // the shelf, but it's also counted on the NEW shop-owned batch a
+  // transfer-purchase creates (see stock/actions.ts:
+  // createTransferPurchase) — subtracted here too, or it double-counts
+  // across both batch rows. Always 0 for shop-owned batches.
+  const totalTransferred = batches.reduce((sum, b) => sum + Number(b.quantityTransferred), 0);
 
   return {
     batchCount: batches.length,
     totalIn,
     totalSold,
-    totalRemaining: totalIn - totalSold,
+    totalRemaining: totalIn - totalSold - totalTransferred,
   };
 }
 

@@ -11,9 +11,9 @@ type Area = Awaited<ReturnType<typeof listAreas>>[number];
 // Regular account (createCustomer's job), and an Udhaar account is
 // only ever created later, on demand, the first time they actually
 // take a loan or make a Credit sale. Settings' "Add account type"
-// still exists for future types (e.g. registering a farmer's
-// Consignment account uses its own flow) — this form just doesn't
-// surface a picker for it anymore, per the "keep it simple" decision.
+// still exists for any other future account type — this form just
+// doesn't surface a picker for it anymore, per the "keep it simple"
+// decision.
 export function CustomerForm({
   areas,
   onSaved,

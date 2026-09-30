@@ -1,6 +1,7 @@
 import { getTodaysSalesStats } from "@/modules/daily-sales/actions";
 import { getCashFlowForDate } from "@/modules/cash-flow/actions";
 import { getBalanceSummary } from "@/modules/reports/actions";
+import { getShopOwedForGrain } from "@/modules/stock/actions";
 import { formatMoney, toLocalDateString } from "@/lib/utils";
 
 // Real data, queried fresh on every render — no unstable_cache
@@ -11,11 +12,17 @@ import { formatMoney, toLocalDateString } from "@/lib/utils";
 export default async function DashboardPage() {
   const today = toLocalDateString(new Date());
 
-  const [salesStats, cashFlow, balances] = await Promise.all([
+  const [salesStats, cashFlow, balances, grainOwedEntries] = await Promise.all([
     getTodaysSalesStats(),
     getCashFlowForDate(today),
     getBalanceSummary(),
+    // Shop-wide, across every grain product combined — the single
+    // "how much do I owe in total for settled grain" headline. Each
+    // product's OWN figure lives on that product's Grain tab instead
+    // (see GrainStockList.tsx), never shown per-product here.
+    getShopOwedForGrain(),
   ]);
+  const totalOwedForGrain = grainOwedEntries.reduce((sum, e) => sum + e.amountOwed, 0);
 
   const cashInHand = cashFlow.isClosed && cashFlow.actualClosing !== null
     ? cashFlow.actualClosing
@@ -43,10 +50,12 @@ export default async function DashboardPage() {
           <p className="stat-label">Customers owe</p>
           <p className="stat-value tone-grain">{formatMoney(balances.customersOwe)}</p>
         </div>
-        <div className="stat-card">
-          <p className="stat-label">Shop owes farmers</p>
-          <p className="stat-value tone-consigned">{formatMoney(balances.shopOwesFarmers)}</p>
-        </div>
+        {totalOwedForGrain > 0 && (
+          <div className="stat-card">
+            <p className="stat-label">Owed to customers (Grain)</p>
+            <p className="stat-value tone-consigned">{formatMoney(totalOwedForGrain)}</p>
+          </div>
+        )}
       </div>
     </>
   );

@@ -9,9 +9,7 @@ import { showToast } from "@/components/shared/toastStore";
 // Shared write path for the Customer Accounts ledger view AND the
 // Debts page's "record repayment" quick action — one implementation
 // of the form, so both entry points can never drift into two
-// different validation/behavior rules. Only for Udhaar/Regular
-// accounts (see recordAccountTransaction's comment on why consignment
-// is rejected there).
+// different validation/behavior rules.
 //
 // lockBucket, when set, hides the Regular/Long-term choice and always
 // posts with that fixed isLongTerm value — used when this modal is

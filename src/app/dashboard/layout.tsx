@@ -9,9 +9,9 @@ const plexSans = IBM_Plex_Sans({
   variable: "--font-plex-sans",
 });
 
-// Only used for Settings' account-type code tags (CONSIGNMENT,
-// REGULAR, ...) — a monospace face makes short uppercase codes read
-// as "codes" rather than regular text.
+// Only used for Settings' account-type code tags (REGULAR, LOAN, ...)
+// — a monospace face makes short uppercase codes read as "codes"
+// rather than regular text.
 const plexMono = IBM_Plex_Mono({
   subsets: ["latin"],
   weight: ["500"],
