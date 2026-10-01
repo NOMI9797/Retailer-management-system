@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { payGrainSaleItemCredit } from "../actions";
+import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 import { showToast } from "@/components/shared/toastStore";
 import { formatMoney } from "@/lib/utils";
 
@@ -15,6 +16,7 @@ export function PayGrainSaleItemCreditModal({
   dailySaleItemId,
   customerName,
   remaining,
+  bankAccounts = [],
   onDone,
 }: {
   dailySaleItemId: string;
@@ -24,12 +26,14 @@ export function PayGrainSaleItemCreditModal({
   // holding its own already-fetched client state (e.g.
   // UdhaarClearanceForm) needs to explicitly refetch, same reasoning
   // PayGrainDebtModal's own onDone prop already follows.
+  bankAccounts?: { id: string; name: string }[];
   onDone?: () => void;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState(String(remaining));
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT">("CASH");
+  const [bankAccountId, setBankAccountId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -44,7 +48,7 @@ export function PayGrainSaleItemCreditModal({
 
     setIsSaving(true);
     try {
-      await payGrainSaleItemCredit({ dailySaleItemId, amount: parsedAmount, paymentMethod });
+      await payGrainSaleItemCredit({ dailySaleItemId, amount: parsedAmount, paymentMethod, bankAccountId: bankAccountId || undefined });
       showToast(`Recorded ${formatMoney(parsedAmount)} from ${customerName}`);
       setOpen(false);
       router.refresh();
@@ -89,6 +93,9 @@ export function PayGrainSaleItemCreditModal({
                   </select>
                 </div>
               </div>
+              {paymentMethod === "ACCOUNT" && (
+                <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+              )}
               <div className="modal-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
                   Cancel

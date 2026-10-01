@@ -68,6 +68,17 @@ const navItems = [
     ),
   },
   {
+    href: "/dashboard/bank-accounts",
+    label: "Bank accounts",
+    icon: (
+      <>
+        <rect x="2.5" y="9" width="19" height="11" rx="1.5" />
+        <path d="M4 9l8-5.5L20 9" />
+        <path d="M6.5 13v3M12 13v3M17.5 13v3" />
+      </>
+    ),
+  },
+  {
     href: "/dashboard/cash-flow",
     label: "Cash flow",
     icon: (

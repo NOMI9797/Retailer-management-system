@@ -3,6 +3,7 @@
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { parseLocalDateStart, toLocalDateString } from "@/lib/utils";
+import { postToBankAccount } from "@/modules/settings/bankAccounts.actions";
 import {
   customerSchema,
   updateCustomerSchema,
@@ -340,6 +341,7 @@ export async function recordAccountTransaction(input: RecordAccountTransactionIn
         direction: data.direction,
         amount: data.amount,
         paymentMethod: data.paymentMethod,
+        bankAccountId: data.bankAccountId,
         dueDate: data.direction === "OUT" && data.dueDate ? parseLocalDateStart(data.dueDate) : null,
         isLongTerm: data.isLongTerm,
         notes: data.notes || null,
@@ -357,6 +359,14 @@ export async function recordAccountTransaction(input: RecordAccountTransactionIn
         currentBalance: data.direction === "OUT" ? { increment: data.amount } : { decrement: data.amount },
       },
     });
+
+    // Bank account balance moves the opposite way from the debt math
+    // above: OUT (a loan given via Account) is money LEAVING the bank
+    // account; IN (a repayment received via Account) is money coming
+    // INTO it.
+    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+      await postToBankAccount(tx, data.bankAccountId, data.direction === "OUT" ? -data.amount : data.amount);
+    }
 
     return created;
   });
@@ -412,6 +422,7 @@ export async function createLongTermLoan(input: CreateLongTermLoanInput) {
     direction: "OUT",
     amount: data.amount,
     paymentMethod: data.paymentMethod,
+    bankAccountId: data.bankAccountId,
     dueDate: toLocalDateString(dueDate),
     notes: data.notes,
     isLongTerm: true,
@@ -459,16 +470,26 @@ export async function createShopBorrowedLoan(input: CreateShopBorrowedLoanInput)
   else if (data.durationUnit === "WEEKS") dueDate.setDate(dueDate.getDate() + data.durationValue * 7);
   else dueDate.setMonth(dueDate.getMonth() + data.durationValue);
 
-  await db.accountTransaction.create({
-    data: {
-      customerAccountId: account.id,
-      direction: "OUT",
-      amount: data.amount,
-      paymentMethod: data.paymentMethod,
-      dueDate,
-      notes: data.notes || null,
-      isShopBorrowed: true,
-    },
+  await db.$transaction(async (tx) => {
+    await tx.accountTransaction.create({
+      data: {
+        customerAccountId: account.id,
+        direction: "OUT",
+        amount: data.amount,
+        paymentMethod: data.paymentMethod,
+        bankAccountId: data.bankAccountId,
+        dueDate,
+        notes: data.notes || null,
+        isShopBorrowed: true,
+      },
+    });
+    // The shop is BORROWING here — money comes INTO the bank account
+    // (the opposite of every other "OUT" posting in this module,
+    // which means money leaving — isShopBorrowed's OUT/IN meaning is
+    // deliberately inverted, see its schema comment).
+    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+      await postToBankAccount(tx, data.bankAccountId, data.amount);
+    }
   });
 }
 
@@ -626,14 +647,23 @@ export async function payShopBorrowedLoan(input: PayShopBorrowedLoanInput) {
     );
   }
 
-  await db.accountTransaction.create({
-    data: {
-      customerAccountId: account.id,
-      direction: "IN",
-      amount: data.amount,
-      paymentMethod: data.paymentMethod,
-      notes: data.notes || "Paid customer back for shop-borrowed money",
-      isShopBorrowed: true,
-    },
+  await db.$transaction(async (tx) => {
+    await tx.accountTransaction.create({
+      data: {
+        customerAccountId: account.id,
+        direction: "IN",
+        amount: data.amount,
+        paymentMethod: data.paymentMethod,
+        bankAccountId: data.bankAccountId,
+        notes: data.notes || "Paid customer back for shop-borrowed money",
+        isShopBorrowed: true,
+      },
+    });
+    // The shop is REPAYING here — money leaves the bank account (see
+    // createShopBorrowedLoan's comment on this bucket's inverted OUT/
+    // IN meaning).
+    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+      await postToBankAccount(tx, data.bankAccountId, -data.amount);
+    }
   });
 }

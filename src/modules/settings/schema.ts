@@ -68,3 +68,20 @@ export const updateAreaSchema = z.object({
   name: z.string().min(1, "Name is required"),
 });
 export type UpdateAreaInput = z.infer<typeof updateAreaSchema>;
+
+// Bank Accounts — the shopkeeper-managed list (UBL, Meezan, ...) that
+// the generic ACCOUNT payment method is split into everywhere it
+// appears. Same simple shape as Unit/Area; balance isn't set here —
+// it starts at 0 and only ever moves via bankAccounts.actions.ts's
+// postToBankAccount, called from each module's own payment actions.
+export const bankAccountSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+});
+export type BankAccountInput = z.infer<typeof bankAccountSchema>;
+
+export const updateBankAccountSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1, "Name is required").optional(),
+  isActive: z.boolean().optional(),
+});
+export type UpdateBankAccountInput = z.infer<typeof updateBankAccountSchema>;

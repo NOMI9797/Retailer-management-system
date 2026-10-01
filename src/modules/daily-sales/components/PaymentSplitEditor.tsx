@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 
 export type PaymentSplitDraft = {
   cash: string;
   account: string;
   credit: string;
+  bankAccountId?: string;
 };
 
 const EPSILON = 0.01;
@@ -29,10 +31,12 @@ function singleMethodSplit(method: keyof PaymentSplitDraft, total: number): Paym
 export function PaymentSplitEditor({
   total,
   payments,
+  bankAccounts = [],
   onChange,
 }: {
   total: number;
   payments: PaymentSplitDraft;
+  bankAccounts?: { id: string; name: string }[];
   onChange: (payments: PaymentSplitDraft) => void;
 }) {
   const cash = Number(payments.cash) || 0;
@@ -149,6 +153,14 @@ export function PaymentSplitEditor({
         Bill total: Rs {total.toFixed(2)} · Split: Rs {splitTotal.toFixed(2)}
         {!isBalanced && (remaining > 0 ? ` · Rs ${remaining.toFixed(2)} left to assign` : ` · Rs ${Math.abs(remaining).toFixed(2)} over the total`)}
       </p>
+
+      {Number(payments.account) > 0 && (
+        <BankAccountPicker
+          bankAccounts={bankAccounts}
+          value={payments.bankAccountId || ""}
+          onChange={(bankAccountId) => onChange({ ...payments, bankAccountId })}
+        />
+      )}
     </div>
   );
 }

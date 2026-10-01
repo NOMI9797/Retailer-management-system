@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { recordAccountTransaction } from "../actions";
+import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 import { formatMoney } from "@/lib/utils";
 import { showToast } from "@/components/shared/toastStore";
 
@@ -24,12 +25,14 @@ export function RecordAccountTransactionModal({
   triggerLabel = "Record transaction",
   defaultDirection = "OUT",
   lockBucket,
+  bankAccounts = [],
   onClose,
 }: {
   customerAccountId: string;
   triggerLabel?: string;
   defaultDirection?: "IN" | "OUT";
   lockBucket?: boolean;
+  bankAccounts?: { id: string; name: string }[];
   onClose?: () => void;
 }) {
   const router = useRouter();
@@ -37,6 +40,7 @@ export function RecordAccountTransactionModal({
   const [direction, setDirection] = useState<"IN" | "OUT">(defaultDirection);
   const [amount, setAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT" | "CREDIT">("CASH");
+  const [bankAccountId, setBankAccountId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [isLongTerm, setIsLongTerm] = useState(lockBucket ?? false);
   const [notes, setNotes] = useState("");
@@ -58,6 +62,7 @@ export function RecordAccountTransactionModal({
         direction,
         amount: Number(amount),
         paymentMethod,
+        bankAccountId: bankAccountId || undefined,
         dueDate: direction === "OUT" && dueDate ? dueDate : undefined,
         notes: notes || undefined,
         isLongTerm: lockBucket ?? isLongTerm,
@@ -124,6 +129,10 @@ export function RecordAccountTransactionModal({
                   </select>
                 </div>
               </div>
+
+              {paymentMethod === "ACCOUNT" && (
+                <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+              )}
 
               {direction === "OUT" && (
                 <div className="field">

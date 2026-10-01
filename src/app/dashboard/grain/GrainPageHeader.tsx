@@ -29,7 +29,6 @@ export function GrainPageHeader({
       <div className="page-head">
         <div>
           <h1>Grain</h1>
-          <p>Wheat, channa, and other commodities — own stock, customer deposits, and Stock Udhaar.</p>
         </div>
         {tab === "grain" && (
           <AddProductModal

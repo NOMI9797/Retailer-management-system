@@ -36,11 +36,13 @@ export async function GrainUdhaarSection({ searchParams }: { searchParams: Grain
 
   return (
     <>
-      <div className="tabs" style={{ marginBottom: 16, flexWrap: "wrap" }}>
+      {/* Squared, full-width chips — same treatment as GrainStockList's
+          own product row, see its comment. */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
         {products.map((product) => (
           <Link
             key={product.id}
-            className={`tab${product.id === activeProduct.id ? " active" : ""}`}
+            className={`product-chip${product.id === activeProduct.id ? " active" : ""}`}
             href={buildGrainHref(searchParams, { product: product.id })}
           >
             {product.name}

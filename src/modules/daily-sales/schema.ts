@@ -52,11 +52,24 @@ export type DailySaleItemInput = z.infer<typeof dailySaleItemSchema>;
 // together they must sum to exactly the computed item total —
 // enforced in createDailySale/updateDailySale, not here, since this
 // schema doesn't have the item total to check against.
-export const paymentSplitSchema = z.object({
-  cash: z.number().nonnegative().default(0),
-  account: z.number().nonnegative().default(0),
-  credit: z.number().nonnegative().default(0),
-});
+export const paymentSplitSchema = z
+  .object({
+    cash: z.number().nonnegative().default(0),
+    account: z.number().nonnegative().default(0),
+    credit: z.number().nonnegative().default(0),
+    // Which bank account the `account` portion moved through —
+    // required whenever account > 0, same "Account must always say
+    // which bank account" rule every other payment-method schema in
+    // the app applies (see BankAccount's schema comment). There's
+    // only ever one bank account per split (unlike cash/account/
+    // credit, "account" itself is never further split across more
+    // than one bank in a single sale).
+    bankAccountId: z.string().uuid().optional(),
+  })
+  .refine((data) => data.account === 0 || !!data.bankAccountId, {
+    message: "Select which bank account this was paid through",
+    path: ["bankAccountId"],
+  });
 export type PaymentSplitInput = z.infer<typeof paymentSplitSchema>;
 
 export const createDailySaleSchema = z.object({
@@ -97,10 +110,16 @@ export type UpdateDailySaleInput = z.infer<typeof updateDailySaleSchema>;
 // and payExpenseDebt already established. amount is capped at that
 // item's own outstanding remainder in the action, not trusted from
 // the client.
-export const payGrainSaleItemCreditSchema = z.object({
-  dailySaleItemId: z.string().uuid(),
-  amount: z.number().positive("Amount must be positive"),
-  paymentMethod: z.enum(["CASH", "ACCOUNT"]),
-  notes: z.string().optional(),
-});
+export const payGrainSaleItemCreditSchema = z
+  .object({
+    dailySaleItemId: z.string().uuid(),
+    amount: z.number().positive("Amount must be positive"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT"]),
+    bankAccountId: z.string().uuid().optional(),
+    notes: z.string().optional(),
+  })
+  .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
+    message: "Select which bank account this was paid through",
+    path: ["bankAccountId"],
+  });
 export type PayGrainSaleItemCreditInput = z.infer<typeof payGrainSaleItemCreditSchema>;

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { payExpenseDebt } from "../actions";
+import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 import { showToast } from "@/components/shared/toastStore";
 import { formatMoney } from "@/lib/utils";
 
@@ -15,6 +16,7 @@ export function PayExpenseDebtModal({
   expenseId,
   description,
   remaining,
+  bankAccounts = [],
   onDone,
 }: {
   expenseId: string;
@@ -23,12 +25,14 @@ export function PayExpenseDebtModal({
   // Optional extra callback alongside router.refresh() — a caller
   // holding its own already-fetched client state can explicitly
   // refetch, same reasoning as PayGrainDebtModal's onDone.
+  bankAccounts?: { id: string; name: string }[];
   onDone?: () => void;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState(String(remaining));
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT">("CASH");
+  const [bankAccountId, setBankAccountId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -43,7 +47,7 @@ export function PayExpenseDebtModal({
 
     setIsSaving(true);
     try {
-      await payExpenseDebt({ expenseId, amount: parsedAmount, paymentMethod });
+      await payExpenseDebt({ expenseId, amount: parsedAmount, paymentMethod, bankAccountId: bankAccountId || undefined });
       showToast(`Paid ${formatMoney(parsedAmount)} — ${description}`);
       setOpen(false);
       router.refresh();
@@ -88,6 +92,9 @@ export function PayExpenseDebtModal({
                   </select>
                 </div>
               </div>
+              {paymentMethod === "ACCOUNT" && (
+                <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+              )}
               <div className="modal-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
                   Cancel

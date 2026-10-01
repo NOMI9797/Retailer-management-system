@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { serializeDecimals } from "@/lib/serialize";
 import { parseLocalDateStart, parseLocalDateEnd } from "@/lib/utils";
+import { postToBankAccount } from "@/modules/settings/bankAccounts.actions";
 import {
   expenseSchema,
   updateExpenseSchema,
@@ -41,15 +42,23 @@ export async function createExpense(input: ExpenseInput) {
   const shopId = await getCurrentShopId();
   const data = expenseSchema.parse(input);
 
-  const expense = await db.expense.create({
-    data: {
-      shopId,
-      description: data.description,
-      amount: data.amount,
-      expenseDate: resolveExpenseDateTime(data.expenseDate),
-      paymentMethod: data.paymentMethod,
-      expenseType: "DAILY",
-    },
+  const expense = await db.$transaction(async (tx) => {
+    const created = await tx.expense.create({
+      data: {
+        shopId,
+        description: data.description,
+        amount: data.amount,
+        expenseDate: resolveExpenseDateTime(data.expenseDate),
+        paymentMethod: data.paymentMethod,
+        bankAccountId: data.bankAccountId,
+        expenseType: "DAILY",
+      },
+    });
+    // An expense is money LEAVING the shop.
+    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+      await postToBankAccount(tx, data.bankAccountId, -data.amount);
+    }
+    return created;
   });
   return serializeDecimals(expense);
 }
@@ -61,14 +70,28 @@ export async function updateExpense(input: UpdateExpenseInput) {
   const existing = await db.expense.findFirst({ where: { id: data.id, shopId, expenseType: "DAILY" } });
   if (!existing) throw new Error("Expense not found");
 
-  const expense = await db.expense.update({
-    where: { id: data.id },
-    data: {
-      description: data.description,
-      amount: data.amount,
-      expenseDate: resolveExpenseDateTime(data.expenseDate),
-      paymentMethod: data.paymentMethod,
-    },
+  const expense = await db.$transaction(async (tx) => {
+    // Reverse the old posting (if any) before applying the new one —
+    // an edit can change amount, payment method, AND bank account all
+    // at once, so the only safe approach is undo-then-redo rather than
+    // trying to diff the two.
+    if (existing.paymentMethod === "ACCOUNT" && existing.bankAccountId) {
+      await postToBankAccount(tx, existing.bankAccountId, Number(existing.amount));
+    }
+    const updated = await tx.expense.update({
+      where: { id: data.id },
+      data: {
+        description: data.description,
+        amount: data.amount,
+        expenseDate: resolveExpenseDateTime(data.expenseDate),
+        paymentMethod: data.paymentMethod,
+        bankAccountId: data.bankAccountId ?? null,
+      },
+    });
+    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+      await postToBankAccount(tx, data.bankAccountId, -data.amount);
+    }
+    return updated;
   });
   return serializeDecimals(expense);
 }
@@ -81,7 +104,12 @@ export async function deleteExpense(id: string) {
   const existing = await db.expense.findFirst({ where: { id, shopId } });
   if (!existing) throw new Error("Expense not found");
 
-  await db.expense.delete({ where: { id } });
+  await db.$transaction(async (tx) => {
+    if (existing.paymentMethod === "ACCOUNT" && existing.bankAccountId) {
+      await postToBankAccount(tx, existing.bankAccountId, Number(existing.amount));
+    }
+    await tx.expense.delete({ where: { id } });
+  });
 }
 
 // Filterable by date range, per the milestone doc. Summary rows are
@@ -206,13 +234,19 @@ export async function payExpenseDebt(input: PayExpenseDebtInput) {
     );
   }
 
-  await db.expensePayment.create({
-    data: {
-      expenseId: expense.id,
-      amount: data.amount,
-      paymentMethod: data.paymentMethod,
-      notes: data.notes,
-    },
+  await db.$transaction(async (tx) => {
+    await tx.expensePayment.create({
+      data: {
+        expenseId: expense.id,
+        amount: data.amount,
+        paymentMethod: data.paymentMethod,
+        bankAccountId: data.bankAccountId,
+        notes: data.notes,
+      },
+    });
+    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+      await postToBankAccount(tx, data.bankAccountId, -data.amount);
+    }
   });
 }
 
@@ -259,16 +293,23 @@ export async function createMonthlyExpense(input: MonthlyExpenseInput) {
   const type = await db.monthlyExpenseType.findFirst({ where: { id: data.monthlyExpenseTypeId, shopId } });
   if (!type) throw new Error("Monthly expense type not found");
 
-  const expense = await db.expense.create({
-    data: {
-      shopId,
-      description: type.name,
-      amount: data.amount,
-      expenseDate: resolveExpenseDateTime(data.expenseDate),
-      paymentMethod: data.paymentMethod,
-      expenseType: "MONTHLY",
-      monthlyExpenseTypeId: type.id,
-    },
+  const expense = await db.$transaction(async (tx) => {
+    const created = await tx.expense.create({
+      data: {
+        shopId,
+        description: type.name,
+        amount: data.amount,
+        expenseDate: resolveExpenseDateTime(data.expenseDate),
+        paymentMethod: data.paymentMethod,
+        bankAccountId: data.bankAccountId,
+        expenseType: "MONTHLY",
+        monthlyExpenseTypeId: type.id,
+      },
+    });
+    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+      await postToBankAccount(tx, data.bankAccountId, -data.amount);
+    }
+    return created;
   });
   return serializeDecimals(expense);
 }
@@ -283,15 +324,25 @@ export async function updateMonthlyExpense(input: UpdateMonthlyExpenseInput) {
   const type = await db.monthlyExpenseType.findFirst({ where: { id: data.monthlyExpenseTypeId, shopId } });
   if (!type) throw new Error("Monthly expense type not found");
 
-  const expense = await db.expense.update({
-    where: { id: data.id },
-    data: {
-      description: type.name,
-      amount: data.amount,
-      expenseDate: resolveExpenseDateTime(data.expenseDate),
-      paymentMethod: data.paymentMethod,
-      monthlyExpenseTypeId: type.id,
-    },
+  const expense = await db.$transaction(async (tx) => {
+    if (existing.paymentMethod === "ACCOUNT" && existing.bankAccountId) {
+      await postToBankAccount(tx, existing.bankAccountId, Number(existing.amount));
+    }
+    const updated = await tx.expense.update({
+      where: { id: data.id },
+      data: {
+        description: type.name,
+        amount: data.amount,
+        expenseDate: resolveExpenseDateTime(data.expenseDate),
+        paymentMethod: data.paymentMethod,
+        bankAccountId: data.bankAccountId ?? null,
+        monthlyExpenseTypeId: type.id,
+      },
+    });
+    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+      await postToBankAccount(tx, data.bankAccountId, -data.amount);
+    }
+    return updated;
   });
   return serializeDecimals(expense);
 }

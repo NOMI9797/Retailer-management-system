@@ -15,7 +15,7 @@ type Account = Awaited<ReturnType<typeof getCustomer>>["accounts"][number];
 // "use client" only for the expand/collapse toggle; the balance/
 // transaction data all arrives as a prop from the Server Component
 // detail page.
-export function CustomerAccountsList({ accounts }: { accounts: Account[] }) {
+export function CustomerAccountsList({ accounts, bankAccounts = [] }: { accounts: Account[]; bankAccounts?: { id: string; name: string }[] }) {
   if (accounts.length === 0) {
     return (
       <div className="panel">
@@ -29,7 +29,7 @@ export function CustomerAccountsList({ accounts }: { accounts: Account[] }) {
   return (
     <div className="accounts-panel">
       {accounts.map((account) => (
-        <AccountRow key={account.id} account={account} />
+        <AccountRow key={account.id} account={account} bankAccounts={bankAccounts} />
       ))}
     </div>
   );
@@ -51,7 +51,7 @@ function AccountIcon() {
   );
 }
 
-function AccountRow({ account }: { account: Account }) {
+function AccountRow({ account, bankAccounts = [] }: { account: Account; bankAccounts?: { id: string; name: string }[] }) {
   const [expanded, setExpanded] = useState(false);
   const balance = describeBalance(account.currentBalance);
   const isSettled = account.currentBalance === 0;
@@ -95,7 +95,7 @@ function AccountRow({ account }: { account: Account }) {
       {expanded && (
         <div className="batch-list">
           <div style={{ marginBottom: 12 }}>
-            <RecordAccountTransactionModal customerAccountId={account.id} />
+            <RecordAccountTransactionModal customerAccountId={account.id} bankAccounts={bankAccounts} />
           </div>
           {account.transactions.length === 0 ? (
             <p style={{ color: "var(--ink-muted)", fontSize: 12.5 }}>No transactions yet.</p>

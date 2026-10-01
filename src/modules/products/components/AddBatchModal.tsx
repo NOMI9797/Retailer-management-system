@@ -12,7 +12,7 @@ type Area = Awaited<ReturnType<typeof listAreas>>[number];
 // way instead of this one being an inline expand-below-the-table
 // affordance. Owns its own open/close state locally, same reasoning
 // as those other modals: pure UI state, no reason to be shareable.
-export function AddBatchModal({ productId, areas }: { productId: string; areas: Area[] }) {
+export function AddBatchModal({ productId, areas, bankAccounts = [] }: { productId: string; areas: Area[]; bankAccounts?: { id: string; name: string }[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
@@ -35,6 +35,7 @@ export function AddBatchModal({ productId, areas }: { productId: string; areas: 
             <GrainBatchForm
               productId={productId}
               areas={areas}
+              bankAccounts={bankAccounts}
               onSaved={() => {
                 setOpen(false);
                 router.refresh();

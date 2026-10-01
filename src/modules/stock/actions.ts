@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import { getCurrentShopId } from "@/lib/tenant";
 import { serializeDecimals } from "@/lib/serialize";
+import { postToBankAccount } from "@/modules/settings/bankAccounts.actions";
 import {
   transferPurchaseSchema,
   depositWithSettlementSchema,
@@ -33,6 +34,7 @@ async function payCustomerForGrain(
     quantity: number;
     rate: number;
     paymentMethod: "CASH" | "ACCOUNT" | "CREDIT";
+    bankAccountId?: string;
     notes?: string;
     newShopBatchId: string;
   }
@@ -61,6 +63,7 @@ async function payCustomerForGrain(
       amount,
       quantity: params.quantity,
       paymentMethod: params.paymentMethod,
+      bankAccountId: params.bankAccountId,
       // Links this transaction to the exact batch it paid for — lets
       // a per-settlement view (the customer's Grain tab) show this
       // specific purchase's own paid/Udhaar status and date, not just
@@ -70,6 +73,14 @@ async function payCustomerForGrain(
       notes: params.notes || `Purchased ${params.quantity} ${params.productName} from deposit @ ${params.rate}`,
     },
   });
+
+  // The shop PAID OUT of this bank account, regardless of whether the
+  // posting above also touched the customer's ledger balance (CREDIT
+  // doesn't move real money yet, so it never reaches here) — paying
+  // Cash/Account is real money leaving the account right now.
+  if (params.paymentMethod === "ACCOUNT" && params.bankAccountId) {
+    await postToBankAccount(tx, params.bankAccountId, -amount);
+  }
   // The transaction row above is ALWAYS created, regardless of
   // payment method — Cash Flow's sumCashOut/sumExpensesByMethod read
   // it directly to know real money left the shop, the same way
@@ -218,6 +229,7 @@ export async function createTransferPurchase(input: TransferPurchaseInput) {
       quantity: data.quantity,
       rate: data.rate,
       paymentMethod: data.paymentMethod,
+      bankAccountId: data.bankAccountId,
       notes: data.notes,
       newShopBatchId: newShopBatch.id,
     });
@@ -275,6 +287,7 @@ export async function createDepositWithSettlement(input: DepositWithSettlementIn
       quantity: data.quantity,
       rate: data.rate,
       paymentMethod: data.paymentMethod,
+      bankAccountId: data.bankAccountId,
       notes: data.notes,
       newShopBatchId: newShopBatch.id,
     });
@@ -552,6 +565,124 @@ export async function getShopOwedForGrainByProduct(customerId: string) {
   return byProduct;
 }
 
+// Shop-wide "Grain Udhaar" — every CREDIT-paid grain settlement
+// (transfer-purchase or settle-now deposit) across every customer,
+// with its own borrowed/paid/remaining figures, powering the Shop
+// (Udhaar) → Grain Udhaar subtab on the Debts page. Mirrors
+// CustomerGrainSection's per-customer settlement rows, just scoped to
+// the whole shop rather than one customer. A settlement's own
+// borrowed amount is its batch's quantity × rate (the agreed purchase
+// amount); paid/remaining are the CUSTOMER+PRODUCT bucket's shared
+// totals (see getShopOwedForGrainByProduct — a repayment posts
+// against the whole customer+product debt, not one specific
+// settlement, so two settlements for the same customer+product share
+// one remaining figure, same as CustomerGrainSection's own rows do).
+// Only settlements whose customer+product bucket still has a positive
+// remainder are included — a customer+product that's been fully paid
+// off no longer shows here, per the "no stray Rs 0 row" convention
+// every other Udhaar list in the app already follows.
+export async function listShopGrainUdhaar(productId?: string) {
+  const shopId = await getCurrentShopId();
+
+  const transactions = await db.accountTransaction.findMany({
+    where: {
+      direction: "OUT",
+      paymentMethod: "CREDIT",
+      quantity: { not: null },
+      customerAccount: { customer: { shopId } },
+      linkedGrainBatch: productId ? { productId } : undefined,
+    },
+    include: {
+      customerAccount: { include: { customer: true } },
+      linkedGrainBatch: { include: { product: { include: { unit: true } } } },
+    },
+    orderBy: { transactionDate: "desc" },
+  });
+
+  // customerId -> productId -> { owed, paid } — same math
+  // getShopOwedForGrainByProduct does for one customer, computed here
+  // once across every customer in a single pass rather than N+1
+  // queries per settlement row.
+  const allIn = await db.accountTransaction.findMany({
+    where: {
+      direction: "IN",
+      quantity: { not: null },
+      linkedProductId: { not: null },
+      customerAccount: { customer: { shopId } },
+    },
+    select: { customerAccountId: true, linkedProductId: true, amount: true, customerAccount: { select: { customerId: true } } },
+  });
+  const bucket = new Map<string, { owed: number; paid: number }>();
+  const bucketKey = (customerId: string, productId: string) => `${customerId}:${productId}`;
+  for (const txn of transactions) {
+    const productId = txn.linkedGrainBatch?.productId;
+    if (!productId) continue;
+    const key = bucketKey(txn.customerAccount.customerId, productId);
+    const existing = bucket.get(key) ?? { owed: 0, paid: 0 };
+    existing.owed += Number(txn.amount);
+    bucket.set(key, existing);
+  }
+  for (const txn of allIn) {
+    const productId = txn.linkedProductId!;
+    const key = bucketKey(txn.customerAccount.customerId, productId);
+    const existing = bucket.get(key) ?? { owed: 0, paid: 0 };
+    existing.owed -= Number(txn.amount);
+    existing.paid += Number(txn.amount);
+    bucket.set(key, existing);
+  }
+
+  return transactions
+    .filter((txn) => txn.linkedGrainBatch?.productId)
+    .map((txn) => {
+      const batch = txn.linkedGrainBatch!;
+      const productId = batch.productId;
+      const key = bucketKey(txn.customerAccount.customerId, productId);
+      const totals = bucket.get(key) ?? { owed: 0, paid: 0 };
+      return {
+        transactionId: txn.id,
+        customerId: txn.customerAccount.customerId,
+        customerName: txn.customerAccount.customer.name,
+        productId,
+        productName: batch.product.name,
+        unitName: batch.product.unit.name,
+        quantity: Number(batch.quantityIn),
+        rate: batch.rate !== null ? Number(batch.rate) : 0,
+        borrowed: Number(txn.amount),
+        date: txn.transactionDate,
+        remaining: totals.owed,
+        paid: totals.paid,
+      };
+    })
+    .filter((row) => row.remaining > 0.01);
+}
+
+// Stat-card totals for the Shop (Udhaar) → Grain Udhaar subtab.
+export async function getShopGrainUdhaarSummary(productId?: string) {
+  const rows = await listShopGrainUdhaar(productId);
+
+  // Dedupe by customer+product bucket before summing remaining/paid —
+  // several settlement rows can share the same bucket (see
+  // listShopGrainUdhaar's comment), and each one carries that whole
+  // bucket's totals, not its own slice, so summing every ROW would
+  // double-count a bucket with more than one settlement.
+  const seen = new Set<string>();
+  let totalRemaining = 0;
+  let totalPaid = 0;
+  for (const row of rows) {
+    const key = `${row.customerId}:${row.productId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    totalRemaining += row.remaining;
+    totalPaid += row.paid;
+  }
+
+  return {
+    totalRemaining,
+    totalPaid,
+    customerCount: new Set(rows.map((r) => r.customerId)).size,
+  };
+}
+
 // Pays down money the shop owes a customer for grain (see
 // getShopOwedForGrain) — the opposite direction from
 // recordAccountTransaction's debt convention, since that one is built
@@ -597,6 +728,7 @@ export async function payGrainDebt(input: PayGrainDebtInput) {
         quantity: 0,
         linkedProductId: data.productId,
         paymentMethod: data.paymentMethod,
+        bankAccountId: data.bankAccountId,
         notes: data.notes || "Paid customer for settled grain",
       },
     });
@@ -604,6 +736,9 @@ export async function payGrainDebt(input: PayGrainDebtInput) {
       where: { id: customerAccount.id },
       data: { currentBalance: { increment: data.amount } },
     });
+    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+      await postToBankAccount(tx, data.bankAccountId, -data.amount);
+    }
   });
 }
 

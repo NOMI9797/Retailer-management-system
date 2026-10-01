@@ -2,6 +2,7 @@ import Link from "next/link";
 import { listProducts } from "@/modules/products/actions";
 import { listAreas } from "@/modules/settings/areas.actions";
 import { listAccountTypes } from "@/modules/settings/accountTypes.actions";
+import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { NewSaleForm } from "@/modules/daily-sales/components/NewSaleForm";
 import { UdhaarClearanceForm } from "@/modules/daily-sales/components/UdhaarClearanceForm";
 import { StockFromCustomerForm } from "@/modules/daily-sales/components/StockFromCustomerForm";
@@ -46,11 +47,12 @@ export default async function NewSalePage({
       ? "stock-from-customer"
       : "new-sale";
 
-  const [areas, accountTypes, simpleProducts, grainProducts] = await Promise.all([
+  const [areas, accountTypes, simpleProducts, grainProducts, bankAccounts] = await Promise.all([
     listAreas(),
     listAccountTypes(),
     listProducts({ stockKind: "SIMPLE", pageSize: 500 }),
     listProducts({ stockKind: "GRAIN", pageSize: 500 }),
+    listBankAccounts(),
   ]);
 
   return (
@@ -82,7 +84,7 @@ export default async function NewSalePage({
 
       <div className="panel" style={{ padding: 32 }}>
         {tab === "new-sale" ? (
-          <NewSaleForm areas={areas} products={[...simpleProducts.products, ...grainProducts.products]} />
+          <NewSaleForm areas={areas} products={[...simpleProducts.products, ...grainProducts.products]} bankAccounts={bankAccounts} />
         ) : tab === "udhaar-clearance" ? (
           <UdhaarClearanceForm areas={areas} accountTypes={accountTypes} />
         ) : (

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createExpense, updateExpense } from "../actions";
+import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 import { formatMoney } from "@/lib/utils";
 import { showToast } from "@/components/shared/toastStore";
 import type { listExpenses } from "../actions";
@@ -20,10 +21,12 @@ function toDateInputValue(date: Date | string) {
 // gets called differs.
 export function ExpenseForm({
   expense,
+  bankAccounts = [],
   onSaved,
   onCancel,
 }: {
   expense?: Expense;
+  bankAccounts?: { id: string; name: string }[];
   onSaved?: () => void;
   onCancel?: () => void;
 }) {
@@ -35,6 +38,7 @@ export function ExpenseForm({
   const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>(
     expense?.paymentMethod ?? "CASH"
   );
+  const [bankAccountId, setBankAccountId] = useState(expense?.bankAccountId ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -48,6 +52,7 @@ export function ExpenseForm({
         amount: Number(amount),
         expenseDate,
         paymentMethod,
+        bankAccountId: bankAccountId || undefined,
       };
       if (expense) {
         await updateExpense({ id: expense.id, ...data });
@@ -117,6 +122,10 @@ export function ExpenseForm({
           ))}
         </div>
       </div>
+
+      {paymentMethod === "ACCOUNT" && (
+        <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+      )}
 
       <div className="modal-actions">
         {onCancel && (

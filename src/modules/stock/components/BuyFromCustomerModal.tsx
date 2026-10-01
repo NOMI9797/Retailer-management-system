@@ -32,12 +32,7 @@ export function BuyFromCustomerModal({
 
   return (
     <>
-      <button
-        type="button"
-        className="btn btn-ghost"
-        style={{ padding: "2px 8px", fontSize: 11.5 }}
-        onClick={() => setOpen(true)}
-      >
+      <button type="button" className="btn btn-primary" style={{ padding: "6px 12px", fontSize: 12.5 }} onClick={() => setOpen(true)}>
         Buy from customer
       </button>
 

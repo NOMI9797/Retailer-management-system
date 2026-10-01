@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCustomers } from "@/modules/customers/hooks/useCustomers";
 import { createLongTermLoan } from "../actions";
+import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 import { formatMoney } from "@/lib/utils";
 import { showToast } from "@/components/shared/toastStore";
 import type { DurationUnit } from "../schema";
@@ -13,13 +14,14 @@ import type { DurationUnit } from "../schema";
 // the return date is always computed from today + duration, per the
 // "auto-calculated" requirement), and save. Works even for a customer
 // with no Udhaar account yet — createLongTermLoan auto-creates one.
-export function LongTermLoanModal() {
+export function LongTermLoanModal({ bankAccounts }: { bankAccounts: { id: string; name: string }[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<{ id: string; name: string } | null>(null);
   const [amount, setAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT" | "CREDIT">("CASH");
+  const [bankAccountId, setBankAccountId] = useState("");
   const [durationValue, setDurationValue] = useState("1");
   const [durationUnit, setDurationUnit] = useState<DurationUnit>("MONTHS");
   const [notes, setNotes] = useState("");
@@ -43,6 +45,7 @@ export function LongTermLoanModal() {
     setSelectedCustomer(null);
     setAmount("");
     setPaymentMethod("CASH");
+    setBankAccountId("");
     setDurationValue("1");
     setDurationUnit("MONTHS");
     setNotes("");
@@ -67,6 +70,7 @@ export function LongTermLoanModal() {
         customerId: selectedCustomer.id,
         amount: Number(amount),
         paymentMethod,
+        bankAccountId: bankAccountId || undefined,
         durationValue: Number(durationValue),
         durationUnit,
         notes: notes || undefined,
@@ -194,6 +198,10 @@ export function LongTermLoanModal() {
                   </select>
                 </div>
               </div>
+
+              {paymentMethod === "ACCOUNT" && (
+                <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+              )}
 
               <div className="field-row">
                 <div className="field">

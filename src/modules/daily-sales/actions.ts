@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { serializeDecimals } from "@/lib/serialize";
 import { parseLocalDateStart, parseLocalDateEnd, toLocalDateString } from "@/lib/utils";
+import { postToBankAccount } from "@/modules/settings/bankAccounts.actions";
 import {
   createDailySaleSchema,
   updateDailySaleSchema,
@@ -240,8 +241,18 @@ async function applyPaymentSplit(
   }
   if (payments.account > 0) {
     await tx.dailySalePayment.create({
-      data: { dailySaleId: saleId, paymentMethod: "ACCOUNT", amount: payments.account, visitAt },
+      data: {
+        dailySaleId: saleId,
+        paymentMethod: "ACCOUNT",
+        amount: payments.account,
+        bankAccountId: payments.bankAccountId,
+        visitAt,
+      },
     });
+    // A sale is money coming INTO the shop.
+    if (payments.bankAccountId) {
+      await postToBankAccount(tx, payments.bankAccountId, payments.account);
+    }
   }
   if (payments.credit > 0) {
     await tx.dailySalePayment.create({
@@ -338,6 +349,18 @@ async function reverseSaleContents(tx: Prisma.TransactionClient, shopId: string,
     });
   }
   await tx.accountTransaction.deleteMany({ where: { linkedSaleId: saleId } });
+
+  // Reverse any bank account posting this sale's ACCOUNT payment made
+  // — same "undo before the rows disappear" requirement the ledger
+  // reversal above follows, since a sale being edited/deleted must
+  // leave every balance it touched exactly as if the sale never
+  // happened.
+  const accountPayments = await tx.dailySalePayment.findMany({
+    where: { dailySaleId: saleId, paymentMethod: "ACCOUNT", bankAccountId: { not: null } },
+  });
+  for (const payment of accountPayments) {
+    await postToBankAccount(tx, payment.bankAccountId!, -Number(payment.amount));
+  }
   await tx.dailySalePayment.deleteMany({ where: { dailySaleId: saleId } });
 
   // Reverse any Stock Udhaar this sale created — via a COMPENSATING
@@ -638,15 +661,19 @@ export async function getCustomerPurchaseHistory(customerId: string) {
 // without this per-item breakdown.
 
 // Every grain sale item with a recorded Credit amount, optionally
-// scoped to one customer — the "Customer Udhaar" subtab's table data
-// source, both shop-wide (Grain page) and per-customer (customer
-// detail page), depending on whether customerId is passed.
-export async function getCustomerGrainCreditPurchases(customerId?: string) {
+// scoped to one customer and/or one grain product — the "Grain
+// Udhaar" subtab's table data source, both shop-wide (Debts page) and
+// per-customer (customer detail page), depending on whether
+// customerId is passed. productId powers the Debts page's product
+// filter, same "optional narrowing param" shape getShopOwedForGrain
+// already established for the mirror (Shop Udhaar) case.
+export async function getCustomerGrainCreditPurchases(customerId?: string, productId?: string) {
   const shopId = await getCurrentShopId();
 
   const items = await db.dailySaleItem.findMany({
     where: {
       creditAmount: { not: null },
+      productId: productId || undefined,
       product: { shopId, stockKind: "GRAIN" },
       dailySale: { customerId: customerId || undefined, shopId },
     },
@@ -688,10 +715,10 @@ export async function getCustomerGrainCreditPurchases(customerId?: string) {
     .filter((row) => row.remaining > 0.01);
 }
 
-// Stat-card totals for the Customer Udhaar subtab — same shape as
+// Stat-card totals for the Grain Udhaar subtab — same shape as
 // getShopExpenseUdhaarSummary/getShopBorrowedSummary.
-export async function getCustomerGrainCreditSummary(customerId?: string) {
-  const rows = await getCustomerGrainCreditPurchases(customerId);
+export async function getCustomerGrainCreditSummary(customerId?: string, productId?: string) {
+  const rows = await getCustomerGrainCreditPurchases(customerId, productId);
 
   const totalBorrowed = rows.reduce((sum, r) => sum + r.borrowed, 0);
   const totalPaid = rows.reduce((sum, r) => sum + r.paid, 0);
@@ -732,13 +759,20 @@ export async function payGrainSaleItemCredit(input: PayGrainSaleItemCreditInput)
     );
   }
 
-  await db.grainSaleCreditPayment.create({
-    data: {
-      dailySaleItemId: item.id,
-      amount: data.amount,
-      paymentMethod: data.paymentMethod,
-      notes: data.notes,
-    },
+  await db.$transaction(async (tx) => {
+    await tx.grainSaleCreditPayment.create({
+      data: {
+        dailySaleItemId: item.id,
+        amount: data.amount,
+        paymentMethod: data.paymentMethod,
+        bankAccountId: data.bankAccountId,
+        notes: data.notes,
+      },
+    });
+    // A repayment is money coming INTO the shop.
+    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+      await postToBankAccount(tx, data.bankAccountId, data.amount);
+    }
   });
 }
 
@@ -757,6 +791,7 @@ export async function getDailySaleForEdit(saleId: string) {
   const paymentsByMethod = Object.fromEntries(
     sale.payments.map((p) => [p.paymentMethod, Number(p.amount)])
   );
+  const accountPayment = sale.payments.find((p) => p.paymentMethod === "ACCOUNT");
 
   return {
     id: sale.id,
@@ -773,6 +808,7 @@ export async function getDailySaleForEdit(saleId: string) {
       cash: paymentsByMethod.CASH ?? 0,
       account: paymentsByMethod.ACCOUNT ?? 0,
       credit: paymentsByMethod.CREDIT ?? 0,
+      bankAccountId: accountPayment?.bankAccountId ?? undefined,
     },
   };
 }

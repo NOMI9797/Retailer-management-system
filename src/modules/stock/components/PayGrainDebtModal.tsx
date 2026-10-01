@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { payGrainDebt } from "../actions";
+import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 import { showToast } from "@/components/shared/toastStore";
 import { formatMoney } from "@/lib/utils";
 
@@ -20,6 +21,7 @@ export function PayGrainDebtModal({
   amountOwed,
   defaultAmount,
   label = "Mark as paid",
+  bankAccounts = [],
   onDone,
 }: {
   customerId: string;
@@ -46,12 +48,14 @@ export function PayGrainDebtModal({
   // Optional extra callback alongside router.refresh() — a caller
   // holding its own already-fetched client state (e.g.
   // StockFromCustomerForm) needs to explicitly refetch.
+  bankAccounts?: { id: string; name: string }[];
   onDone?: () => void;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState(String(defaultAmount ?? amountOwed));
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT">("CASH");
+  const [bankAccountId, setBankAccountId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -66,7 +70,7 @@ export function PayGrainDebtModal({
 
     setIsSaving(true);
     try {
-      await payGrainDebt({ customerId, productId, amount: parsedAmount, paymentMethod });
+      await payGrainDebt({ customerId, productId, amount: parsedAmount, paymentMethod, bankAccountId: bankAccountId || undefined });
       showToast(`Paid ${customerName} ${formatMoney(parsedAmount)}`);
       setOpen(false);
       router.refresh();
@@ -80,7 +84,7 @@ export function PayGrainDebtModal({
 
   return (
     <>
-      <button type="button" className="btn btn-ghost" onClick={() => setOpen(true)}>
+      <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
         {label}
       </button>
 
@@ -111,6 +115,9 @@ export function PayGrainDebtModal({
                   </select>
                 </div>
               </div>
+              {paymentMethod === "ACCOUNT" && (
+                <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+              )}
               <div className="modal-actions">
                 <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
                   Cancel

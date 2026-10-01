@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { listProducts, getGrainStockSummary } from "@/modules/products/actions";
-import { getStockOverview, listCustomerBatchesForProduct, getShopOwedForGrain } from "@/modules/stock/actions";
+import { getStockOverview, listCustomerBatchesForProduct } from "@/modules/stock/actions";
 import { listAreas } from "@/modules/settings/areas.actions";
+import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { GrainBatchList } from "@/modules/products/components/GrainBatchList";
 import { buildGrainHref, type GrainSearchParams } from "./searchParamsHref";
 
@@ -32,24 +33,24 @@ export async function GrainStockList({ searchParams }: { searchParams: GrainSear
 
   const activeProduct = products.find((p) => p.id === searchParams.product) ?? products[0];
 
-  const [summary, overview, customerBatches, owedEntries, areas] = await Promise.all([
+  const [summary, overview, customerBatches, areas, bankAccounts] = await Promise.all([
     getGrainStockSummary(activeProduct.id),
     getStockOverview(activeProduct.id),
     listCustomerBatchesForProduct(activeProduct.id),
-    // Scoped to THIS product — see getShopOwedForGrain's comment on
-    // why a customer's debt is now tracked per product, not combined.
-    getShopOwedForGrain(undefined, activeProduct.id),
     listAreas(),
+    listBankAccounts(),
   ]);
-  const owedByCustomer = new Map(owedEntries.map((e) => [e.customerId, e.amountOwed]));
 
   return (
     <>
-      <div className="tabs" style={{ marginBottom: 16, flexWrap: "wrap" }}>
+      {/* Squared, full-width chips (not the plain underline .tab) so
+          switching products is an obvious UI affordance — flex: 1 on
+          each chip (see .product-chip) stretches them to fill the row. */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
         {products.map((product) => (
           <Link
             key={product.id}
-            className={`tab${product.id === activeProduct.id ? " active" : ""}`}
+            className={`product-chip${product.id === activeProduct.id ? " active" : ""}`}
             href={buildGrainHref(searchParams, { product: product.id })}
           >
             {product.name}
@@ -62,8 +63,8 @@ export async function GrainStockList({ searchParams }: { searchParams: GrainSear
         batchCount={summary.batchCount}
         customerBatches={customerBatches}
         overview={overview}
-        owedByCustomer={owedByCustomer}
         areas={areas}
+        bankAccounts={bankAccounts}
       />
     </>
   );

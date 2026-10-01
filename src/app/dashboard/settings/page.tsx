@@ -3,16 +3,25 @@ import { listAccountTypes } from "@/modules/settings/accountTypes.actions";
 import { listAreas } from "@/modules/settings/areas.actions";
 import { listCategories, listUnits } from "@/modules/products/actions";
 import { listMonthlyExpenseTypes } from "@/modules/expenses/actions";
+import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { PageLoader } from "@/components/shared/PageLoader";
 import { AccountTypeList } from "./AccountTypeList";
 import { CategoryListManager } from "@/modules/settings/components/CategoryListManager";
 import { UnitListManager } from "@/modules/settings/components/UnitListManager";
 import { AreaListManager } from "@/modules/settings/components/AreaListManager";
 import { MonthlyExpenseTypeListManager } from "@/modules/settings/components/MonthlyExpenseTypeListManager";
+import { BankAccountListManager } from "@/modules/settings/components/BankAccountListManager";
 import { SettingsHeader, type SettingsTab } from "./SettingsHeader";
 import type { SettingsSearchParams } from "./searchParamsHref";
 
-const VALID_TABS: SettingsTab[] = ["account-types", "categories", "units", "areas", "monthly-expense-types"];
+const VALID_TABS: SettingsTab[] = [
+  "account-types",
+  "categories",
+  "units",
+  "areas",
+  "monthly-expense-types",
+  "bank-accounts",
+];
 
 // Tab-based, same shape as Products/Expenses/Reports — real ?tab=
 // navigation, only the active tab's Suspense-wrapped section renders,
@@ -60,6 +69,12 @@ export default async function SettingsPage({
           <MonthlyExpenseTypesSection />
         </Suspense>
       )}
+
+      {tab === "bank-accounts" && (
+        <Suspense fallback={<PageLoader label="Loading bank accounts…" />}>
+          <BankAccountsSection />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -90,4 +105,9 @@ async function AreasSection() {
 async function MonthlyExpenseTypesSection() {
   const types = await listMonthlyExpenseTypes(true);
   return <MonthlyExpenseTypeListManager types={types} />;
+}
+
+async function BankAccountsSection() {
+  const bankAccounts = await listBankAccounts(true);
+  return <BankAccountListManager bankAccounts={bankAccounts} />;
 }

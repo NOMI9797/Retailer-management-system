@@ -8,12 +8,17 @@
 export type DebtsSearchParams = {
   group?: string;
   tab?: string;
+  // Which grain product the Grain Udhaar subtab (either group) is
+  // filtered to — "all" (default, omitted from the URL) or a real
+  // product id. Ignored on every other tab.
+  product?: string;
 };
 
 export function buildDebtsHref(overrides: Partial<DebtsSearchParams>) {
   const params = new URLSearchParams();
   if (overrides.group) params.set("group", overrides.group);
   if (overrides.tab) params.set("tab", overrides.tab);
+  if (overrides.product && overrides.product !== "all") params.set("product", overrides.product);
   const qs = params.toString();
   return `/dashboard/debts${qs ? `?${qs}` : ""}`;
 }

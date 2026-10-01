@@ -5,6 +5,7 @@ import { createGrainBatch } from "../actions";
 import { createDepositWithSettlement } from "@/modules/stock/actions";
 import { createCustomer } from "@/modules/customers/actions";
 import { CustomerPicker, type CustomerSelection } from "@/modules/daily-sales/components/CustomerPicker";
+import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 import { showToast } from "@/components/shared/toastStore";
 import type { listAreas } from "@/modules/settings/areas.actions";
 
@@ -35,6 +36,7 @@ export function GrainBatchForm({
   productId,
   forCustomerId,
   areas,
+  bankAccounts = [],
   onSaved,
 }: {
   productId: string;
@@ -43,6 +45,7 @@ export function GrainBatchForm({
   // knowing the customer (StockFromCustomerForm) skips CustomerPicker
   // entirely, same as before.
   areas?: Area[];
+  bankAccounts?: { id: string; name: string }[];
   onSaved: () => void;
 }) {
   const [owner, setOwner] = useState<Owner>(forCustomerId ? "CUSTOMER" : "SHOP");
@@ -55,6 +58,7 @@ export function GrainBatchForm({
   const [quantityIn, setQuantityIn] = useState("");
   const [rate, setRate] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT" | "CREDIT">("CASH");
+  const [bankAccountId, setBankAccountId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -104,6 +108,7 @@ export function GrainBatchForm({
           quantity: Number(quantityIn),
           rate: Number(rate),
           paymentMethod,
+          bankAccountId: bankAccountId || undefined,
         });
         showToast("Purchased from customer — added to shop stock");
       } else {
@@ -208,14 +213,19 @@ export function GrainBatchForm({
       </div>
 
       {sellingNow && (
-        <div className="field">
-          <label>Pay via</label>
-          <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}>
-            <option value="CASH">Cash</option>
-            <option value="ACCOUNT">Account/bank</option>
-            <option value="CREDIT">Udhaar — shop owes customer</option>
-          </select>
-        </div>
+        <>
+          <div className="field">
+            <label>Pay via</label>
+            <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}>
+              <option value="CASH">Cash</option>
+              <option value="ACCOUNT">Account/bank</option>
+              <option value="CREDIT">Udhaar — shop owes customer</option>
+            </select>
+          </div>
+          {paymentMethod === "ACCOUNT" && (
+            <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+          )}
+        </>
       )}
 
       <div className="modal-actions">

@@ -1,9 +1,9 @@
 import { Fragment } from "react";
+import Link from "next/link";
 import type { listCustomerBatchesForProduct, getStockOverview } from "@/modules/stock/actions";
 import { StockSummary } from "./StockSummary";
 import { AddBatchModal } from "./AddBatchModal";
 import { BuyFromCustomerModal } from "@/modules/stock/components/BuyFromCustomerModal";
-import { PayGrainDebtModal } from "@/modules/stock/components/PayGrainDebtModal";
 import { formatMoney, formatDate } from "@/lib/utils";
 import type { listAreas } from "@/modules/settings/areas.actions";
 
@@ -41,20 +41,15 @@ export function GrainBatchList({
   batchCount,
   customerBatches,
   overview,
-  owedByCustomer,
   areas,
+  bankAccounts = [],
 }: {
   product: GrainProduct;
   batchCount: number;
   customerBatches: CustomerBatch[];
   overview: Overview;
-  // customerId -> money the shop still owes them for THIS product
-  // (Credit-paid settlements not yet paid out — see
-  // getShopOwedForGrain, called here already scoped to product.id by
-  // GrainStockList). Per product, not account-wide — a customer's
-  // Cotton debt and Wheat debt are tracked and paid independently.
-  owedByCustomer: Map<string, number>;
   areas: Area[];
+  bankAccounts?: { id: string; name: string }[];
 }) {
   // Date-header rows grouped by deposit date (receivedAt) — same
   // "insert a header row whenever the date changes" pattern
@@ -67,16 +62,9 @@ export function GrainBatchList({
 
   return (
     <>
-      <div className="page-head" style={{ marginBottom: 8, alignItems: "flex-start" }}>
-        <div>
-          <h2 className="section-title" style={{ marginBottom: 2 }}>
-            {product.name}
-          </h2>
-          <p style={{ margin: 0, fontSize: 13, color: "var(--ink-muted)" }}>
-            {batchCount} batch{batchCount === 1 ? "" : "es"} · {product.category.name}
-          </p>
-        </div>
-        <AddBatchModal productId={product.id} areas={areas} />
+      <div className="page-head" style={{ marginBottom: 8, alignItems: "center" }}>
+        <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: "var(--primary-600)" }}>{product.name}</h2>
+        <AddBatchModal productId={product.id} areas={areas} bankAccounts={bankAccounts} />
       </div>
 
       <StockSummary
@@ -85,7 +73,6 @@ export function GrainBatchList({
         ownAvailable={overview.ownAvailable}
         customerClaim={overview.customerClaim}
         stockUdhaarOutstanding={overview.stockUdhaarOutstanding}
-        moneyOwedToCustomers={overview.moneyOwedToCustomers}
       />
 
       <div className="panel">
@@ -131,29 +118,11 @@ export function GrainBatchList({
                       <td className="num" style={{ textAlign: "right" }}>
                         {batch.unsettledQuantity} {product.unit.name}
                       </td>
-                      <td>
-                        {batch.settlements.length === 0 ? (
-                          <span className="pay-badge pay-credit">Not yet settled</span>
-                        ) : batch.unsettledQuantity > 0 ? (
-                          <span className="pay-badge pay-mixed">Partially settled</span>
-                        ) : (
-                          <span className="pay-badge pay-cash">Settled</span>
-                        )}
-                        {batch.settlements.length > 0 && (
-                          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
-                            {batch.settlements
-                              .map((s) => `${s.quantity} ${product.unit.name} @ ${formatMoney(s.rate)}`)
-                              .join(" · ")}
-                          </p>
-                        )}
+                      <td className="num">
+                        {batch.settlements.length === 0 ? "—" : `${batch.settledQuantity} ${product.unit.name}`}
                       </td>
                       <td className="num" style={{ textAlign: "right" }}>
                         {batch.settledTotalAmount > 0 ? formatMoney(batch.settledTotalAmount) : "—"}
-                        {(owedByCustomer.get(batch.customerId) ?? 0) > 0 && (
-                          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--consigned-600)" }}>
-                            Shop owes {formatMoney(owedByCustomer.get(batch.customerId)!)}
-                          </p>
-                        )}
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
@@ -165,14 +134,9 @@ export function GrainBatchList({
                               unitName={product.unit.name}
                             />
                           )}
-                          {(owedByCustomer.get(batch.customerId) ?? 0) > 0 && (
-                            <PayGrainDebtModal
-                              customerId={batch.customerId}
-                              productId={product.id}
-                              customerName={batch.customerName}
-                              amountOwed={owedByCustomer.get(batch.customerId)!}
-                            />
-                          )}
+                          <Link href={`/dashboard/customers/${batch.customerId}?tab=grain`} className="btn btn-ghost">
+                            View
+                          </Link>
                         </div>
                       </td>
                     </tr>

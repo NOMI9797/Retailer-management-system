@@ -3,15 +3,21 @@ import { getCustomerGrainCreditPurchases, getCustomerGrainCreditSummary } from "
 import { PayGrainSaleItemCreditModal } from "@/modules/daily-sales/components/PayGrainSaleItemCreditModal";
 import { formatMoney, formatDate } from "@/lib/utils";
 
-// Shop-wide "Customer Udhaar" — the mirror of Shop Udhaar (the tab
-// next to this one): here the CUSTOMER is the one who owes, having
-// bought grain from the shop at a settled rate and paid via Credit
-// instead of cash/account. Every row is a real, individually-payable
-// purchase (see getCustomerGrainCreditPurchases — per grain sale
-// item, never an approximated cross-item split), not folded into the
-// customer's whole-account Udhaar balance shown on the Debts page.
-export async function CustomerGrainCreditSection() {
-  const [rows, summary] = await Promise.all([getCustomerGrainCreditPurchases(), getCustomerGrainCreditSummary()]);
+// Shop-wide "Grain Udhaar" — the mirror of Shop (Udhaar)'s own Grain
+// Udhaar subtab: here the CUSTOMER is the one who owes, having bought
+// grain from the shop at a settled rate and paid via Credit instead
+// of cash/account. Every row is a real, individually-payable purchase
+// (see getCustomerGrainCreditPurchases — per grain sale item, never
+// an approximated cross-item split), not folded into the customer's
+// whole-account Udhaar balance shown on the Regular/Daily subtab.
+// productId optionally narrows both the stat cards and the table to
+// one grain product — see the Debts page's GrainProductFilter, which
+// renders the product-chip row above this section.
+export async function CustomerGrainCreditSection({ productId }: { productId?: string } = {}) {
+  const [rows, summary] = await Promise.all([
+    getCustomerGrainCreditPurchases(undefined, productId),
+    getCustomerGrainCreditSummary(undefined, productId),
+  ]);
 
   return (
     <>
@@ -35,7 +41,7 @@ export async function CustomerGrainCreditSection() {
       {rows.length === 0 ? (
         <div className="panel">
           <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-            No outstanding Customer Udhaar for grain right now.
+            No outstanding Grain Udhaar right now.
           </p>
         </div>
       ) : (

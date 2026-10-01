@@ -30,23 +30,35 @@ export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
 // could drift. A Stock Management transfer-purchase payout posts
 // directly (see stock/actions.ts) and is NOT recorded through this
 // action, since it uses the opposite balance-sign meaning.
-export const recordAccountTransactionSchema = z.object({
-  customerAccountId: z.string().uuid(),
-  direction: z.enum(["IN", "OUT"]),
-  amount: z.number().positive("Amount must be positive"),
-  paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
-  // "YYYY-MM-DD" — only meaningful on a loan given (direction OUT);
-  // optional even then, since not every loan needs a formal due date.
-  dueDate: z.string().optional(),
-  notes: z.string().optional(),
-  // Marks this posting as belonging to the Long-term Udhaar bucket
-  // rather than Regular/Daily Udhaar — both share the same account/
-  // balance, so this is the only thing distinguishing which "tab" a
-  // loan or repayment belongs to (see AccountTransaction.isLongTerm's
-  // schema comment). A repayment must be explicitly tagged to match
-  // the loan it's clearing; there's no automatic attribution.
-  isLongTerm: z.boolean().default(false),
-});
+//
+// bankAccountId is required whenever paymentMethod is ACCOUNT — money
+// moving through "Account" must always say WHICH bank account (see
+// BankAccount's schema comment) — enforced by the .refine() below,
+// the one place this rule is written so every payment-method schema
+// in the app applies it identically.
+export const recordAccountTransactionSchema = z
+  .object({
+    customerAccountId: z.string().uuid(),
+    direction: z.enum(["IN", "OUT"]),
+    amount: z.number().positive("Amount must be positive"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
+    bankAccountId: z.string().uuid().optional(),
+    // "YYYY-MM-DD" — only meaningful on a loan given (direction OUT);
+    // optional even then, since not every loan needs a formal due date.
+    dueDate: z.string().optional(),
+    notes: z.string().optional(),
+    // Marks this posting as belonging to the Long-term Udhaar bucket
+    // rather than Regular/Daily Udhaar — both share the same account/
+    // balance, so this is the only thing distinguishing which "tab" a
+    // loan or repayment belongs to (see AccountTransaction.isLongTerm's
+    // schema comment). A repayment must be explicitly tagged to match
+    // the loan it's clearing; there's no automatic attribution.
+    isLongTerm: z.boolean().default(false),
+  })
+  .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
+    message: "Select which bank account this was paid through",
+    path: ["bankAccountId"],
+  });
 export type RecordAccountTransactionInput = z.infer<typeof recordAccountTransactionSchema>;
 
 // Long-term Udhaar's own creation form: amount plus a duration picked
@@ -64,14 +76,20 @@ export type DurationUnit = z.infer<typeof durationUnitSchema>;
 // the action auto-finds-or-creates their Udhar account, same pattern
 // applyPaymentSplit already uses for Credit sales (see
 // daily-sales/actions.ts).
-export const createLongTermLoanSchema = z.object({
-  customerId: z.string().uuid(),
-  amount: z.number().positive("Amount must be positive"),
-  paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
-  durationValue: z.number().int().positive("Duration must be a positive whole number"),
-  durationUnit: durationUnitSchema,
-  notes: z.string().optional(),
-});
+export const createLongTermLoanSchema = z
+  .object({
+    customerId: z.string().uuid(),
+    amount: z.number().positive("Amount must be positive"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
+    bankAccountId: z.string().uuid().optional(),
+    durationValue: z.number().int().positive("Duration must be a positive whole number"),
+    durationUnit: durationUnitSchema,
+    notes: z.string().optional(),
+  })
+  .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
+    message: "Select which bank account this was paid through",
+    path: ["bankAccountId"],
+  });
 export type CreateLongTermLoanInput = z.infer<typeof createLongTermLoanSchema>;
 
 // The Shop (Udhaar) tab's "borrow from a customer" entry point — the
@@ -80,24 +98,36 @@ export type CreateLongTermLoanInput = z.infer<typeof createLongTermLoanSchema>;
 // "duration picked from a fixed set of choices, due date always
 // derived" shape as Long-term Udhaar, for the same reason (no free
 // date picker, per that feature's precedent).
-export const createShopBorrowedLoanSchema = z.object({
-  customerId: z.string().uuid(),
-  amount: z.number().positive("Amount must be positive"),
-  paymentMethod: z.enum(["CASH", "ACCOUNT"]),
-  durationValue: z.number().int().positive("Duration must be a positive whole number"),
-  durationUnit: durationUnitSchema,
-  notes: z.string().optional(),
-});
+export const createShopBorrowedLoanSchema = z
+  .object({
+    customerId: z.string().uuid(),
+    amount: z.number().positive("Amount must be positive"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT"]),
+    bankAccountId: z.string().uuid().optional(),
+    durationValue: z.number().int().positive("Duration must be a positive whole number"),
+    durationUnit: durationUnitSchema,
+    notes: z.string().optional(),
+  })
+  .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
+    message: "Select which bank account this was paid through",
+    path: ["bankAccountId"],
+  });
 export type CreateShopBorrowedLoanInput = z.infer<typeof createShopBorrowedLoanSchema>;
 
 // Paying a customer back for money the shop borrowed from them (see
 // createShopBorrowedLoanSchema) — CREDIT is deliberately not an
 // option, same reasoning as payGrainDebtSchema/payExpenseDebtSchema: a
 // repayment is never itself "not yet paid."
-export const payShopBorrowedLoanSchema = z.object({
-  customerAccountId: z.string().uuid(),
-  amount: z.number().positive("Amount must be positive"),
-  paymentMethod: z.enum(["CASH", "ACCOUNT"]),
-  notes: z.string().optional(),
-});
+export const payShopBorrowedLoanSchema = z
+  .object({
+    customerAccountId: z.string().uuid(),
+    amount: z.number().positive("Amount must be positive"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT"]),
+    bankAccountId: z.string().uuid().optional(),
+    notes: z.string().optional(),
+  })
+  .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
+    message: "Select which bank account this was paid through",
+    path: ["bankAccountId"],
+  });
 export type PayShopBorrowedLoanInput = z.infer<typeof payShopBorrowedLoanSchema>;

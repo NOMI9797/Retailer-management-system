@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createShopBorrowedLoan } from "../actions";
 import { createCustomer } from "../actions";
 import { CustomerPicker, type CustomerSelection } from "@/modules/daily-sales/components/CustomerPicker";
+import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 import { formatMoney } from "@/lib/utils";
 import { showToast } from "@/components/shared/toastStore";
 import type { DurationUnit } from "../schema";
@@ -22,12 +23,13 @@ type Area = Awaited<ReturnType<typeof listAreas>>[number];
 // immediately on submit, same "resolve then proceed" pattern
 // StockFromCustomerForm uses for its own picker, since
 // createShopBorrowedLoan needs a real customerId either way.
-export function ShopBorrowedLoanModal({ areas }: { areas: Area[] }) {
+export function ShopBorrowedLoanModal({ areas, bankAccounts = [] }: { areas: Area[]; bankAccounts?: { id: string; name: string }[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [selection, setSelection] = useState<CustomerSelection | null>(null);
   const [amount, setAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT">("CASH");
+  const [bankAccountId, setBankAccountId] = useState("");
   const [durationValue, setDurationValue] = useState("1");
   const [durationUnit, setDurationUnit] = useState<DurationUnit>("MONTHS");
   const [notes, setNotes] = useState("");
@@ -48,6 +50,7 @@ export function ShopBorrowedLoanModal({ areas }: { areas: Area[] }) {
     setSelection(null);
     setAmount("");
     setPaymentMethod("CASH");
+    setBankAccountId("");
     setDurationValue("1");
     setDurationUnit("MONTHS");
     setNotes("");
@@ -89,6 +92,7 @@ export function ShopBorrowedLoanModal({ areas }: { areas: Area[] }) {
         customerId,
         amount: Number(amount),
         paymentMethod,
+        bankAccountId: bankAccountId || undefined,
         durationValue: Number(durationValue),
         durationUnit,
         notes: notes || undefined,
@@ -143,6 +147,10 @@ export function ShopBorrowedLoanModal({ areas }: { areas: Area[] }) {
                   </select>
                 </div>
               </div>
+
+              {paymentMethod === "ACCOUNT" && (
+                <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+              )}
 
               <div className="field-row">
                 <div className="field">

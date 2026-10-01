@@ -29,10 +29,12 @@ type Product = Awaited<ReturnType<typeof listProducts>>["products"][number];
 export function EditSaleModal({
   saleId,
   products,
+  bankAccounts = [],
   onClose,
 }: {
   saleId: string;
   products: Product[];
+  bankAccounts?: { id: string; name: string }[];
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -77,6 +79,7 @@ export function EditSaleModal({
           cash: sale.payments.cash ? String(sale.payments.cash) : "",
           account: sale.payments.account ? String(sale.payments.account) : "",
           credit: sale.payments.credit ? String(sale.payments.credit) : "",
+          bankAccountId: sale.payments.bankAccountId,
         });
       })
       .catch((err) => {
@@ -116,7 +119,7 @@ export function EditSaleModal({
               creditAmount: i.creditAmount ? Number(i.creditAmount) : undefined,
               creditDueDate: i.creditDueDate,
             })),
-      payments: { cash, account, credit },
+      payments: { cash, account, credit, bankAccountId: payments.bankAccountId },
     });
   }
 
@@ -190,7 +193,7 @@ export function EditSaleModal({
               />
             )}
 
-            <PaymentSplitEditor total={itemTotal} payments={payments} onChange={setPayments} />
+            <PaymentSplitEditor total={itemTotal} payments={payments} bankAccounts={bankAccounts} onChange={setPayments} />
 
             <div className="modal-actions">
               <button type="button" className="btn btn-ghost" onClick={onClose}>

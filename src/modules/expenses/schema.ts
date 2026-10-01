@@ -1,25 +1,43 @@
 import { z } from "zod";
 
+// bankAccountId is required whenever paymentMethod is ACCOUNT — money
+// moving through "Account" must always say WHICH bank account (see
+// BankAccount's schema comment). Each .refine() below is the same
+// rule, applied identically across every payment-method schema in
+// this file.
+const accountPaymentRefinement = <T extends { paymentMethod: string; bankAccountId?: string }>(data: T) =>
+  data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId;
+const accountPaymentRefinementOptions = {
+  message: "Select which bank account this was paid through",
+  path: ["bankAccountId"],
+};
+
 // An expense is always tagged with exactly one payment method — unlike
 // a Daily Sale, there's no split-across-methods concept here (you
 // don't pay one bill partly cash, partly on account, partly credit).
 // Cash Flow depends on this being set correctly from day one: only
 // CASH expenses ever subtract from the physical cash-in-hand figure.
-export const expenseSchema = z.object({
-  description: z.string().min(1, "Description is required"),
-  amount: z.number().positive("Amount must be positive"),
-  expenseDate: z.string().min(1, "Date is required"),
-  paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
-});
+export const expenseSchema = z
+  .object({
+    description: z.string().min(1, "Description is required"),
+    amount: z.number().positive("Amount must be positive"),
+    expenseDate: z.string().min(1, "Date is required"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
+    bankAccountId: z.string().uuid().optional(),
+  })
+  .refine(accountPaymentRefinement, accountPaymentRefinementOptions);
 export type ExpenseInput = z.infer<typeof expenseSchema>;
 
-export const updateExpenseSchema = z.object({
-  id: z.string().uuid(),
-  description: z.string().min(1, "Description is required"),
-  amount: z.number().positive("Amount must be positive"),
-  expenseDate: z.string().min(1, "Date is required"),
-  paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
-});
+export const updateExpenseSchema = z
+  .object({
+    id: z.string().uuid(),
+    description: z.string().min(1, "Description is required"),
+    amount: z.number().positive("Amount must be positive"),
+    expenseDate: z.string().min(1, "Date is required"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
+    bankAccountId: z.string().uuid().optional(),
+  })
+  .refine(accountPaymentRefinement, accountPaymentRefinementOptions);
 export type UpdateExpenseInput = z.infer<typeof updateExpenseSchema>;
 
 // Settings-managed list of recurring monthly bills (Electricity,
@@ -42,21 +60,27 @@ export type UpdateMonthlyExpenseTypeInput = z.infer<typeof updateMonthlyExpenseT
 // stored on the row (set to the type's name at creation time) so
 // Expense keeps one consistent shape between DAILY and MONTHLY rows,
 // but the source of truth for "which bill" is monthlyExpenseTypeId.
-export const monthlyExpenseSchema = z.object({
-  monthlyExpenseTypeId: z.string().uuid(),
-  amount: z.number().positive("Amount must be positive"),
-  expenseDate: z.string().min(1, "Date is required"),
-  paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
-});
+export const monthlyExpenseSchema = z
+  .object({
+    monthlyExpenseTypeId: z.string().uuid(),
+    amount: z.number().positive("Amount must be positive"),
+    expenseDate: z.string().min(1, "Date is required"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
+    bankAccountId: z.string().uuid().optional(),
+  })
+  .refine(accountPaymentRefinement, accountPaymentRefinementOptions);
 export type MonthlyExpenseInput = z.infer<typeof monthlyExpenseSchema>;
 
-export const updateMonthlyExpenseSchema = z.object({
-  id: z.string().uuid(),
-  monthlyExpenseTypeId: z.string().uuid(),
-  amount: z.number().positive("Amount must be positive"),
-  expenseDate: z.string().min(1, "Date is required"),
-  paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
-});
+export const updateMonthlyExpenseSchema = z
+  .object({
+    id: z.string().uuid(),
+    monthlyExpenseTypeId: z.string().uuid(),
+    amount: z.number().positive("Amount must be positive"),
+    expenseDate: z.string().min(1, "Date is required"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
+    bankAccountId: z.string().uuid().optional(),
+  })
+  .refine(accountPaymentRefinement, accountPaymentRefinementOptions);
 export type UpdateMonthlyExpenseInput = z.infer<typeof updateMonthlyExpenseSchema>;
 
 // Paying down a CREDIT expense (either Daily or Monthly) — mirrors
@@ -65,10 +89,13 @@ export type UpdateMonthlyExpenseInput = z.infer<typeof updateMonthlyExpenseSchem
 // the client; CREDIT is deliberately not an option here, same reason
 // payGrainDebtSchema excludes it — a payment is never itself "not yet
 // paid."
-export const payExpenseDebtSchema = z.object({
-  expenseId: z.string().uuid(),
-  amount: z.number().positive("Amount must be positive"),
-  paymentMethod: z.enum(["CASH", "ACCOUNT"]),
-  notes: z.string().optional(),
-});
+export const payExpenseDebtSchema = z
+  .object({
+    expenseId: z.string().uuid(),
+    amount: z.number().positive("Amount must be positive"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT"]),
+    bankAccountId: z.string().uuid().optional(),
+    notes: z.string().optional(),
+  })
+  .refine(accountPaymentRefinement, accountPaymentRefinementOptions);
 export type PayExpenseDebtInput = z.infer<typeof payExpenseDebtSchema>;

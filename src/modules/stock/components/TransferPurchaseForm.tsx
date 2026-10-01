@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { createTransferPurchase } from "../actions";
+import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 import { showToast } from "@/components/shared/toastStore";
 
 // The shopkeeper buying some or all of a customer's already-deposited
@@ -14,18 +15,21 @@ export function TransferPurchaseForm({
   grainBatchId,
   remainingClaim,
   unitName,
+  bankAccounts = [],
   onSaved,
   onCancel,
 }: {
   grainBatchId: string;
   remainingClaim: number;
   unitName: string;
+  bankAccounts?: { id: string; name: string }[];
   onSaved: () => void;
   onCancel: () => void;
 }) {
   const [quantity, setQuantity] = useState("");
   const [rate, setRate] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT" | "CREDIT">("CASH");
+  const [bankAccountId, setBankAccountId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -53,6 +57,7 @@ export function TransferPurchaseForm({
         quantity: parsedQuantity,
         rate: parsedRate,
         paymentMethod,
+        bankAccountId: bankAccountId || undefined,
       });
       showToast(`Purchased ${parsedQuantity} ${unitName} from customer`);
       onSaved();
@@ -105,6 +110,10 @@ export function TransferPurchaseForm({
           <option value="CREDIT">Udhaar — shop owes customer</option>
         </select>
       </div>
+
+      {paymentMethod === "ACCOUNT" && (
+        <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+      )}
 
       <div className="modal-actions" style={{ alignItems: "center" }}>
         {total > 0 && (

@@ -10,16 +10,28 @@ import { z } from "zod";
 // Enforced in the action, not here, since it needs a database read to
 // check against.
 //
+// bankAccountId is required whenever paymentMethod is ACCOUNT — money
+// moving through "Account" must always say WHICH bank account (see
+// BankAccount's schema comment) — and ignored/irrelevant otherwise;
+// the .refine() below is the one place this rule is enforced so every
+// payment-method schema in the app applies it identically.
+//
 // A plain store-for-later deposit (spec section 2) reuses the
 // existing grainBatchSchema/createGrainBatch — no new schema needed
 // there.
-export const transferPurchaseSchema = z.object({
-  grainBatchId: z.string().uuid(),
-  quantity: z.number().positive("Quantity must be positive"),
-  rate: z.number().positive("Rate must be positive"),
-  paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
-  notes: z.string().optional(),
-});
+export const transferPurchaseSchema = z
+  .object({
+    grainBatchId: z.string().uuid(),
+    quantity: z.number().positive("Quantity must be positive"),
+    rate: z.number().positive("Rate must be positive"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
+    bankAccountId: z.string().uuid().optional(),
+    notes: z.string().optional(),
+  })
+  .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
+    message: "Select which bank account this was paid through",
+    path: ["bankAccountId"],
+  });
 export type TransferPurchaseInput = z.infer<typeof transferPurchaseSchema>;
 
 // The "selling right at drop-off" shortcut — a customer depositing
@@ -27,14 +39,20 @@ export type TransferPurchaseInput = z.infer<typeof transferPurchaseSchema>;
 // storing it for later. No grainBatchId (unlike transferPurchaseSchema
 // above): none exists yet at this point, since the deposit and the
 // purchase are the same single action here.
-export const depositWithSettlementSchema = z.object({
-  productId: z.string().uuid(),
-  customerId: z.string().uuid(),
-  quantity: z.number().positive("Quantity must be positive"),
-  rate: z.number().positive("Rate must be positive"),
-  paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
-  notes: z.string().optional(),
-});
+export const depositWithSettlementSchema = z
+  .object({
+    productId: z.string().uuid(),
+    customerId: z.string().uuid(),
+    quantity: z.number().positive("Quantity must be positive"),
+    rate: z.number().positive("Rate must be positive"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
+    bankAccountId: z.string().uuid().optional(),
+    notes: z.string().optional(),
+  })
+  .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
+    message: "Select which bank account this was paid through",
+    path: ["bankAccountId"],
+  });
 export type DepositWithSettlementInput = z.infer<typeof depositWithSettlementSchema>;
 
 // Paying down money the shop owes a customer for grain it bought on
@@ -48,11 +66,17 @@ export type DepositWithSettlementInput = z.infer<typeof depositWithSettlementSch
 // product (a customer owing on both Cotton and Wheat needs two
 // separate payments, never one combined lump sum), so
 // getShopOwedForGrain's per-product figure stays exact.
-export const payGrainDebtSchema = z.object({
-  customerId: z.string().uuid(),
-  productId: z.string().uuid(),
-  amount: z.number().positive("Amount must be positive"),
-  paymentMethod: z.enum(["CASH", "ACCOUNT"]),
-  notes: z.string().optional(),
-});
+export const payGrainDebtSchema = z
+  .object({
+    customerId: z.string().uuid(),
+    productId: z.string().uuid(),
+    amount: z.number().positive("Amount must be positive"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT"]),
+    bankAccountId: z.string().uuid().optional(),
+    notes: z.string().optional(),
+  })
+  .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
+    message: "Select which bank account this was paid through",
+    path: ["bankAccountId"],
+  });
 export type PayGrainDebtInput = z.infer<typeof payGrainDebtSchema>;

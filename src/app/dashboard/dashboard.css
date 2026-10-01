@@ -760,6 +760,49 @@
   opacity: 1;
 }
 
+/* Product chips — a row of grain-product tabs (Channa/Cotton/Wheat/
+   ...) rendered as squared, full-width buttons rather than the plain
+   underline-style .tab above, so switching products reads as an
+   obvious UI affordance. The active chip gets the same solid teal
+   treatment as .btn-primary; inactive chips are a light outline
+   button. flex: 1 on each chip (set by the container in
+   GrainStockList/GrainUdhaarSection) stretches them to fill the full
+   row width evenly. */
+.shop-app .product-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 0.5px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.shop-app .product-chip:hover {
+  border-color: var(--primary-600);
+}
+
+.shop-app .product-chip.active {
+  background: var(--primary-600);
+  border-color: var(--primary-600);
+  color: #fff;
+  font-weight: 600;
+}
+
+.shop-app .product-chip.active:hover {
+  background: var(--primary-600);
+  color: #fff;
+}
+
 /* Filter bar */
 .shop-app .filter-bar {
   display: flex;

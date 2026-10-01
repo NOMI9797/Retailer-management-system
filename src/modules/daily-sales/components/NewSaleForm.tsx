@@ -23,10 +23,12 @@ function todayDateString() {
 export function NewSaleForm({
   areas,
   products,
+  bankAccounts = [],
   onSaved,
 }: {
   areas: Awaited<ReturnType<typeof listAreas>>;
   products: Product[];
+  bankAccounts?: { id: string; name: string }[];
   onSaved?: () => void;
 }) {
   const router = useRouter();
@@ -113,7 +115,7 @@ export function NewSaleForm({
               creditAmount: i.creditAmount ? Number(i.creditAmount) : undefined,
               creditDueDate: i.creditDueDate,
             })),
-      payments: { cash, account, credit },
+      payments: { cash, account, credit, bankAccountId: payments.bankAccountId },
     });
   }
 
@@ -220,7 +222,7 @@ export function NewSaleForm({
         />
       )}
 
-      <PaymentSplitEditor total={itemTotal} payments={payments} onChange={setPayments} />
+      <PaymentSplitEditor total={itemTotal} payments={payments} bankAccounts={bankAccounts} onChange={setPayments} />
 
       <div className="modal-actions">
         {!onSaved && (

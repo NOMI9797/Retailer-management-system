@@ -2,7 +2,13 @@ import Link from "next/link";
 import { AddAccountTypeModal } from "@/modules/settings/components/AddAccountTypeModal";
 import { buildSettingsHref, type SettingsSearchParams } from "./searchParamsHref";
 
-export type SettingsTab = "account-types" | "categories" | "units" | "areas" | "monthly-expense-types";
+export type SettingsTab =
+  | "account-types"
+  | "categories"
+  | "units"
+  | "areas"
+  | "monthly-expense-types"
+  | "bank-accounts";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "account-types", label: "Account types" },
@@ -10,6 +16,7 @@ const TABS: { key: SettingsTab; label: string }[] = [
   { key: "units", label: "Units" },
   { key: "areas", label: "Areas" },
   { key: "monthly-expense-types", label: "Monthly expense types" },
+  { key: "bank-accounts", label: "Bank accounts" },
 ];
 
 // Same tab pattern as Products/Expenses/Reports — real ?tab=
@@ -23,7 +30,7 @@ export function SettingsHeader({ tab, searchParams }: { tab: SettingsTab; search
       <div className="page-head">
         <div>
           <h1>Settings</h1>
-          <p>Account types, categories, units, areas — the lists the rest of the app pulls from.</p>
+          <p>Account types, categories, units, areas, bank accounts — the lists the rest of the app pulls from.</p>
         </div>
         {tab === "account-types" && <AddAccountTypeModal />}
       </div>

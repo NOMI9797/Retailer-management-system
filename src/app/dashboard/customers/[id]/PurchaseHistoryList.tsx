@@ -36,7 +36,7 @@ function paymentLabel(method: string) {
 // day, then one row per item; Edit/Delete act on the whole visit (not
 // a single item), so they only appear once, on that visit's last item
 // row.
-export function PurchaseHistoryList({ sales, products }: { sales: Sale[]; products: Product[] }) {
+export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sales: Sale[]; products: Product[]; bankAccounts?: { id: string; name: string }[] }) {
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
 
   if (sales.length === 0) {
@@ -137,7 +137,7 @@ export function PurchaseHistoryList({ sales, products }: { sales: Sale[]; produc
       </div>
 
       {editingSaleId && (
-        <EditSaleModal saleId={editingSaleId} products={products} onClose={() => setEditingSaleId(null)} />
+        <EditSaleModal saleId={editingSaleId} products={products} bankAccounts={bankAccounts} onClose={() => setEditingSaleId(null)} />
       )}
     </>
   );

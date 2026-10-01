@@ -4,11 +4,11 @@ import { getCustomer, getCustomerShopBorrowedHistory } from "@/modules/customers
 import { getCustomerPurchaseHistory, getCustomerGrainCreditPurchases } from "@/modules/daily-sales/actions";
 import { listCategories, listUnits, listProducts } from "@/modules/products/actions";
 import { getCustomerGrainDeposits, getShopOwedForGrainByProduct } from "@/modules/stock/actions";
+import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { CustomerGrainSection } from "@/modules/stock/components/CustomerGrainSection";
 import { PageLoader } from "@/components/shared/PageLoader";
 import { PurchaseHistoryList } from "./PurchaseHistoryList";
 import { ShopBorrowedHistoryPanel } from "./ShopBorrowedHistoryPanel";
-import { CustomerGrainCreditPanel } from "./CustomerGrainCreditPanel";
 import { buildCustomerDetailHref, type CustomerDetailSearchParams } from "./searchParamsHref";
 
 const TAB_LABELS = {
@@ -39,9 +39,8 @@ export default async function CustomerDetailPage({
   searchParams: Promise<CustomerDetailSearchParams>;
 }) {
   const { id } = await params;
-  const { tab: rawTab, grainView: rawGrainView } = await searchParams;
+  const { tab: rawTab } = await searchParams;
   const tab: Tab = rawTab === "grain" ? "grain" : rawTab === "udhaar-to-shop" ? "udhaar-to-shop" : "purchase-history";
-  const grainView = rawGrainView === "credit-purchases" ? "credit-purchases" : "deposits";
 
   return (
     <div>
@@ -74,32 +73,9 @@ export default async function CustomerDetailPage({
         </Suspense>
       )}
       {tab === "grain" && (
-        <>
-          <div className="tabs" style={{ marginBottom: 16 }}>
-            <Link
-              className={`tab${grainView === "deposits" ? " active" : ""}`}
-              href={buildCustomerDetailHref(id, { tab: "grain", grainView: "deposits" })}
-            >
-              Deposits
-            </Link>
-            <Link
-              className={`tab${grainView === "credit-purchases" ? " active" : ""}`}
-              href={buildCustomerDetailHref(id, { tab: "grain", grainView: "credit-purchases" })}
-            >
-              Customer Udhaar
-            </Link>
-          </div>
-
-          {grainView === "deposits" ? (
-            <Suspense key="grain-deposits" fallback={<PageLoader label="Loading grain…" />}>
-              <GrainSectionLoader customerId={id} />
-            </Suspense>
-          ) : (
-            <Suspense key="grain-credit-purchases" fallback={<PageLoader label="Loading Customer Udhaar…" />}>
-              <CustomerGrainCreditSectionLoader customerId={id} />
-            </Suspense>
-          )}
-        </>
+        <Suspense key="grain" fallback={<PageLoader label="Loading grain…" />}>
+          <GrainSectionLoader customerId={id} />
+        </Suspense>
       )}
       {tab === "udhaar-to-shop" && (
         <Suspense key="udhaar-to-shop" fallback={<PageLoader label="Loading Udhaar to Shop…" />}>
@@ -140,25 +116,31 @@ async function CustomerDetail({ id }: { id: string }) {
 // explicit "two distinct panels that must not be collapsed into one"
 // requirement.
 async function PurchaseHistorySection({ customerId }: { customerId: string }) {
-  const [sales, categories, units, simpleProducts, grainProducts] = await Promise.all([
+  const [sales, categories, units, simpleProducts, grainProducts, bankAccounts] = await Promise.all([
     getCustomerPurchaseHistory(customerId),
     listCategories(),
     listUnits(),
     listProducts({ stockKind: "SIMPLE", pageSize: 500 }),
     listProducts({ stockKind: "GRAIN", pageSize: 500 }),
+    listBankAccounts(),
   ]);
 
   return (
     <PurchaseHistoryList
       sales={sales}
       products={[...simpleProducts.products, ...grainProducts.products]}
+      bankAccounts={bankAccounts}
     />
   );
 }
 
-// A customer's grain deposits — its own query (GrainBatch), separate
-// from both the account ledger and purchase history above. Also
-// fetches how much the shop currently owes THIS customer for
+// A customer's whole Grain relationship — deposits/settlements
+// (GrainBatch) AND grain they bought FROM the shop on Credit
+// (DailySaleItem — see getCustomerGrainCreditPurchases), merged into
+// one chronological list by CustomerGrainSection rather than two
+// separate subtabs, since both are just "grain events involving this
+// customer," only differing in which direction the money/stock moved.
+// Also fetches how much the shop currently owes THIS customer for
 // already-settled-but-unpaid grain, PER PRODUCT (see
 // getShopOwedForGrainByProduct) — a money figure, shown as its own
 // banner inside CustomerGrainSection, never conflated with the
@@ -166,33 +148,21 @@ async function PurchaseHistorySection({ customerId }: { customerId: string }) {
 // Stock Udhaar (a quantity obligation, shown shop-wide on the Grain
 // page instead — see this file's header comment).
 async function GrainSectionLoader({ customerId }: { customerId: string }) {
-  const [customer, deposits, moneyOwedByProduct] = await Promise.all([
+  const [customer, deposits, moneyOwedByProduct, creditPurchases] = await Promise.all([
     getCustomer(customerId),
     getCustomerGrainDeposits(customerId),
     getShopOwedForGrainByProduct(customerId),
+    getCustomerGrainCreditPurchases(customerId),
   ]);
   return (
     <CustomerGrainSection
       deposits={deposits}
       moneyOwedByProduct={moneyOwedByProduct}
+      creditPurchases={creditPurchases}
       customerId={customerId}
       customerName={customer.name}
     />
   );
-}
-
-// Grain this customer bought FROM the shop on Credit, still
-// outstanding — the mirror of GrainSectionLoader above (where the
-// customer is the seller/depositor; here they're the buyer). Its own
-// query (DailySaleItem, scoped to GRAIN products with a recorded
-// creditAmount — see getCustomerGrainCreditPurchases), separate from
-// both the deposits view and the account ledger.
-async function CustomerGrainCreditSectionLoader({ customerId }: { customerId: string }) {
-  const [customer, rows] = await Promise.all([
-    getCustomer(customerId),
-    getCustomerGrainCreditPurchases(customerId),
-  ]);
-  return <CustomerGrainCreditPanel customerName={customer.name} rows={rows} />;
 }
 
 // Cash this customer has given the SHOP (the opposite direction from
