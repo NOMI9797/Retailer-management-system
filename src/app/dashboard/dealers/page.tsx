@@ -24,7 +24,7 @@ export default async function DealersPage({
       <div className="page-head">
         <div>
           <h1>Dealer</h1>
-          <p>Bulk purchases from dealers — what you've paid, and what's still owed.</p>
+          <p>Bulk purchases from dealers — what you&apos;ve paid, and what&apos;s still owed.</p>
         </div>
       </div>
 

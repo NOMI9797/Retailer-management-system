@@ -23,7 +23,7 @@ export default async function CashFlowPage({
       <div className="page-head">
         <div>
           <h1>Cash flow</h1>
-          <p>The daily cash register — what's expected in hand, what's actually there, and the difference.</p>
+          <p>The daily cash register — what&apos;s expected in hand, what&apos;s actually there, and the difference.</p>
         </div>
       </div>
 

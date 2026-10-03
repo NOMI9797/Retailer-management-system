@@ -10,7 +10,7 @@ export function CustomersHeader({
     <div className="page-head">
       <div>
         <h1>Customers</h1>
-        <p>Every customer's identity, area, and linked accounts — one record, no duplication.</p>
+        <p>Every customer&apos;s identity, area, and linked accounts — one record, no duplication.</p>
       </div>
       <AddCustomerModal areas={areas} />
     </div>

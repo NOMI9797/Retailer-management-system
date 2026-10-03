@@ -263,7 +263,7 @@ function CustomerUdhaarPanel({ areas, accountTypes }: { areas: Area[]; accountTy
       ) : !hasActivity ? (
         <div className="panel">
           <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-            This customer doesn't owe the shop anything right now — nothing to clear.
+            This customer doesn&apos;t owe the shop anything right now — nothing to clear.
           </p>
         </div>
       ) : (
@@ -367,7 +367,7 @@ function ShopUdhaarPanel({
         !hasGrainActivity ? (
           <div className="panel">
             <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-              The shop doesn't owe this customer anything for grain right now.
+              The shop doesn&apos;t owe this customer anything for grain right now.
             </p>
           </div>
         ) : (
@@ -381,7 +381,7 @@ function ShopUdhaarPanel({
       ) : !hasBorrowedActivity ? (
         <div className="panel">
           <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-            The shop hasn't borrowed anything from this customer right now.
+            The shop hasn&apos;t borrowed anything from this customer right now.
           </p>
         </div>
       ) : (

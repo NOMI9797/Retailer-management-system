@@ -84,7 +84,7 @@ export function RecordDealerProductPurchaseModal({
         <div className="modal-backdrop" onClick={() => setOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Record dealer purchase</h2>
-            <p className="modal-sub">Bulk stock bought from a dealer — adds to that product's own stock.</p>
+            <p className="modal-sub">Bulk stock bought from a dealer — adds to that product&apos;s own stock.</p>
             <form onSubmit={handleSubmit}>
               {error && <p className="form-banner error">{error}</p>}
 

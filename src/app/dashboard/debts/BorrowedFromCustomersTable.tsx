@@ -13,7 +13,7 @@ export async function BorrowedFromCustomersTable() {
     return (
       <div className="panel">
         <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-          The shop hasn't borrowed from any customer right now.
+          The shop hasn&apos;t borrowed from any customer right now.
         </p>
       </div>
     );

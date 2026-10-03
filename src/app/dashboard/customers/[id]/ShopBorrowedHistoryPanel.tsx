@@ -17,7 +17,7 @@ export function ShopBorrowedHistoryPanel({ customerName, history }: { customerNa
     return (
       <div className="panel">
         <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-          This customer hasn't given the shop any Udhaar yet.
+          This customer hasn&apos;t given the shop any Udhaar yet.
         </p>
       </div>
     );
