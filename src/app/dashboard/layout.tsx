@@ -21,6 +21,26 @@ const plexMono = IBM_Plex_Mono({
   variable: "--font-plex-mono",
 });
 
+// Vercel sets VERCEL_ENV automatically on every deployment
+// (production/preview/development) — no manual config needed. Shown
+// as a small badge next to the shop name so staging/preview never
+// look identical to production (same shop name, same data shape,
+// easy to mix up otherwise). Renders nothing at all in production, so
+// production's sidebar is unchanged from before this existed.
+function EnvBadge() {
+  const vercelEnv = process.env.VERCEL_ENV;
+  if (!vercelEnv || vercelEnv === "production") return null;
+
+  // "preview" covers both the staging branch's own deploy and every
+  // ordinary PR preview (see deploy.yml — staging deploys via
+  // --environment=preview, since custom named environments need
+  // Vercel Pro) — VERCEL_GIT_COMMIT_REF distinguishes them so the
+  // staging branch specifically reads as STAGING, not the more
+  // generic PREVIEW label a feature-branch PR would get.
+  const label = process.env.VERCEL_GIT_COMMIT_REF === "staging" ? "STAGING" : "PREVIEW";
+  return <span className="env-badge">{label}</span>;
+}
+
 // Shared shell for every shopkeeper-facing screen (Dashboard, Products,
 // Customers, ...). Each module page renders inside <main> — the
 // sidebar itself carries no module logic. Middleware already
@@ -49,6 +69,7 @@ export default async function DashboardLayout({
       <div className={`${plexSans.variable} shop-app`}>
         <div className="no-shop-access">
           <div className="mark">S</div>
+          <EnvBadge />
           <h1>Waiting for shop access</h1>
           <p>
             Your account{user ? ` (${user.email})` : ""} hasn&apos;t been assigned to a shop yet. Contact the
@@ -66,6 +87,7 @@ export default async function DashboardLayout({
         <div className="shop-id">
           <div className="mark">S</div>
           <p>{shopName}</p>
+          <EnvBadge />
         </div>
 
         <SidebarNav />

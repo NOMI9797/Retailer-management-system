@@ -101,6 +101,26 @@
   letter-spacing: -0.01em;
 }
 
+/* Only ever rendered outside production (see EnvBadge in
+   dashboard/layout.tsx) — amber, not red/error-toned, since this
+   isn't a warning, just a label distinguishing staging/preview data
+   from production at a glance. */
+.shop-app .env-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--grain-600);
+  background: var(--grain-50);
+  border-radius: 999px;
+  padding: 3px 8px;
+  flex-shrink: 0;
+}
+
+.shop-app .no-shop-access .env-badge {
+  display: inline-block;
+  margin-bottom: 14px;
+}
+
 .shop-app nav.nav-list {
   display: flex;
   flex-direction: column;
