@@ -14,6 +14,54 @@ import {
   type PayGrainDebtInput,
 } from "./schema";
 
+// The one shared implementation of "move quantity/money through a
+// grain product's pooled stock balance" — see Product.pooledStockValue's
+// schema comment for the full semantics. Every purchase (a real,
+// priced one — never a rate-less deposit) increments both fields by
+// what was paid; every sale decrements both by the quantity sold and
+// the REVENUE collected (not its cost) — deliberately not proportional
+// to cost, per explicit shopkeeper decision, so pooledStockValue
+// tracks "unrecovered investment," not "cost of remaining stock."
+// Quantity is never blocked from going negative here — the real
+// "not enough stock" check already happens against the GrainBatch
+// system in applySaleItems before this is ever called, so by the time
+// this runs the sale is already known to be physically possible.
+export async function postToPooledGrainStock(
+  tx: Prisma.TransactionClient,
+  productId: string,
+  quantityDelta: number,
+  valueDelta: number
+) {
+  await tx.product.update({
+    where: { id: productId },
+    data: {
+      pooledStockQuantity: { increment: quantityDelta },
+      pooledStockValue: { increment: valueDelta },
+    },
+  });
+}
+
+// Reads one grain product's pooled stock balance for display — see
+// Product.pooledStockValue's schema comment for the full semantics.
+// pooledStockValue is NEVER shown to the user as a raw (possibly
+// negative) number: once sales have collected more than was ever put
+// in, that's normal/expected ("fully recovered, now in profit"), not
+// an error, so a negative balance is reframed here as a positive
+// "profit" figure instead — the sign is the only thing distinguishing
+// "still recovering investment" from "already in profit."
+export async function getPooledGrainStock(productId: string) {
+  const shopId = await getCurrentShopId();
+  const product = await db.product.findFirst({ where: { id: productId, shopId } });
+  if (!product) throw new Error("Product not found");
+
+  const quantity = Number(product.pooledStockQuantity);
+  const value = Number(product.pooledStockValue);
+
+  return value < 0
+    ? { quantity, isProfit: true as const, displayValue: -value }
+    : { quantity, isProfit: false as const, displayValue: value };
+}
+
 // Shared by createTransferPurchase and createDepositWithSettlement —
 // both ultimately mean the same thing: "pay a customer for grain that
 // has just become a shop-owned batch, and clear their oldest
@@ -234,6 +282,11 @@ export async function createTransferPurchase(input: TransferPurchaseInput) {
       newShopBatchId: newShopBatch.id,
     });
 
+    // This is a real, priced purchase (an ownership transfer at an
+    // agreed rate) — the pool gains exactly what was paid, same as
+    // any other grain purchase. See postToPooledGrainStock's comment.
+    await postToPooledGrainStock(tx, sourceBatch.productId, data.quantity, data.quantity * data.rate);
+
     const updatedSourceBatch = await tx.grainBatch.findUniqueOrThrow({ where: { id: sourceBatch.id } });
 
     return {
@@ -291,6 +344,10 @@ export async function createDepositWithSettlement(input: DepositWithSettlementIn
       notes: data.notes,
       newShopBatchId: newShopBatch.id,
     });
+
+    // Real, priced purchase (settle-now at drop-off) — pool gains
+    // what was paid, same as createTransferPurchase above.
+    await postToPooledGrainStock(tx, data.productId, data.quantity, data.quantity * data.rate);
 
     return {
       newBatch: serializeDecimals(newShopBatch),
@@ -802,7 +859,12 @@ export async function getStockOverview(productId: string) {
   const owedEntries = await getShopOwedForGrain(undefined, productId);
   const moneyOwedToCustomers = owedEntries.reduce((sum, e) => sum + e.amountOwed, 0);
 
-  return { ownAvailable, customerClaim, totalPhysical, stockUdhaarOutstanding, moneyOwedToCustomers };
+  // Pooled stock quantity/value — a separate, simpler tracker
+  // alongside the per-batch figures above (see getPooledGrainStock's
+  // comment for the full semantics).
+  const pooled = await getPooledGrainStock(productId);
+
+  return { ownAvailable, customerClaim, totalPhysical, stockUdhaarOutstanding, moneyOwedToCustomers, pooled };
 }
 
 // One customer's grain — every batch they've deposited (with the

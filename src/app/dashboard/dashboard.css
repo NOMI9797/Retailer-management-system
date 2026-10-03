@@ -373,8 +373,13 @@
   background: var(--border);
 }
 
-.shop-app .hero-card.expected::before {
+.shop-app .hero-card.expected::before,
+.shop-app .hero-card.in::before {
   background: linear-gradient(90deg, var(--primary-500), var(--primary-600));
+}
+
+.shop-app .hero-card.out::before {
+  background: linear-gradient(90deg, var(--consigned-500), var(--consigned-600));
 }
 
 .shop-app .hero-label {
@@ -485,6 +490,46 @@
   font-size: 22px;
   font-weight: 600;
   margin: 0;
+}
+
+/* By source: Customers/Expenses/Dealers/Grain each get their own
+   card — same visual weight as the Day summary total-cards (not
+   de-emphasized like Account & credit below), since these numbers are
+   exactly what makes up the Overall cash / Cash register totals above,
+   just broken out per contributing source. */
+.shop-app .source-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.shop-app .source-card {
+  background: var(--bg);
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+
+.shop-app .source-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 10px;
+}
+
+.shop-app .source-card-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shop-app .source-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+  color: var(--ink-muted);
 }
 
 /* De-emphasized: one strip, not four separate stat cards — the

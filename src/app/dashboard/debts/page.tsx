@@ -10,6 +10,8 @@ import { BorrowedFromCustomersSummaryCards } from "./BorrowedFromCustomersSummar
 import { BorrowedFromCustomersTable } from "./BorrowedFromCustomersTable";
 import { ShopGrainUdhaarSummaryCards } from "./ShopGrainUdhaarSummaryCards";
 import { ShopGrainUdhaarTable } from "./ShopGrainUdhaarTable";
+import { ShopDealerUdhaarSummaryCards } from "./ShopDealerUdhaarSummaryCards";
+import { ShopDealerUdhaarTable } from "./ShopDealerUdhaarTable";
 import { GrainProductFilter } from "./GrainProductFilter";
 import { LongTermLoanModal } from "@/modules/customers/components/LongTermLoanModal";
 import { ShopBorrowedLoanModal } from "@/modules/customers/components/ShopBorrowedLoanModal";
@@ -20,7 +22,7 @@ import { buildDebtsHref, type DebtsSearchParams } from "./searchParamsHref";
 
 type Group = "customers" | "shop";
 type CustomerTab = "regular" | "long-term" | "defaulters" | "grain-udhaar";
-type ShopTab = "credit-expenses" | "borrowed" | "grain-udhaar";
+type ShopTab = "credit-expenses" | "borrowed" | "grain-udhaar" | "dealer-udhaar";
 
 // Two levels of tabs: Customers (Udhaar) — who owes the shop money —
 // vs Shop (Udhaar) — what the shop itself owes. Customers (Udhaar)
@@ -48,7 +50,13 @@ export default async function DebtsPage({
           ? "grain-udhaar"
           : "regular";
   const shopTab: ShopTab =
-    params.tab === "borrowed" ? "borrowed" : params.tab === "grain-udhaar" ? "grain-udhaar" : "credit-expenses";
+    params.tab === "borrowed"
+      ? "borrowed"
+      : params.tab === "grain-udhaar"
+        ? "grain-udhaar"
+        : params.tab === "dealer-udhaar"
+          ? "dealer-udhaar"
+          : "credit-expenses";
   const productFilter = params.product || undefined;
   const [areas, bankAccounts] = await Promise.all([
     group === "shop" && shopTab === "borrowed" ? listAreas() : Promise.resolve([]),
@@ -66,7 +74,9 @@ export default async function DebtsPage({
                 ? "Cash the shop itself borrowed from a customer — not tied to a sale or purchase."
                 : shopTab === "grain-udhaar"
                   ? "Grain the shop bought from customers on Credit at a settled rate and hasn't paid out yet."
-                  : "Money the shop itself owes — Daily/Monthly expenses not yet paid off."
+                  : shopTab === "dealer-udhaar"
+                    ? "Bulk purchases from dealers, bought on Udhaar and not yet paid off."
+                    : "Money the shop itself owes — Daily/Monthly expenses not yet paid off."
               : tab === "regular"
                 ? "Who owes the shop money from purchases — loans and on-account balances, in one place."
                 : tab === "long-term"
@@ -175,6 +185,12 @@ export default async function DebtsPage({
             >
               Grain Udhaar
             </Link>
+            <Link
+              className={`tab${shopTab === "dealer-udhaar" ? " active" : ""}`}
+              href={buildDebtsHref({ group: "shop", tab: "dealer-udhaar" })}
+            >
+              Dealers Udhaar
+            </Link>
           </div>
 
           {shopTab === "credit-expenses" ? (
@@ -195,7 +211,7 @@ export default async function DebtsPage({
                 <BorrowedFromCustomersTable />
               </Suspense>
             </>
-          ) : (
+          ) : shopTab === "grain-udhaar" ? (
             <>
               <Suspense key="filter-shop-grain-udhaar" fallback={null}>
                 <GrainProductFilter
@@ -208,6 +224,15 @@ export default async function DebtsPage({
               </Suspense>
               <Suspense key={`table-shop-grain-udhaar-${productFilter ?? "all"}`} fallback={<PageLoader label="Loading…" />}>
                 <ShopGrainUdhaarTable productId={productFilter} />
+              </Suspense>
+            </>
+          ) : (
+            <>
+              <Suspense key="summary-shop-dealer-udhaar" fallback={<PageLoader label="Loading summary…" />}>
+                <ShopDealerUdhaarSummaryCards />
+              </Suspense>
+              <Suspense key="table-shop-dealer-udhaar" fallback={<PageLoader label="Loading…" />}>
+                <ShopDealerUdhaarTable />
               </Suspense>
             </>
           )}

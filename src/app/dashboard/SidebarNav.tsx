@@ -59,6 +59,18 @@ const navItems = [
     ),
   },
   {
+    href: "/dashboard/dealers",
+    label: "Dealer",
+    icon: (
+      <>
+        <path d="M3 3h2l2.4 12.4a2 2 0 002 1.6h9.2a2 2 0 002-1.6L22 7H7" />
+        <circle cx="9" cy="21" r="1.3" />
+        <circle cx="17" cy="21" r="1.3" />
+        <path d="M14 9l2 2 4-4" />
+      </>
+    ),
+  },
+  {
     href: "/dashboard/debts",
     label: "Udhaar",
     icon: (

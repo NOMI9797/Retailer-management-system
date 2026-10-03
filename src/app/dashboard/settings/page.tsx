@@ -4,6 +4,7 @@ import { listAreas } from "@/modules/settings/areas.actions";
 import { listCategories, listUnits } from "@/modules/products/actions";
 import { listMonthlyExpenseTypes } from "@/modules/expenses/actions";
 import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
+import { listDealers } from "@/modules/dealers/actions";
 import { PageLoader } from "@/components/shared/PageLoader";
 import { AccountTypeList } from "./AccountTypeList";
 import { CategoryListManager } from "@/modules/settings/components/CategoryListManager";
@@ -11,6 +12,7 @@ import { UnitListManager } from "@/modules/settings/components/UnitListManager";
 import { AreaListManager } from "@/modules/settings/components/AreaListManager";
 import { MonthlyExpenseTypeListManager } from "@/modules/settings/components/MonthlyExpenseTypeListManager";
 import { BankAccountListManager } from "@/modules/settings/components/BankAccountListManager";
+import { DealerListManager } from "@/modules/dealers/components/DealerListManager";
 import { SettingsHeader, type SettingsTab } from "./SettingsHeader";
 import type { SettingsSearchParams } from "./searchParamsHref";
 
@@ -21,6 +23,7 @@ const VALID_TABS: SettingsTab[] = [
   "areas",
   "monthly-expense-types",
   "bank-accounts",
+  "dealers",
 ];
 
 // Tab-based, same shape as Products/Expenses/Reports — real ?tab=
@@ -75,6 +78,12 @@ export default async function SettingsPage({
           <BankAccountsSection />
         </Suspense>
       )}
+
+      {tab === "dealers" && (
+        <Suspense fallback={<PageLoader label="Loading dealers…" />}>
+          <DealersSection />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -110,4 +119,9 @@ async function MonthlyExpenseTypesSection() {
 async function BankAccountsSection() {
   const bankAccounts = await listBankAccounts(true);
   return <BankAccountListManager bankAccounts={bankAccounts} />;
+}
+
+async function DealersSection() {
+  const dealers = await listDealers({ includeInactive: true });
+  return <DealerListManager dealers={dealers} />;
 }

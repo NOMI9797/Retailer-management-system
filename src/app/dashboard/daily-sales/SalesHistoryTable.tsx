@@ -70,7 +70,8 @@ export async function SalesHistoryTable({ searchParams }: { searchParams: DailyS
                 const dateKey = formatDate(row.saleDate);
                 const isNewDay = dateKey !== lastDateKey;
                 lastDateKey = dateKey;
-                const initial = row.customerName.charAt(0).toUpperCase();
+                const buyerName = row.kind === "SALE" ? row.buyerName : row.customerName;
+                const initial = buyerName.charAt(0).toUpperCase();
 
                 return (
                   <Fragment key={row.id}>
@@ -83,7 +84,14 @@ export async function SalesHistoryTable({ searchParams }: { searchParams: DailyS
                       <td>
                         <div className="cust-cell">
                           <div className="cust-avatar">{initial}</div>
-                          <span style={{ fontWeight: 500 }}>{row.customerName}</span>
+                          <span style={{ fontWeight: 500 }}>
+                            {buyerName}
+                            {row.kind === "SALE" && row.buyerKind === "DEALER" && (
+                              <span className="pay-badge pay-mixed" style={{ marginLeft: 8 }}>
+                                Dealer
+                              </span>
+                            )}
+                          </span>
                         </div>
                       </td>
                       {row.kind === "SALE" ? (
@@ -113,8 +121,15 @@ export async function SalesHistoryTable({ searchParams }: { searchParams: DailyS
                       )}
                       <td>
                         <div className="row-actions" style={{ justifyContent: "flex-end" }}>
-                          <Link className="btn btn-ghost" href={`/dashboard/customers/${row.customerId}`}>
-                            View customer
+                          <Link
+                            className="btn btn-ghost"
+                            href={
+                              row.kind === "SALE" && row.buyerKind === "DEALER"
+                                ? `/dashboard/dealers/${row.buyerId}`
+                                : `/dashboard/customers/${row.kind === "SALE" ? row.buyerId : row.customerId}`
+                            }
+                          >
+                            {row.kind === "SALE" && row.buyerKind === "DEALER" ? "View dealer" : "View customer"}
                           </Link>
                         </div>
                       </td>

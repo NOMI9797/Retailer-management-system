@@ -5,6 +5,7 @@ import { getCurrentShopId } from "@/lib/tenant";
 import { serializeDecimals } from "@/lib/serialize";
 import { parseLocalDateStart, parseLocalDateEnd, toLocalDateString } from "@/lib/utils";
 import { postToBankAccount } from "@/modules/settings/bankAccounts.actions";
+import { postToPooledGrainStock } from "@/modules/stock/actions";
 import {
   createDailySaleSchema,
   updateDailySaleSchema,
@@ -162,6 +163,13 @@ async function applySaleItems(
       if (remaining > 0) {
         throw new Error(`Not enough grain stock for ${product.name} (short by ${remaining})`);
       }
+
+      // Pooled stock: deduct the quantity sold and the full sale
+      // REVENUE (not cost — deliberate, see postToPooledGrainStock's
+      // comment), regardless of how many batches the FIFO loop above
+      // actually drew from. The quantity guard above (physical
+      // availability) already ran, so this never needs its own check.
+      await postToPooledGrainStock(tx, product.id, -item.quantity, -(item.actualPrice * item.quantity));
     }
 
     itemTotal += item.actualPrice * item.quantity;
@@ -173,11 +181,19 @@ async function applySaleItems(
 // The BUYER side: validates the Cash/Account/Credit split sums to the
 // bill total and records one DailySalePayment row per method actually
 // used. Cash/Account are purely informational, same as before — but a
-// Credit portion now posts a real debt onto the customer's Udhaar
-// account (auto-created if they don't have one yet), tagged with this
-// sale's id so editing/deleting the sale reverses it correctly (see
-// reverseSaleContents). Every other account type is still never
-// touched from here — only Udhaar, and only for the Credit amount.
+// Credit portion now posts a real debt, tagged with this sale's id so
+// editing/deleting the sale reverses it correctly (see
+// reverseSaleContents). When the buyer is a CUSTOMER, that debt posts
+// onto their Udhaar account (auto-created if they don't have one yet)
+// — every other account type is still never touched from here, only
+// Udhaar, and only for the Credit amount. When the buyer is a DEALER
+// (buyerId refers to a Dealer instead — see createDailySaleSchema's
+// "exactly one of customerId/dealerId" rule), that same Credit amount
+// instead posts onto the DEALER's own Udhaar balance, in the OPPOSITE
+// sign direction: a dealer sale's Credit means the DEALER now owes
+// the SHOP (mirrors how DealerAccount's normal "shop owes dealer"
+// convention inverts for a sale instead of a purchase — see
+// DealerTransaction's isDealerSale schema comment).
 //
 // grainItems (already-created DailySaleItem rows for this sale, GRAIN
 // only) is used to enforce the "Customer Udhaar" per-item tracking
@@ -194,7 +210,7 @@ async function applySaleItems(
 async function applyPaymentSplit(
   tx: Prisma.TransactionClient,
   shopId: string,
-  customerId: string,
+  buyer: { customerId: string } | { dealerId: string },
   saleId: string,
   itemTotal: number,
   payments: PaymentSplitInput,
@@ -259,32 +275,62 @@ async function applyPaymentSplit(
       data: { dailySaleId: saleId, paymentMethod: "CREDIT", amount: payments.credit, visitAt },
     });
 
-    const udharType = await tx.accountType.findFirst({ where: { shopId, name: "Udhaar" } });
-    if (udharType) {
-      let udharAccount = await tx.customerAccount.findFirst({
-        where: { customerId, accountTypeId: udharType.id },
-      });
-      if (!udharAccount) {
-        udharAccount = await tx.customerAccount.create({
-          data: { customerId, accountTypeId: udharType.id },
+    if ("customerId" in buyer) {
+      const udharType = await tx.accountType.findFirst({ where: { shopId, name: "Udhaar" } });
+      if (udharType) {
+        let udharAccount = await tx.customerAccount.findFirst({
+          where: { customerId: buyer.customerId, accountTypeId: udharType.id },
+        });
+        if (!udharAccount) {
+          udharAccount = await tx.customerAccount.create({
+            data: { customerId: buyer.customerId, accountTypeId: udharType.id },
+          });
+        }
+
+        await tx.accountTransaction.create({
+          data: {
+            customerAccountId: udharAccount.id,
+            direction: "OUT",
+            amount: payments.credit,
+            linkedSaleId: saleId,
+            paymentMethod: "CREDIT",
+            notes: "Credit sale — auto-posted to Udhaar",
+          },
+        });
+        // Debt convention (see recordAccountTransaction): OUT means the
+        // customer now owes more, so balance increments.
+        await tx.customerAccount.update({
+          where: { id: udharAccount.id },
+          data: { currentBalance: { increment: payments.credit } },
         });
       }
-
-      await tx.accountTransaction.create({
+    } else {
+      // Selling to a dealer on Credit — the DEALER now owes the shop,
+      // the opposite sign from DealerAccount's normal "shop owes
+      // dealer" convention (see this function's header comment and
+      // DealerTransaction.isDealerSale's schema comment). Every
+      // dealer always has an account (createDealer creates one in the
+      // same call), so this is a plain lookup, never a find-or-create.
+      const dealerAccount = await tx.dealerAccount.findUniqueOrThrow({ where: { dealerId: buyer.dealerId } });
+      await tx.dealerTransaction.create({
         data: {
-          customerAccountId: udharAccount.id,
-          direction: "OUT",
+          dealerAccountId: dealerAccount.id,
+          direction: "IN",
           amount: payments.credit,
           linkedSaleId: saleId,
+          isDealerSale: true,
           paymentMethod: "CREDIT",
-          notes: "Credit sale — auto-posted to Udhaar",
+          notes: "Credit sale to dealer",
         },
       });
-      // Debt convention (see recordAccountTransaction): OUT means the
-      // customer now owes more, so balance increments.
-      await tx.customerAccount.update({
-        where: { id: udharAccount.id },
-        data: { currentBalance: { increment: payments.credit } },
+      // IN here means the shop's "owed to dealer" balance moves
+      // toward (and past) zero into the dealer owing the shop —
+      // decrementing is correct in both conventions: it always means
+      // "less owed to the dealer," which becomes negative once a
+      // dealer-sale debt exceeds any existing purchase-side balance.
+      await tx.dealerAccount.update({
+        where: { id: dealerAccount.id },
+        data: { currentBalance: { decrement: payments.credit } },
       });
     }
   }
@@ -325,6 +371,15 @@ async function reverseSaleContents(tx: Prisma.TransactionClient, shopId: string,
           data: { quantitySold: { decrement: allocation.quantity } },
         });
       }
+      // Symmetric undo of the pooled-stock posting applySaleItems
+      // made for this item — exact negation, same revenue-based
+      // (not cost-based) figure.
+      await postToPooledGrainStock(
+        tx,
+        product.id,
+        Number(item.quantity),
+        Number(item.actualPrice) * Number(item.quantity)
+      );
     }
   }
 
@@ -349,6 +404,24 @@ async function reverseSaleContents(tx: Prisma.TransactionClient, shopId: string,
     });
   }
   await tx.accountTransaction.deleteMany({ where: { linkedSaleId: saleId } });
+
+  // Same reversal for a dealer sale's Credit posting (see
+  // applyPaymentSplit's dealer branch) — IN there decremented
+  // DealerAccount.currentBalance, so undoing it increments.
+  const dealerTransactions = await tx.dealerTransaction.findMany({
+    where: { linkedSaleId: saleId },
+  });
+  for (const txn of dealerTransactions) {
+    const amount = Number(txn.amount);
+    const originalEffectWasDecrement = txn.direction === "IN";
+    await tx.dealerAccount.update({
+      where: { id: txn.dealerAccountId },
+      data: {
+        currentBalance: originalEffectWasDecrement ? { increment: amount } : { decrement: amount },
+      },
+    });
+  }
+  await tx.dealerTransaction.deleteMany({ where: { linkedSaleId: saleId } });
 
   // Reverse any bank account posting this sale's ACCOUNT payment made
   // — same "undo before the rows disappear" requirement the ledger
@@ -408,7 +481,7 @@ async function reverseSaleContents(tx: Prisma.TransactionClient, shopId: string,
   await tx.dailySaleItemBatch.deleteMany({ where: { dailySaleItemId: { in: itemIds } } });
   await tx.dailySaleItem.deleteMany({ where: { dailySaleId: saleId } });
 
-  return { customerId: sale.customerId, season: sale.season };
+  return { customerId: sale.customerId, dealerId: sale.dealerId, season: sale.season };
 }
 
 // A customer buying again later the same day joins their existing
@@ -434,13 +507,13 @@ function dayBoundsFor(referenceDate: Date) {
 async function findTodaysSale(
   tx: Prisma.TransactionClient,
   shopId: string,
-  customerId: string,
+  buyer: { customerId: string } | { dealerId: string },
   referenceDate: Date
 ) {
   const { startOfDay, endOfDay } = dayBoundsFor(referenceDate);
 
   return tx.dailySale.findFirst({
-    where: { shopId, customerId, saleDate: { gte: startOfDay, lte: endOfDay } },
+    where: { shopId, ...buyer, saleDate: { gte: startOfDay, lte: endOfDay } },
   });
 }
 
@@ -468,16 +541,25 @@ export async function createDailySale(input: CreateDailySaleInput) {
   const shopId = await getCurrentShopId();
   const data = createDailySaleSchema.parse(input);
   const targetDateTime = resolveSaleDateTime(data.saleDate);
+  // Exactly one of these is set, enforced by createDailySaleSchema's
+  // own .refine() — narrows to the shared { customerId } | { dealerId }
+  // shape every buyer-scoped helper below expects.
+  const buyer = data.customerId ? { customerId: data.customerId } : { dealerId: data.dealerId! };
 
   return db.$transaction(async (tx) => {
-    const customer = await tx.customer.findFirst({ where: { id: data.customerId, shopId } });
-    if (!customer) throw new Error("Customer not found");
+    if ("customerId" in buyer) {
+      const customer = await tx.customer.findFirst({ where: { id: buyer.customerId, shopId } });
+      if (!customer) throw new Error("Customer not found");
+    } else {
+      const dealer = await tx.dealer.findFirst({ where: { id: buyer.dealerId, shopId } });
+      if (!dealer) throw new Error("Dealer not found");
+    }
 
-    const existingSale = await findTodaysSale(tx, shopId, data.customerId, targetDateTime);
+    const existingSale = await findTodaysSale(tx, shopId, buyer, targetDateTime);
     const sale =
       existingSale ??
       (await tx.dailySale.create({
-        data: { shopId, customerId: data.customerId, season: data.season, saleDate: targetDateTime },
+        data: { shopId, ...buyer, season: data.season, saleDate: targetDateTime },
       }));
 
     // Only this purchase's own items count toward the payment split
@@ -491,7 +573,7 @@ export async function createDailySale(input: CreateDailySaleInput) {
     // entry's visit groups under the picked date, not under today.
     const visitAt = targetDateTime;
     const { itemTotal, grainItems } = await applySaleItems(tx, shopId, sale.id, data.items, visitAt);
-    await applyPaymentSplit(tx, shopId, data.customerId, sale.id, itemTotal, data.payments, visitAt, grainItems);
+    await applyPaymentSplit(tx, shopId, buyer, sale.id, itemTotal, data.payments, visitAt, grainItems);
 
     const created = await tx.dailySale.findUniqueOrThrow({
       where: { id: sale.id },
@@ -533,17 +615,11 @@ export async function updateDailySale(input: UpdateDailySaleInput) {
     // into the one edited version, which matches how the edit form
     // presents it (one combined item list, one combined split).
     const visitAt = new Date();
+    const buyer = existingSale.customerId
+      ? { customerId: existingSale.customerId }
+      : { dealerId: existingSale.dealerId! };
     const { itemTotal, grainItems } = await applySaleItems(tx, shopId, data.saleId, data.items, visitAt);
-    await applyPaymentSplit(
-      tx,
-      shopId,
-      existingSale.customerId,
-      data.saleId,
-      itemTotal,
-      data.payments,
-      visitAt,
-      grainItems
-    );
+    await applyPaymentSplit(tx, shopId, buyer, data.saleId, itemTotal, data.payments, visitAt, grainItems);
 
     const updated = await tx.dailySale.findUniqueOrThrow({
       where: { id: data.saleId },
@@ -675,7 +751,12 @@ export async function getCustomerGrainCreditPurchases(customerId?: string, produ
       creditAmount: { not: null },
       productId: productId || undefined,
       product: { shopId, stockKind: "GRAIN" },
-      dailySale: { customerId: customerId || undefined, shopId },
+      // Scoped to CUSTOMER sales only — a dealer sale's Credit posts
+      // to DealerAccount instead (see applyPaymentSplit), not this
+      // per-item Customer Udhaar view, so dealer-bought grain items
+      // never show up here even though they share the same
+      // DailySaleItem.creditAmount mechanism.
+      dailySale: { customerId: customerId ? customerId : { not: null }, shopId },
     },
     include: {
       product: { include: { unit: true } },
@@ -695,10 +776,13 @@ export async function getCustomerGrainCreditPurchases(customerId?: string, produ
     .map((item) => {
       const borrowed = Number(item.creditAmount);
       const paid = item.creditPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+      // The query above already scopes to customerId: { not: null },
+      // so every row here genuinely has a customer — non-null
+      // assertion documents that guarantee rather than re-deriving it.
       return {
         dailySaleItemId: item.id,
-        customerId: item.dailySale.customerId,
-        customerName: item.dailySale.customer.name,
+        customerId: item.dailySale.customerId!,
+        customerName: item.dailySale.customer!.name,
         productId: item.productId,
         productName: item.product.name,
         unitName: item.product.unit.name,
@@ -813,20 +897,26 @@ export async function getDailySaleForEdit(saleId: string) {
   };
 }
 
-// Summary-only rows for the Sales history list — customer name,
-// date, item count, total bill. Full line-item detail deliberately
-// doesn't live here; it's on the customer's own detail page.
-// One row in the merged history feed — either a real product sale, or
-// an Udhaar Clearance (a repayment recorded against a customer's
-// Udhaar/Regular account, via recordAccountTransaction). Both are
-// keyed off `kind` so SalesHistoryTable can render each appropriately
-// (a clearance has no items, just an amount and a distinct badge).
+// Summary-only rows for the Sales history list — buyer name, date,
+// item count, total bill. Full line-item detail deliberately doesn't
+// live here; it's on the buyer's own detail page. One row in the
+// merged history feed — either a real product sale, or an Udhaar
+// Clearance (a repayment recorded against a customer's Udhaar/Regular
+// account, via recordAccountTransaction — Udhaar Clearances are a
+// customer-only concept, since a dealer's own repayments are recorded
+// on the Dealer detail page instead, not merged into this feed). Both
+// are keyed off `kind` so SalesHistoryTable can render each
+// appropriately (a clearance has no items, just an amount and a
+// distinct badge). A SALE row's buyer is either a customer or a
+// dealer — buyerKind distinguishes which, since a dealer sale has no
+// customer detail page to link to.
 export type DailySaleHistoryRow =
   | {
       kind: "SALE";
       id: string;
-      customerId: string;
-      customerName: string;
+      buyerKind: "CUSTOMER" | "DEALER";
+      buyerId: string;
+      buyerName: string;
       saleDate: Date;
       itemCount: number;
       total: number;
@@ -861,6 +951,15 @@ export async function listDailySales(options?: {
     areaId: options?.areaId || undefined,
     accounts: options?.accountTypeId ? { some: { accountTypeId: options.accountTypeId } } : undefined,
   };
+  // A to-one relation filter in Prisma implies "the relation exists
+  // and matches," even with every field inside it undefined — so
+  // passing `customer: {...}` unconditionally would silently exclude
+  // every dealer sale (customerId: null) the moment this function is
+  // called at all, not just when a customer-only filter is active.
+  // Only attach it when the caller actually asked for a customer-only
+  // narrowing (search/area/accountType), so an unfiltered or
+  // dealer-inclusive listing still returns dealer sales.
+  const hasCustomerFilter = !!(options?.search || options?.areaId || options?.accountTypeId);
 
   const dateFilter = {
     gte: options?.fromDate ? parseLocalDateStart(options.fromDate) : undefined,
@@ -874,8 +973,11 @@ export async function listDailySales(options?: {
     // Filtering by the buyer's name, area, or account type — this is
     // "find what this customer bought right now" support, not a sales
     // report; it goes through the customer relation since none of
-    // these live on DailySale itself.
-    customer: customerFilter,
+    // these live on DailySale itself. Dealer sales have no customer
+    // relation to match, so this filter never applies to them — a
+    // name/area/account-type search is a customer-only lookup by
+    // design (dealers have no area or account-type concept).
+    customer: hasCustomerFilter ? customerFilter : undefined,
   };
 
   // Udhaar Clearances are fetched with the same filters (customer/
@@ -897,7 +999,7 @@ export async function listDailySales(options?: {
   const [sales, clearances] = await Promise.all([
     db.dailySale.findMany({
       where,
-      include: { customer: true, items: true, payments: true },
+      include: { customer: true, dealer: true, items: true, payments: true },
       orderBy: { saleDate: "desc" },
     }),
     db.accountTransaction.findMany({
@@ -913,18 +1015,26 @@ export async function listDailySales(options?: {
     // A summary tag for the row — "Cash"/"Account"/"Credit" when the
     // whole day's sale was paid one way, "Mixed" when more than one
     // method has a nonzero amount. Purely a display label; the real
-    // breakdown lives in paymentTotals and on the customer's
-    // Purchase History panel.
+    // breakdown lives in paymentTotals and on the buyer's own detail
+    // page.
     const methodsUsed = (Object.keys(paymentTotals) as (keyof typeof paymentTotals)[]).filter(
       (m) => paymentTotals[m] > 0
     );
     const paymentSummary = methodsUsed.length === 1 ? methodsUsed[0] : methodsUsed.length > 1 ? "MIXED" : null;
 
+    // Exactly one of customer/dealer is set — enforced at the Zod/
+    // action layer (see DailySale's schema comment) — so this is a
+    // safe either/or read, never a guess.
+    const buyerKind: "CUSTOMER" | "DEALER" = sale.customer ? "CUSTOMER" : "DEALER";
+    const buyerId = sale.customer ? sale.customer.id : sale.dealer!.id;
+    const buyerName = sale.customer ? sale.customer.name : sale.dealer!.name;
+
     return {
       kind: "SALE",
       id: sale.id,
-      customerId: sale.customerId,
-      customerName: sale.customer.name,
+      buyerKind,
+      buyerId,
+      buyerName,
       saleDate: sale.saleDate,
       itemCount: sale.items.length,
       total: sale.items.reduce((sum, i) => sum + Number(i.actualPrice) * Number(i.quantity), 0),

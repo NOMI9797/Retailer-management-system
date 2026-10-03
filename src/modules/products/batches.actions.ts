@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { serializeDecimals } from "@/lib/serialize";
 import { grainBatchSchema, type GrainBatchInput } from "./schema";
+import { postToPooledGrainStock } from "@/modules/stock/actions";
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -43,13 +44,23 @@ export async function createGrainBatch(input: GrainBatchInput) {
     throw new Error("Rate is required for a shop-owned batch");
   }
 
-  const batch = await db.grainBatch.create({
-    data: {
-      productId: data.productId,
-      ownerCustomerId: data.ownerCustomerId,
-      quantityIn: data.quantityIn,
-      rate: data.rate ?? null,
-    },
+  const batch = await db.$transaction(async (tx) => {
+    const batch = await tx.grainBatch.create({
+      data: {
+        productId: data.productId,
+        ownerCustomerId: data.ownerCustomerId,
+        quantityIn: data.quantityIn,
+        rate: data.rate ?? null,
+      },
+    });
+    // Only a REAL, priced batch enters the pool — a customer's
+    // rate-less "store for later" deposit doesn't touch it at all
+    // until it's later priced via a settlement or a sale-time rate
+    // override (see postToPooledGrainStock's comment).
+    if (data.rate !== undefined) {
+      await postToPooledGrainStock(tx, data.productId, data.quantityIn, data.quantityIn * data.rate);
+    }
+    return batch;
   });
   return serializeDecimals(batch);
 }

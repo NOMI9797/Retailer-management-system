@@ -134,20 +134,22 @@ export type BankAccountTransactionRow = {
 // Every single row, across every feature in the app, where money
 // actually moved through a bank account — the one merged, combined
 // feed powering the Bank Accounts page's transaction history. Pulls
-// from all five tables that carry a bankAccountId (see each model's
+// from every table that carries a bankAccountId (see each model's
 // schema comment: "same convention as AccountTransaction.
 // bankAccountId"): AccountTransaction (Udhaar repayments, Long-term/
 // Shop-Borrowed loans and their repayments, grain debt payments),
 // DailySalePayment (sale payments via Account), GrainSaleCreditPayment
 // (customer grain-Udhaar repayments via Account), Expense (expenses
-// paid via Account), and ExpensePayment (expense-debt repayments via
-// Account). Each row is normalized to one shape with a signed
+// paid via Account), ExpensePayment (expense-debt repayments via
+// Account), DealerProductPurchase (bulk purchases paid via Account),
+// and DealerTransaction (dealer Udhaar repayments via Account — see
+// payDealerDebt). Each row is normalized to one shape with a signed
 // direction from the BANK ACCOUNT's own point of view (IN = money
 // came into it, OUT = money left it) — the exact same sign convention
 // postToBankAccount's delta already uses, derived here the same way
 // each call site derives it, not inferred from amount sign.
 //
-// No database-level pagination across five different tables with
+// No database-level pagination across seven different tables with
 // different date columns — fetch every matching row from each, merge,
 // then paginate the combined list in memory. Same approach
 // listDailySales already uses for its two-table merge; fine at a
@@ -171,20 +173,30 @@ export async function listBankAccountTransactions(options?: {
     ? { bankAccountId: options.bankAccountId }
     : { bankAccountId: { not: null } };
 
-  const [accountTxns, salePayments, creditPayments, expenses, expensePayments] = await Promise.all([
+  const [
+    accountTxns,
+    salePayments,
+    creditPayments,
+    expenses,
+    expensePayments,
+    dealerPurchases,
+    dealerTxns,
+  ] = await Promise.all([
     db.accountTransaction.findMany({
       where: { ...bankAccountFilter, transactionDate: dateFilter, customerAccount: { customer: { shopId } } },
       include: { bankAccount: true, customerAccount: { include: { customer: true } } },
     }),
     db.dailySalePayment.findMany({
       where: { ...bankAccountFilter, visitAt: dateFilter, dailySale: { shopId } },
-      include: { bankAccount: true, dailySale: { include: { customer: true } } },
+      include: { bankAccount: true, dailySale: { include: { customer: true, dealer: true } } },
     }),
     db.grainSaleCreditPayment.findMany({
       where: { ...bankAccountFilter, paidAt: dateFilter, dailySaleItem: { product: { shopId } } },
       include: {
         bankAccount: true,
-        dailySaleItem: { include: { product: true, dailySale: { include: { customer: true } } } },
+        dailySaleItem: {
+          include: { product: true, dailySale: { include: { customer: true, dealer: true } } },
+        },
       },
     }),
     db.expense.findMany({
@@ -194,6 +206,26 @@ export async function listBankAccountTransactions(options?: {
     db.expensePayment.findMany({
       where: { ...bankAccountFilter, paidAt: dateFilter, expense: { shopId } },
       include: { bankAccount: true, expense: true },
+    }),
+    db.dealerProductPurchase.findMany({
+      where: { ...bankAccountFilter, purchaseDate: dateFilter, dealer: { shopId } },
+      include: { bankAccount: true, dealer: true, product: true },
+    }),
+    db.dealerTransaction.findMany({
+      // isSettledPurchase rows are excluded — they're the SAME Account
+      // payment already surfaced above via dealerPurchases
+      // (DealerProductPurchase/GrainBatch's own bankAccountId); without
+      // this filter a Cash/Account dealer purchase would double-count
+      // here (see isSettledPurchase's schema comment for why that row
+      // exists at all — Cash Flow visibility, not a second real
+      // movement).
+      where: {
+        ...bankAccountFilter,
+        isSettledPurchase: false,
+        transactionDate: dateFilter,
+        dealerAccount: { dealer: { shopId } },
+      },
+      include: { bankAccount: true, dealerAccount: { include: { dealer: true } } },
     }),
   ]);
 
@@ -248,12 +280,17 @@ export async function listBankAccountTransactions(options?: {
       direction: "IN",
       amount: Number(payment.amount),
       source: "Sale",
-      description: payment.dailySale.customer.name,
+      // Exactly one of customer/dealer is set on a DailySale (see its
+      // schema comment) — a sale paid via Account can come from
+      // either a customer or a bulk dealer.
+      description: payment.dailySale.customer?.name ?? payment.dailySale.dealer?.name ?? "Unknown buyer",
     });
   }
 
   for (const payment of creditPayments) {
     if (!payment.bankAccount) continue;
+    const buyerName =
+      payment.dailySaleItem.dailySale.customer?.name ?? payment.dailySaleItem.dailySale.dealer?.name ?? "Unknown buyer";
     rows.push({
       id: payment.id,
       date: payment.paidAt,
@@ -262,7 +299,7 @@ export async function listBankAccountTransactions(options?: {
       direction: "IN",
       amount: Number(payment.amount),
       source: "Grain Udhaar repayment",
-      description: `${payment.dailySaleItem.dailySale.customer.name} — ${payment.dailySaleItem.product.name}`,
+      description: `${buyerName} — ${payment.dailySaleItem.product.name}`,
     });
   }
 
@@ -291,6 +328,41 @@ export async function listBankAccountTransactions(options?: {
       amount: Number(payment.amount),
       source: "Expense Udhaar repayment",
       description: payment.expense.description,
+    });
+  }
+
+  for (const purchase of dealerPurchases) {
+    if (!purchase.bankAccount) continue;
+    rows.push({
+      id: purchase.id,
+      date: purchase.purchaseDate,
+      bankAccountId: purchase.bankAccount.id,
+      bankAccountName: purchase.bankAccount.name,
+      direction: "OUT",
+      amount: Number(purchase.quantity) * Number(purchase.costPrice),
+      source: "Dealer purchase",
+      description: `${purchase.dealer.name} — ${purchase.product.name}`,
+    });
+  }
+
+  for (const txn of dealerTxns) {
+    if (!txn.bankAccount) continue;
+    // Every dealer bank posting is money leaving the shop (see
+    // postToBankAccount's three dealer call sites: a Products/Grain
+    // purchase paid via Account, or payDealerDebt paying one down) —
+    // dealers never bring money INTO the shop's bank account through
+    // this table (a dealer SALE's Credit posting never touches a bank
+    // account at all, since Credit is never paid via Account by
+    // definition).
+    rows.push({
+      id: txn.id,
+      date: txn.transactionDate,
+      bankAccountId: txn.bankAccount.id,
+      bankAccountName: txn.bankAccount.name,
+      direction: "OUT",
+      amount: Number(txn.amount),
+      source: "Dealer Udhaar repayment",
+      description: txn.dealerAccount.dealer.name,
     });
   }
 

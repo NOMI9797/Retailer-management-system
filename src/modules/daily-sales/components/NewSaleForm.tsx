@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CustomerPicker, type CustomerSelection } from "./CustomerPicker";
+import { DealerPicker } from "@/modules/dealers/components/DealerPicker";
 import { LineItemsEditor, type LineItemDraft } from "./LineItemsEditor";
 import { GrainItemsEditor, type GrainItemDraft } from "./GrainItemsEditor";
 import { PaymentSplitEditor, type PaymentSplitDraft } from "./PaymentSplitEditor";
@@ -12,9 +13,11 @@ import { toLocalDateString, formatMoney } from "@/lib/utils";
 import { showToast } from "@/components/shared/toastStore";
 import type { listAreas } from "@/modules/settings/areas.actions";
 import type { listProducts } from "@/modules/products/actions";
+import type { listDealers } from "@/modules/dealers/actions";
 
 type Product = Awaited<ReturnType<typeof listProducts>>["products"][number];
 type SaleKind = "PRODUCT" | "GRAIN";
+type BuyerKind = "CUSTOMER" | "DEALER";
 
 function todayDateString() {
   return toLocalDateString(new Date());
@@ -23,17 +26,27 @@ function todayDateString() {
 export function NewSaleForm({
   areas,
   products,
+  dealers = [],
   bankAccounts = [],
   onSaved,
 }: {
   areas: Awaited<ReturnType<typeof listAreas>>;
   products: Product[];
+  dealers?: Awaited<ReturnType<typeof listDealers>>;
   bankAccounts?: { id: string; name: string }[];
   onSaved?: () => void;
 }) {
   const router = useRouter();
   const [saleDate, setSaleDate] = useState(todayDateString());
+  // Who the sale is TO — a customer (the existing, default flow) or a
+  // bulk dealer (see createDailySaleSchema's "exactly one of customer/
+  // dealer" rule). Everything else about the form — items, payment
+  // split, Credit posting — stays identical either way; only which
+  // ledger the Credit amount posts against differs server-side (see
+  // applyPaymentSplit).
+  const [buyerKind, setBuyerKind] = useState<BuyerKind>("CUSTOMER");
   const [customer, setCustomer] = useState<CustomerSelection | null>(null);
+  const [dealerId, setDealerId] = useState("");
   // A sale is either all-Product or all-Grain, never mixed — per the
   // "shopkeeper adds one entry, either a product or a grain" decision.
   // Kept as two separate item lists rather than one shared shape,
@@ -51,6 +64,14 @@ export function NewSaleForm({
 
   const simpleProducts = useMemo(() => products.filter((p) => p.stockKind === "SIMPLE"), [products]);
   const grainProducts = useMemo(() => products.filter((p) => p.stockKind === "GRAIN"), [products]);
+  // Only dealers matching the active sale kind are offered — a
+  // PRODUCTS dealer buying grain (or vice versa) isn't a real
+  // scenario, same "one or the other, never both" rule Dealer.type
+  // itself enforces.
+  const dealersForSaleKind = useMemo(
+    () => dealers.filter((d) => d.type === (saleKind === "PRODUCT" ? "PRODUCTS" : "GRAIN")),
+    [dealers, saleKind]
+  );
 
   function switchSaleKind(kind: SaleKind) {
     setSaleKind(kind);
@@ -60,6 +81,10 @@ export function NewSaleForm({
     // different product type.
     if (kind === "PRODUCT") setProductItems([{ productId: "", quantity: "", actualPrice: "" }]);
     else setGrainItems([{ productId: "", quantity: "", actualPrice: "" }]);
+    // A dealer picked for the OLD sale kind is the wrong type for the
+    // new one (see dealersForSaleKind) — clear it rather than silently
+    // submitting a mismatched dealer/product-kind combination.
+    setDealerId("");
   }
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -78,20 +103,23 @@ export function NewSaleForm({
   const resolvedCustomerIdRef = useRef<string | null>(null);
 
   async function submitSale() {
-    let customerId = resolvedCustomerIdRef.current;
-    if (!customerId) {
-      if (customer!.mode === "existing") {
-        customerId = customer!.customerId;
-      } else {
-        const created = await createCustomer({
-          name: customer!.name,
-          phone: customer!.phone,
-          areaId: customer!.areaId,
-          accountTypeIds: customer!.accountTypeIds,
-        });
-        customerId = created.id;
+    let customerId: string | undefined;
+    if (buyerKind === "CUSTOMER") {
+      customerId = resolvedCustomerIdRef.current ?? undefined;
+      if (!customerId) {
+        if (customer!.mode === "existing") {
+          customerId = customer!.customerId;
+        } else {
+          const created = await createCustomer({
+            name: customer!.name,
+            phone: customer!.phone,
+            areaId: customer!.areaId,
+            accountTypeIds: customer!.accountTypeIds,
+          });
+          customerId = created.id;
+        }
+        resolvedCustomerIdRef.current = customerId;
       }
-      resolvedCustomerIdRef.current = customerId;
     }
 
     const cash = Number(payments.cash) || 0;
@@ -100,6 +128,7 @@ export function NewSaleForm({
 
     await createDailySale({
       customerId,
+      dealerId: buyerKind === "DEALER" ? dealerId : undefined,
       saleDate,
       items:
         saleKind === "PRODUCT"
@@ -123,8 +152,12 @@ export function NewSaleForm({
     e.preventDefault();
     setError(null);
 
-    if (!customer) {
+    if (buyerKind === "CUSTOMER" && !customer) {
       setError("Select or add a customer first");
+      return;
+    }
+    if (buyerKind === "DEALER" && !dealerId) {
+      setError("Select a dealer first");
       return;
     }
     if (items.some((i) => !i.productId || !i.quantity || !i.actualPrice)) {
@@ -189,15 +222,31 @@ export function NewSaleForm({
         />
       </div>
 
-      <CustomerPicker
-        areas={areas}
-        onChange={(next) => {
-          // Changing the customer mid-flow invalidates any resolved id
-          // from a prior attempt.
-          resolvedCustomerIdRef.current = null;
-          setCustomer(next);
-        }}
-      />
+      <div className="field">
+        <label>Selling to</label>
+        <div className="stock-toggle">
+          <button type="button" className={buyerKind === "CUSTOMER" ? "active" : ""} onClick={() => setBuyerKind("CUSTOMER")}>
+            Customer
+          </button>
+          <button type="button" className={buyerKind === "DEALER" ? "active" : ""} onClick={() => setBuyerKind("DEALER")}>
+            Dealer
+          </button>
+        </div>
+      </div>
+
+      {buyerKind === "CUSTOMER" ? (
+        <CustomerPicker
+          areas={areas}
+          onChange={(next) => {
+            // Changing the customer mid-flow invalidates any resolved id
+            // from a prior attempt.
+            resolvedCustomerIdRef.current = null;
+            setCustomer(next);
+          }}
+        />
+      ) : (
+        <DealerPicker dealers={dealersForSaleKind} value={dealerId} onChange={setDealerId} />
+      )}
 
       <div className="field">
         <label>Sale type</label>

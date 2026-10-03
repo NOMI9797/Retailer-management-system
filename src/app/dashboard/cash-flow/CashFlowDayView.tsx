@@ -8,11 +8,48 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <span className="section-label">{children}</span>;
 }
 
+// One source's Cash In/Out pair — Customers/Expenses/Dealers/Grain all
+// render through this same card shape, just with their own numbers
+// (see getCashFlowSourceBreakdown for what's counted in each). "in"
+// is omitted (not rendered as a zero) for a source that structurally
+// can never have cash arrive the physical-drawer way (Expenses,
+// Dealers, Grain only ever spend) — showing a permanent "Rs 0" row on
+// every single day would be noise, not information.
+function SourceCard({ title, cashIn, cashOut }: { title: string; cashIn?: number; cashOut: number }) {
+  return (
+    <div className="source-card">
+      <p className="source-card-title">{title}</p>
+      <div className="source-card-rows">
+        {cashIn !== undefined && (
+          <div className="source-card-row">
+            <span>Cash in</span>
+            <span className="num" style={{ color: "var(--primary-600)" }}>
+              + {formatMoney(cashIn)}
+            </span>
+          </div>
+        )}
+        <div className="source-card-row">
+          <span>Cash out</span>
+          <span className="num" style={{ color: "var(--consigned-600)" }}>
+            − {formatMoney(cashOut)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // The full dashboard for one day — every metric comes from a single
-// getCashFlowForDate call. Four sections: Activity (how busy the day
-// was), Cash register (the opening balance plus the Expected/Actual
-// closing hero pair — the two numbers a shopkeeper actually compares
-// at day's end), Account & credit (informational, never affects the
+// getCashFlowForDate call. Sections: Overall cash (the full day's
+// total Cash In/Out, summed across every source — always equal to
+// Cash register's own cashIn/cashOut, since sourceBreakdown and
+// sumCashIn/sumCashOut are deliberately built from the exact same
+// underlying filters), Activity (how busy the day was), Cash register
+// (the opening balance plus the Expected/Actual closing hero pair —
+// the two numbers a shopkeeper actually compares at day's end), By
+// source (Customers/Expenses/Dealers/Grain broken out individually, so
+// nothing contributing to the day's cash position is hidden inside one
+// combined figure), Account & credit (informational, never affects the
 // physical cash math), and Day summary (totals across every payment
 // method). Adding a future metric is just: add it to
 // getCashFlowForDate's return, then add one more card to whichever
@@ -33,6 +70,24 @@ export async function CashFlowDayView({ date }: { date: string }) {
   return (
     <div className="register-panel">
       <p className="register-date">{formatDate(date)}</p>
+
+      <section className="cf-section">
+        <SectionLabel>Overall cash</SectionLabel>
+        <div className="hero-row">
+          <div className="hero-card in">
+            <p className="hero-label">Total cash in</p>
+            <p className="hero-value num" style={{ color: "var(--primary-600)" }}>
+              {formatMoney(flow.cashIn)}
+            </p>
+          </div>
+          <div className="hero-card out">
+            <p className="hero-label">Total cash out</p>
+            <p className="hero-value num" style={{ color: "var(--consigned-600)" }}>
+              {formatMoney(flow.cashOut)}
+            </p>
+          </div>
+        </div>
+      </section>
 
       <section className="cf-section">
         <SectionLabel>Activity</SectionLabel>
@@ -100,6 +155,20 @@ export async function CashFlowDayView({ date }: { date: string }) {
                 : `Rs ${Math.abs(flow.variance).toLocaleString()} short of expected.`}
           </p>
         )}
+      </section>
+
+      <section className="cf-section">
+        <SectionLabel>By source</SectionLabel>
+        <div className="source-grid">
+          <SourceCard
+            title="Customers"
+            cashIn={flow.sourceBreakdown.customers.in}
+            cashOut={flow.sourceBreakdown.customers.out}
+          />
+          <SourceCard title="Expenses" cashOut={flow.sourceBreakdown.expenses.out} />
+          <SourceCard title="Dealers" cashOut={flow.sourceBreakdown.dealers.out} />
+          <SourceCard title="Grain" cashOut={flow.sourceBreakdown.grain.out} />
+        </div>
       </section>
 
       <section className="cf-section">

@@ -72,20 +72,30 @@ export const paymentSplitSchema = z
   });
 export type PaymentSplitInput = z.infer<typeof paymentSplitSchema>;
 
-export const createDailySaleSchema = z.object({
-  customerId: z.string().uuid(),
-  season: z.string().optional(),
-  items: z.array(dailySaleItemSchema).min(1, "At least one item is required"),
-  payments: paymentSplitSchema,
-  // "YYYY-MM-DD" — lets a shopkeeper record a sale they forgot to
-  // enter on the day it actually happened (e.g. remembered the next
-  // morning). Defaults to today when omitted, so every existing caller
-  // that doesn't pass this keeps behaving exactly as before. This is
-  // what day the sale is merged into (see findTodaysSale) and what
-  // Cash Flow's daily aggregation keys off — there's no separate
-  // propagation step, everything downstream reads saleDate directly.
-  saleDate: z.string().optional(),
-});
+// A sale's counterparty is EITHER a customer OR a dealer, never both
+// — exactly one of customerId/dealerId must be set, enforced by the
+// .refine() below (see DailySale's own schema comment for why this is
+// kept as one shared sale flow rather than two parallel ones).
+export const createDailySaleSchema = z
+  .object({
+    customerId: z.string().uuid().optional(),
+    dealerId: z.string().uuid().optional(),
+    season: z.string().optional(),
+    items: z.array(dailySaleItemSchema).min(1, "At least one item is required"),
+    payments: paymentSplitSchema,
+    // "YYYY-MM-DD" — lets a shopkeeper record a sale they forgot to
+    // enter on the day it actually happened (e.g. remembered the next
+    // morning). Defaults to today when omitted, so every existing caller
+    // that doesn't pass this keeps behaving exactly as before. This is
+    // what day the sale is merged into (see findTodaysSale) and what
+    // Cash Flow's daily aggregation keys off — there's no separate
+    // propagation step, everything downstream reads saleDate directly.
+    saleDate: z.string().optional(),
+  })
+  .refine((data) => !!data.customerId !== !!data.dealerId, {
+    message: "Select either a customer or a dealer, not both",
+    path: ["customerId"],
+  });
 export type CreateDailySaleInput = z.infer<typeof createDailySaleSchema>;
 
 // Editing a past sale keeps the same customer but replaces the item

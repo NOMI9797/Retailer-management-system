@@ -16,12 +16,14 @@ export function StockSummary({
   ownAvailable,
   customerClaim,
   stockUdhaarOutstanding,
+  pooled,
 }: {
   totalRemaining: number;
   unitName: string;
   ownAvailable: number;
   customerClaim: number;
   stockUdhaarOutstanding: number;
+  pooled: { quantity: number; isProfit: boolean; displayValue: number };
 }) {
   return (
     <div className="stat-grid" style={{ marginBottom: 22 }}>
@@ -47,6 +49,18 @@ export function StockSummary({
         <p className="stat-label">Stock Udhaar</p>
         <p className={`stat-value${stockUdhaarOutstanding ? " tone-consigned" : ""}`}>
           {stockUdhaarOutstanding} {unitName}
+        </p>
+      </div>
+      <div className="stat-card">
+        <p className="stat-label">Pooled stock</p>
+        <p className="stat-value tone-grain">
+          {pooled.quantity} {unitName}
+        </p>
+      </div>
+      <div className="stat-card">
+        <p className="stat-label">{pooled.isProfit ? "Profit" : "Stock value"}</p>
+        <p className={`stat-value${pooled.isProfit ? " tone-primary" : ""}`}>
+          Rs {pooled.displayValue.toLocaleString()}
         </p>
       </div>
     </div>

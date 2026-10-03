@@ -73,6 +73,7 @@ export function GrainBatchList({
         ownAvailable={overview.ownAvailable}
         customerClaim={overview.customerClaim}
         stockUdhaarOutstanding={overview.stockUdhaarOutstanding}
+        pooled={overview.pooled}
       />
 
       <div className="panel">

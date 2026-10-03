@@ -27,23 +27,58 @@ function dayBoundsFromLocalMidnight(localMidnight: Date) {
 }
 
 // A transfer-purchase payout (see stock/actions.ts: createTransferPurchase)
-// is the only AccountTransaction that ever sets `quantity` — every
-// other write path (recordAccountTransaction, applyPaymentSplit's
-// Credit-sale posting) leaves it null. That makes `quantity: { not: null }`
-// a reliable, structural way to pick out "the shop paying a customer
-// for grain" from every other direction-OUT posting (a loan given,
-// which increments a debt balance rather than paying anyone out),
-// without relying on notes text or a dedicated flag.
-const TRANSFER_PURCHASE_FILTER = { direction: "OUT" as const, quantity: { not: null } };
+// is the only AccountTransaction that ever sets `quantity` to a REAL
+// (non-zero) value — every other write path either leaves it null or
+// sets it to the literal 0 marker (see GRAIN_DEBT_FILTER below). That
+// makes `quantity: { gt: 0 }` a reliable, structural way to pick out
+// "the shop paying a customer for grain they just sold ownership of"
+// from every other posting, without relying on notes text or a flag.
+const TRANSFER_PURCHASE_FILTER = { direction: "OUT" as const, quantity: { gt: 0 } };
 
-// Cash in for a day = sum of DailySalePayment rows tagged CASH for
-// sales made that day, PLUS any Udhaar repayment (AccountTransaction,
-// direction IN) recorded that day with paymentMethod CASH — a
-// customer paying back a loan in cash is real money landing in the
-// drawer, same as a cash sale. Only Cash counts here — Account and
-// Credit amounts are not physical cash.
+// payGrainDebt (stock/actions.ts) posts direction "IN" with quantity
+// literally 0 and linkedProductId set — a deliberate marker (see that
+// column's own schema comment), NOT a real Udhaar repayment. The
+// ledger's "IN" there is scoped to the customer's account balance
+// convention, but the PHYSICAL cash effect is the opposite: this is
+// the shop paying OUT for grain it already settled on Credit earlier.
+// Structurally identical to isShopBorrowed/isLongTerm's "this bucket's
+// OUT/IN is inverted from the money's real direction" pattern — see
+// GRAIN_DEBT_FILTER's use below for why every cash query must exclude
+// or re-sign these rows explicitly rather than reading direction raw.
+const GRAIN_DEBT_FILTER = { direction: "IN" as const, quantity: 0, linkedProductId: { not: null } };
+
+// True Udhaar repayment IN (Regular or Long-term Udhaar — the ordinary
+// "customer pays back what they owe" case) — every other IN-direction
+// AccountTransaction either means something else physically
+// (isShopBorrowed's inverted repay-out, or a grain-debt payout) or
+// doesn't exist as an IN at all. Used everywhere "real cash arriving
+// from a customer repayment" needs to be summed without accidentally
+// catching those inverted buckets.
+const REPAYMENT_IN_FILTER = { direction: "IN" as const, isShopBorrowed: false, quantity: null };
+
+// Shop-Borrowed Udhaar (customers/actions.ts: createShopBorrowedLoan/
+// payShopBorrowedLoan) inverts OUT/IN entirely — OUT means the shop
+// BORROWED (cash arrived), IN means the shop REPAID (cash left). See
+// isShopBorrowed's schema comment.
+const SHOP_BORROWED_TAKEN_FILTER = { isShopBorrowed: true as const, direction: "OUT" as const };
+const SHOP_BORROWED_REPAID_FILTER = { isShopBorrowed: true as const, direction: "IN" as const };
+
+// Cash in for a day, physical-drawer only:
+//   + Cash-tagged DailySalePayment rows for sales made that day
+//   + Cash-tagged true Udhaar repayments (REPAYMENT_IN_FILTER) —
+//     covers Regular AND Long-term Udhaar alike, since both are plain
+//     IN postings with no inversion
+//   + Cash-tagged Shop-Borrowed loans TAKEN that day (the shop
+//     borrowing cash FROM a customer is cash arriving, even though
+//     the ledger posts it as direction OUT — see
+//     SHOP_BORROWED_TAKEN_FILTER)
+// Deliberately excludes grain-debt IN rows (GRAIN_DEBT_FILTER) and
+// Shop-Borrowed repayments (SHOP_BORROWED_REPAID_FILTER) — both are
+// direction "IN" in the ledger but are real cash LEAVING the drawer,
+// not arriving (see each filter's comment). Only Cash counts here —
+// Account and Credit amounts are not physical cash.
 async function sumCashIn(shopId: string, start: Date, end: Date) {
-  const [salesResult, repaymentsResult] = await Promise.all([
+  const [salesResult, repaymentsResult, shopBorrowedResult] = await Promise.all([
     db.dailySalePayment.aggregate({
       where: {
         paymentMethod: "CASH",
@@ -53,7 +88,16 @@ async function sumCashIn(shopId: string, start: Date, end: Date) {
     }),
     db.accountTransaction.aggregate({
       where: {
-        direction: "IN",
+        ...REPAYMENT_IN_FILTER,
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        customerAccount: { customer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+    db.accountTransaction.aggregate({
+      where: {
+        ...SHOP_BORROWED_TAKEN_FILTER,
         paymentMethod: "CASH",
         transactionDate: { gte: start, lte: end },
         customerAccount: { customer: { shopId } },
@@ -61,18 +105,55 @@ async function sumCashIn(shopId: string, start: Date, end: Date) {
       _sum: { amount: true },
     }),
   ]);
-  return Number(salesResult._sum.amount ?? 0) + Number(repaymentsResult._sum.amount ?? 0);
+  return (
+    Number(salesResult._sum.amount ?? 0) +
+    Number(repaymentsResult._sum.amount ?? 0) +
+    Number(shopBorrowedResult._sum.amount ?? 0)
+  );
 }
 
-// Cash out for a day = sum of Expense rows tagged CASH for that day,
-// PLUS any transfer-purchase payout (see TRANSFER_PURCHASE_FILTER)
-// paid CASH that day — the shop handing a customer physical cash for
-// grain it just bought from them is real money leaving the drawer,
-// same as an expense.
+// Cash out for a day, physical-drawer only:
+//   + Cash-tagged Expense rows, BOTH Daily and Monthly (a Cash-paid
+//     recurring bill is just as real as a Cash-paid daily expense —
+//     expenseType no longer narrows this, unlike the old query)
+//   + Cash-tagged ExpensePayment rows (paying down a CREDIT expense
+//     later is real cash leaving the drawer that day, same as paying
+//     one in full up front)
+//   + Cash-tagged transfer-purchase payouts (TRANSFER_PURCHASE_FILTER)
+//   + Cash-tagged grain-debt payouts (GRAIN_DEBT_FILTER) — ledger says
+//     "IN" but the cash physically leaves (see that filter's comment)
+//   + Cash-tagged Long-term Udhaar loans GIVEN that day
+//   + Cash-tagged Shop-Borrowed loans REPAID that day
+//   + Cash-tagged dealer purchases (DealerProductPurchase/GrainBatch,
+//     via the isSettledPurchase DealerTransaction row created
+//     alongside them — see that column's schema comment), direction
+//     OUT on DealerTransaction
+//   + Cash-tagged dealer debt repayments (payDealerDebt) — direction
+//     IN on DealerTransaction (the shop paying the dealer DOWN), but
+//     still real cash leaving the shop, same "ledger direction tracks
+//     the debt, not the physical cash" pattern as GRAIN_DEBT_FILTER
 async function sumCashOut(shopId: string, start: Date, end: Date) {
-  const [expenseResult, transferResult] = await Promise.all([
+  const [
+    dailyExpenseResult,
+    monthlyExpenseResult,
+    expensePaymentResult,
+    transferResult,
+    grainDebtResult,
+    longTermGivenResult,
+    shopBorrowedRepaidResult,
+    dealerPurchaseResult,
+    dealerDebtRepaidResult,
+  ] = await Promise.all([
     db.expense.aggregate({
       where: { shopId, expenseType: "DAILY", paymentMethod: "CASH", expenseDate: { gte: start, lte: end } },
+      _sum: { amount: true },
+    }),
+    db.expense.aggregate({
+      where: { shopId, expenseType: "MONTHLY", paymentMethod: "CASH", expenseDate: { gte: start, lte: end } },
+      _sum: { amount: true },
+    }),
+    db.expensePayment.aggregate({
+      where: { paymentMethod: "CASH", paidAt: { gte: start, lte: end }, expense: { shopId } },
       _sum: { amount: true },
     }),
     db.accountTransaction.aggregate({
@@ -84,8 +165,64 @@ async function sumCashOut(shopId: string, start: Date, end: Date) {
       },
       _sum: { amount: true },
     }),
+    db.accountTransaction.aggregate({
+      where: {
+        ...GRAIN_DEBT_FILTER,
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        customerAccount: { customer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+    db.accountTransaction.aggregate({
+      where: {
+        direction: "OUT",
+        isLongTerm: true,
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        customerAccount: { customer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+    db.accountTransaction.aggregate({
+      where: {
+        ...SHOP_BORROWED_REPAID_FILTER,
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        customerAccount: { customer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+    db.dealerTransaction.aggregate({
+      where: {
+        direction: "OUT",
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        dealerAccount: { dealer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+    db.dealerTransaction.aggregate({
+      where: {
+        direction: "IN",
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        dealerAccount: { dealer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
   ]);
-  return Number(expenseResult._sum.amount ?? 0) + Number(transferResult._sum.amount ?? 0);
+  return (
+    Number(dailyExpenseResult._sum.amount ?? 0) +
+    Number(monthlyExpenseResult._sum.amount ?? 0) +
+    Number(expensePaymentResult._sum.amount ?? 0) +
+    Number(transferResult._sum.amount ?? 0) +
+    Number(grainDebtResult._sum.amount ?? 0) +
+    Number(longTermGivenResult._sum.amount ?? 0) +
+    Number(shopBorrowedRepaidResult._sum.amount ?? 0) +
+    Number(dealerPurchaseResult._sum.amount ?? 0) +
+    Number(dealerDebtRepaidResult._sum.amount ?? 0)
+  );
 }
 
 // Same shape as sumCashIn/sumCashOut, generalized to any PaymentMethod
@@ -169,6 +306,156 @@ async function sumGrainCreditOut(shopId: string, start: Date, end: Date) {
     _sum: { amount: true },
   });
   return Number(result._sum.amount ?? 0);
+}
+
+// Per-source CASH in/out for the day, for the Cash Flow page's
+// section breakdown (Customers / Dealers / Grain / Expenses). Every
+// figure here is CASH ONLY — same scope as sumCashIn/sumCashOut, which
+// this duplicates query-by-query rather than calls directly, since the
+// page wants each contributing source broken out on its own instead of
+// one pre-summed total. The four sections' totals always sum to
+// exactly sumCashIn/sumCashOut's results — same underlying filters, no
+// figure appears in more than one section (a grain transfer-purchase
+// payout lives under Grain, not Customers, even though it posts
+// against a CustomerAccount, since it's fundamentally a grain-stock
+// event; grain debt payout is the same call).
+async function getCashFlowSourceBreakdown(shopId: string, start: Date, end: Date) {
+  const [
+    salesCash,
+    repaymentsCash,
+    shopBorrowedTakenCash,
+    longTermGivenCash,
+    shopBorrowedRepaidCash,
+    dailyExpenseCash,
+    monthlyExpenseCash,
+    expensePaymentCash,
+    transferPurchaseCash,
+    grainDebtCash,
+    dealerPurchaseCash,
+    dealerDebtRepaidCash,
+  ] = await Promise.all([
+    db.dailySalePayment.aggregate({
+      where: { paymentMethod: "CASH", dailySale: { shopId, saleDate: { gte: start, lte: end } } },
+      _sum: { amount: true },
+    }),
+    db.accountTransaction.aggregate({
+      where: {
+        ...REPAYMENT_IN_FILTER,
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        customerAccount: { customer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+    db.accountTransaction.aggregate({
+      where: {
+        ...SHOP_BORROWED_TAKEN_FILTER,
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        customerAccount: { customer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+    db.accountTransaction.aggregate({
+      where: {
+        direction: "OUT",
+        isLongTerm: true,
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        customerAccount: { customer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+    db.accountTransaction.aggregate({
+      where: {
+        ...SHOP_BORROWED_REPAID_FILTER,
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        customerAccount: { customer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+    db.expense.aggregate({
+      where: { shopId, expenseType: "DAILY", paymentMethod: "CASH", expenseDate: { gte: start, lte: end } },
+      _sum: { amount: true },
+    }),
+    db.expense.aggregate({
+      where: { shopId, expenseType: "MONTHLY", paymentMethod: "CASH", expenseDate: { gte: start, lte: end } },
+      _sum: { amount: true },
+    }),
+    db.expensePayment.aggregate({
+      where: { paymentMethod: "CASH", paidAt: { gte: start, lte: end }, expense: { shopId } },
+      _sum: { amount: true },
+    }),
+    db.accountTransaction.aggregate({
+      where: {
+        ...TRANSFER_PURCHASE_FILTER,
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        customerAccount: { customer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+    db.accountTransaction.aggregate({
+      where: {
+        ...GRAIN_DEBT_FILTER,
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        customerAccount: { customer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+    db.dealerTransaction.aggregate({
+      where: {
+        direction: "OUT",
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        dealerAccount: { dealer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+    db.dealerTransaction.aggregate({
+      where: {
+        direction: "IN",
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        dealerAccount: { dealer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  const n = (r: { _sum: { amount: unknown } }) => Number(r._sum.amount ?? 0);
+
+  const customers = {
+    // Sales + every real Udhaar repayment (Regular, Long-term) + cash
+    // the shop itself borrowed FROM a customer (arrives as cash, even
+    // though the ledger's own OUT/IN for that bucket is inverted).
+    in: n(salesCash) + n(repaymentsCash) + n(shopBorrowedTakenCash),
+    // Long-term loans the shop gave out, plus repaying a Shop-Borrowed
+    // loan back to the customer — both real cash leaving for a
+    // customer-side reason, never a grain or dealer one.
+    out: n(longTermGivenCash) + n(shopBorrowedRepaidCash),
+  };
+  const expenses = {
+    in: 0,
+    out: n(dailyExpenseCash) + n(monthlyExpenseCash) + n(expensePaymentCash),
+  };
+  const dealers = {
+    in: 0,
+    out: n(dealerPurchaseCash) + n(dealerDebtRepaidCash),
+  };
+  const grain = {
+    in: 0,
+    // Transfer-purchase payouts (buying a customer's deposited grain)
+    // and grain-debt payouts (paying off grain already settled on
+    // Credit) — both money leaving for grain specifically, kept out of
+    // the Customers section even though they post against a
+    // CustomerAccount, since they're grain-stock events first.
+    out: n(transferPurchaseCash) + n(grainDebtCash),
+  };
+
+  return { customers, expenses, dealers, grain };
 }
 
 // Finds the opening balance for `date`: the prior day's actualClosing
@@ -268,6 +555,7 @@ export async function getCashFlowForDate(dateStr: string) {
     creditIn,
     creditOut,
     grainCreditOut,
+    sourceBreakdown,
     salesCount,
     expenseCount,
   ] =
@@ -281,6 +569,7 @@ export async function getCashFlowForDate(dateStr: string) {
       sumSalePayments(shopId, "CREDIT", start, end),
       sumExpensesByMethod(shopId, "CREDIT", start, end),
       sumGrainCreditOut(shopId, start, end),
+      getCashFlowSourceBreakdown(shopId, start, end),
       // Sale/expense counts — a genuinely new "how busy was this day"
       // metric, distinct from any of the money totals above. This is
       // the natural place to grow the day dashboard with more metrics
@@ -310,6 +599,7 @@ export async function getCashFlowForDate(dateStr: string) {
     creditIn,
     creditOut,
     grainCreditOut,
+    sourceBreakdown,
     salesCount,
     expenseCount,
   };

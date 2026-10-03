@@ -8,7 +8,8 @@ export type SettingsTab =
   | "units"
   | "areas"
   | "monthly-expense-types"
-  | "bank-accounts";
+  | "bank-accounts"
+  | "dealers";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "account-types", label: "Account types" },
@@ -17,6 +18,7 @@ const TABS: { key: SettingsTab; label: string }[] = [
   { key: "areas", label: "Areas" },
   { key: "monthly-expense-types", label: "Monthly expense types" },
   { key: "bank-accounts", label: "Bank accounts" },
+  { key: "dealers", label: "Dealers" },
 ];
 
 // Same tab pattern as Products/Expenses/Reports — real ?tab=
