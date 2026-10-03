@@ -26,6 +26,45 @@ model Shop {
   monthlyExpenseTypes MonthlyExpenseType[]
   cashRegisters       DailyCashRegister[]
   bankAccounts        BankAccount[]
+  userShops           UserShop[]
+}
+
+// A login — email + hashed password, nothing more. Deliberately has
+// no shopId of its own: which shop(s) a user can act as is entirely
+// the UserShop join below, assigned by hand in Prisma Studio (never
+// a signup-time choice — see UserShop's comment). isActive lets an
+// account be disabled without deleting it (and losing its audit
+// trail of past actions, if that's ever tracked by user later).
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  userShops UserShop[]
+}
+
+// The only place a user is linked to a shop — deliberately NOT set
+// during signup (signup just creates a bare User row with no shop
+// access at all) and NOT exposed anywhere in the UI for a user to
+// pick or change; per explicit requirement, shop assignment is a
+// backend/Prisma Studio action only. getCurrentShopId() reads this
+// table (via the session's userId) to resolve which shop the logged-
+// in user acts as. role is unused by any access check yet (every
+// assigned user currently has full access to their shop) — carried
+// now so a future permissions pass has somewhere to read from without
+// another migration.
+model UserShop {
+  id      String  @id @default(uuid())
+  userId  String
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopId  String
+  shop    Shop    @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  role    String  @default("OWNER")
+
+  @@unique([userId, shopId])
 }
 
 // Shopkeeper-managed list of real bank accounts (UBL, Meezan, ...) —

@@ -88,7 +88,7 @@ export default function HomePage() {
             connecting both — under Shoaib Traders&apos; roof.
           </p>
           <div className="cta-row">
-            <Link href="/dashboard" className="btn-primary">
+            <Link href="/login" className="btn-primary">
               Open shop dashboard
             </Link>
             <a href="tel:03027054028" className="phone-link">

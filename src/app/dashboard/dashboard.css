@@ -61,6 +61,12 @@
   position: sticky;
   top: 0;
   height: 100vh;
+  /* Nav items can outgrow the viewport (14+ modules) — the nav list
+     itself scrolls (see nav.nav-list below) while shop-id stays fixed
+     at top and sidebar-footer (user/logout) stays fixed at bottom,
+     so logout is never pushed off-screen regardless of window height
+     or how many nav items exist. */
+  overflow: hidden;
 }
 
 .shop-app .shop-id {
@@ -70,6 +76,7 @@
   padding: 4px 10px 26px;
   text-decoration: none;
   color: inherit;
+  flex-shrink: 0;
 }
 
 .shop-app .shop-id .mark {
@@ -98,6 +105,27 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  /* Small right-side breathing room so the scrollbar (when the list
+     is tall enough to need one) doesn't sit flush against the nav
+     items' text/icons. */
+  padding-right: 2px;
+  /* A thin, visible-on-hover scrollbar — otherwise a clipped list
+     with no scrollbar affordance looks like broken/cut-off content
+     rather than "more below, scroll to see it." */
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-border) transparent;
+}
+
+.shop-app nav.nav-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.shop-app nav.nav-list::-webkit-scrollbar-thumb {
+  background: var(--sb-border);
+  border-radius: 999px;
 }
 
 .shop-app .nav-item {
@@ -131,8 +159,19 @@
 
 .shop-app .sidebar-footer {
   margin-top: auto;
-  padding: 14px 10px 4px;
+  /* No left/right padding here — the sidebar's own padding (14px,
+     see .sidebar) already insets everything inside it, including
+     nav items; adding more here would double-indent the footer and
+     make it narrower than the nav list above it. */
+  padding: 14px 0 0;
   border-top: 0.5px solid var(--sb-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.shop-app .sidebar-footer-identity {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -149,12 +188,91 @@
   justify-content: center;
   font-size: 12.5px;
   font-weight: 700;
+  flex-shrink: 0;
 }
 
 .shop-app .sidebar-footer p {
   margin: 0;
   font-size: 12.5px;
   color: var(--sb-text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shop-app .sidebar-logout {
+  width: 100%;
+  background: none;
+  border: 0.5px solid var(--sb-border);
+  color: var(--sb-text);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.shop-app .sidebar-logout:hover:not(:disabled) {
+  background: var(--sb-hover);
+  color: #fff;
+}
+
+.shop-app .sidebar-logout:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.shop-app .no-shop-access {
+  max-width: 440px;
+  margin: 10vh auto;
+  text-align: center;
+  padding: 0 20px;
+}
+
+.shop-app .no-shop-access .mark {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 20px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--primary-500), var(--primary-600));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 20px;
+}
+
+.shop-app .no-shop-access h1 {
+  font-size: 19px;
+  font-weight: 700;
+  margin: 0 0 10px;
+}
+
+.shop-app .no-shop-access p {
+  font-size: 13.5px;
+  color: var(--ink-muted);
+  margin: 0 0 20px;
+  line-height: 1.5;
+}
+
+.shop-app .no-shop-access .sidebar-logout {
+  width: auto;
+  display: inline-block;
+  border: 0.5px solid var(--border);
+  color: var(--ink);
+}
+
+.shop-app .no-shop-access .sidebar-logout:hover:not(:disabled) {
+  background: var(--neutral-50);
+  color: var(--ink);
 }
 
 /* Main */
