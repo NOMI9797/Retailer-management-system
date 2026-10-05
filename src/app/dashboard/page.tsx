@@ -30,25 +30,6 @@ export default async function DashboardPage() {
 
   return (
     <>
-      {/* Temporary — verifies staging deploys independently of
-          production and that promoting to production actually ships
-          this there too. Remove this whole block once confirmed. */}
-      <div
-        style={{
-          background: "#fef3c7",
-          border: "2px solid #f59e0b",
-          borderRadius: 8,
-          padding: "12px 16px",
-          marginBottom: 16,
-          fontWeight: 700,
-          fontSize: 16,
-          color: "#92400e",
-          textAlign: "center",
-        }}
-      >
-        🧪 PIPELINE TEST BUTTON — if you see this, this deployment includes the test commit
-      </div>
-
       <div className="page-head">
         <div>
           <h1>Shop dashboard</h1>
