@@ -53,7 +53,7 @@ jobs:
       # deliberately bypasses (see the Ignored Build Step in
       # docs/deployment.md). Without this, "the staging URL" would be
       # a different link after every single push.
-      - run: vercel alias set "${{ steps.deploy.outputs.url }}" retailer-management-system-git-staging-noman-ahmads-projects.vercel.app --token=${{ secrets.VERCEL_TOKEN }}
+      - run: vercel alias set "${{ steps.deploy.outputs.url }}" retailer-management-system-git-staging-noman-ahmads-projects.vercel.app --scope=${{ secrets.VERCEL_ORG_ID }} --token=${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
