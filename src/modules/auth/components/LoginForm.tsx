@@ -36,12 +36,20 @@ export function LoginForm() {
 
     setIsSubmitting(true);
     try {
-      await login(result.data);
+      const response = await login(result.data);
+      if (!response.success) {
+        setFormError(response.error);
+        return;
+      }
       const redirectTo = searchParams.get("redirectTo") || "/dashboard";
       router.push(redirectTo);
       router.refresh();
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Something went wrong — please try again");
+    } catch {
+      // A thrown error here means something genuinely unexpected
+      // (network failure, etc) — login() itself returns a result
+      // object for every normal failure case (see AuthResult), it
+      // never throws for "wrong password"/"not found".
+      setFormError("Something went wrong — please try again");
     } finally {
       setIsSubmitting(false);
     }

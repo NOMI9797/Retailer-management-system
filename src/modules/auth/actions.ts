@@ -7,6 +7,20 @@ import { signupSchema, loginSchema, type SignupInput, type LoginInput } from "./
 
 const BCRYPT_ROUNDS = 12;
 
+// Both signup and login RETURN a result object on failure rather than
+// throwing — Next.js production builds strip a thrown Error's message
+// before it reaches the client (replaced with a generic "Server
+// Components render" digest box, regardless of how cleanly the
+// client's own try/catch is written), so a thrown "Incorrect email or
+// password" or "account already exists" would silently become
+// unreadable in production/staging while looking completely fine in
+// local dev. A returned value has no such restriction — the real
+// message always reaches the form. See each caller (LoginForm,
+// SignupForm) for the client-side handling of this shape.
+export type AuthResult =
+  | { success: true; user: { id: string; name: string; email: string } }
+  | { success: false; error: string };
+
 // Auto-links every new signup to the shop, so login works immediately
 // with no manual Prisma Studio step — per explicit "keep it simple for
 // now" decision. The UserShop/multi-tenant machinery (manual
@@ -15,12 +29,12 @@ const BCRYPT_ROUNDS = 12;
 // auto-link line out for an explicit admin-assignment step later
 // without touching anything else (schema, getCurrentShopId,
 // middleware, the dashboard layout's fallback) to re-enable it.
-export async function signup(input: SignupInput) {
+export async function signup(input: SignupInput): Promise<AuthResult> {
   const data = signupSchema.parse(input);
 
   const existing = await db.user.findUnique({ where: { email: data.email.toLowerCase() } });
   if (existing) {
-    throw new Error("An account with this email already exists");
+    return { success: false, error: "An account with this email already exists" };
   }
 
   const passwordHash = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
@@ -43,10 +57,10 @@ export async function signup(input: SignupInput) {
   await db.userShop.create({ data: { userId: user.id, shopId: shop.id, role: "OWNER" } });
 
   await createSession(user.id);
-  return { id: user.id, name: user.name, email: user.email };
+  return { success: true, user: { id: user.id, name: user.name, email: user.email } };
 }
 
-export async function login(input: LoginInput) {
+export async function login(input: LoginInput): Promise<AuthResult> {
   const data = loginSchema.parse(input);
 
   const user = await db.user.findUnique({ where: { email: data.email.toLowerCase() } });
@@ -55,16 +69,16 @@ export async function login(input: LoginInput) {
   // can't be used to enumerate registered emails.
   const invalidMessage = "Incorrect email or password";
   if (!user || !user.isActive) {
-    throw new Error(invalidMessage);
+    return { success: false, error: invalidMessage };
   }
 
   const passwordMatches = await bcrypt.compare(data.password, user.passwordHash);
   if (!passwordMatches) {
-    throw new Error(invalidMessage);
+    return { success: false, error: invalidMessage };
   }
 
   await createSession(user.id);
-  return { id: user.id, name: user.name, email: user.email };
+  return { success: true, user: { id: user.id, name: user.name, email: user.email } };
 }
 
 export async function logout() {

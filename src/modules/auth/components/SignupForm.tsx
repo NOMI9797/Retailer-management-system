@@ -40,11 +40,19 @@ export function SignupForm() {
 
     setIsSubmitting(true);
     try {
-      await signup(result.data);
+      const response = await signup(result.data);
+      if (!response.success) {
+        setFormError(response.error);
+        return;
+      }
       router.push("/dashboard");
       router.refresh();
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Something went wrong — please try again");
+    } catch {
+      // A thrown error here means something genuinely unexpected
+      // (network failure, etc) — signup() itself returns a result
+      // object for every normal failure case (see AuthResult), it
+      // never throws for "email already exists".
+      setFormError("Something went wrong — please try again");
     } finally {
       setIsSubmitting(false);
     }
