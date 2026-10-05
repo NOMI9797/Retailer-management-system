@@ -926,6 +926,29 @@ export async function getCustomerGrainDeposits(customerId: string) {
     orderBy: { receivedAt: "desc" },
   });
 
+  // A "Selling now" deposit (createDepositWithSettlement) never
+  // creates a customer-owned GrainBatch at all — it goes straight to
+  // a shop-owned batch (ownerCustomerId: null, sourceBatchId: null),
+  // by design (see that function's comment). That means it's
+  // completely invisible to the query above, which only looks at
+  // batches this customer actually owns — a customer who sold
+  // everything at drop-off, leaving nothing "for later," would show
+  // zero grain history at all. The only remaining trace of the
+  // customer on that purchase is the AccountTransaction
+  // payCustomerForGrain created, linked via linkedGrainBatchId — same
+  // link summarizeSettlements already reads for a transfer-purchase's
+  // settlement row. Found here and folded in as a synthetic
+  // "already-settled, no original deposit" batch so it renders
+  // through the exact same settlements path below, instead of needing
+  // a third row kind in CustomerGrainSection.
+  const settleNowPayments = await db.accountTransaction.findMany({
+    where: {
+      customerAccount: { customerId },
+      linkedGrainBatch: { ownerCustomerId: null, sourceBatchId: null, product: { shopId } },
+    },
+    include: { linkedGrainBatch: { include: { product: { include: { unit: true } } } } },
+  });
+
   const udhaarEntries = await getStockUdhaarSummary(customerId);
 
   return {
@@ -934,16 +957,53 @@ export async function getCustomerGrainDeposits(customerId: string) {
     // fields stay typed as Decimal even though the runtime value is a
     // number), which breaks a Client Component reading these fields
     // directly. Same reasoning as getCustomer/listCustomers.
-    batches: batches.map((batch) => ({
-      id: batch.id,
-      quantityIn: Number(batch.quantityIn),
-      quantitySold: Number(batch.quantitySold),
-      quantityTransferred: Number(batch.quantityTransferred),
-      rate: batch.rate !== null ? Number(batch.rate) : null,
-      receivedAt: batch.receivedAt,
-      product: { id: batch.product.id, name: batch.product.name, unitName: batch.product.unit.name },
-      ...summarizeSettlements(batch, batch.transferredBatches),
-    })),
+    batches: [
+      ...batches.map((batch) => ({
+        id: batch.id,
+        quantityIn: Number(batch.quantityIn),
+        quantitySold: Number(batch.quantitySold),
+        quantityTransferred: Number(batch.quantityTransferred),
+        rate: batch.rate !== null ? Number(batch.rate) : null,
+        receivedAt: batch.receivedAt,
+        product: { id: batch.product.id, name: batch.product.name, unitName: batch.product.unit.name },
+        ...summarizeSettlements(batch, batch.transferredBatches),
+      })),
+      ...settleNowPayments
+        .filter((txn) => txn.linkedGrainBatch !== null)
+        .map((txn) => {
+          const b = txn.linkedGrainBatch!;
+          const quantity = Number(b.quantityIn);
+          const rate = Number(b.rate);
+          return {
+            id: b.id,
+            quantityIn: quantity,
+            quantitySold: Number(b.quantitySold),
+            quantityTransferred: 0,
+            rate,
+            receivedAt: b.receivedAt,
+            product: { id: b.product.id, name: b.product.name, unitName: b.product.unit.name },
+            settlements: [
+              {
+                batchId: b.id,
+                quantity,
+                rate,
+                receivedAt: b.receivedAt,
+                paymentMethod: txn.paymentMethod,
+              },
+            ],
+            settledQuantity: quantity,
+            settledTotalAmount: quantity * rate,
+            unsettledQuantity: 0,
+          };
+        }),
+      // The two arrays above are each individually sorted (the DB
+      // query's orderBy, and settleNowPayments' natural insertion
+      // order), but concatenating them interleaves dates — without
+      // re-sorting the merged list, GrainBatchList's date-header
+      // grouping (which only inserts a header when the date differs
+      // from the PREVIOUS row) sees the same date appear twice,
+      // non-consecutively, and renders two separate headers for it.
+    ].sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime()),
     stockUdhaar: udhaarEntries,
   };
 }
@@ -970,13 +1030,60 @@ export async function listCustomerBatchesForProduct(productId: string) {
     orderBy: { receivedAt: "desc" },
   });
 
-  return batches.map((batch) => ({
-    id: batch.id,
-    customerId: batch.ownerCustomerId!,
-    customerName: batch.ownerCustomer!.name,
-    quantityIn: Number(batch.quantityIn),
-    quantityTransferred: Number(batch.quantityTransferred),
-    receivedAt: batch.receivedAt,
-    ...summarizeSettlements(batch, batch.transferredBatches),
-  }));
+  // See getCustomerGrainDeposits' comment on settleNowPayments — a
+  // "Selling now" deposit never creates a customer-owned GrainBatch,
+  // so without this it's invisible here too: a customer who sold
+  // everything at drop-off never gets a row on this product's table
+  // at all. Found via the same payCustomerForGrain-created
+  // AccountTransaction link, scoped to this product instead of a
+  // customer.
+  const settleNowPayments = await db.accountTransaction.findMany({
+    where: {
+      linkedGrainBatch: { ownerCustomerId: null, sourceBatchId: null, productId, product: { shopId } },
+    },
+    include: { linkedGrainBatch: true, customerAccount: { include: { customer: true } } },
+  });
+
+  return [
+    ...batches.map((batch) => ({
+      id: batch.id,
+      customerId: batch.ownerCustomerId!,
+      customerName: batch.ownerCustomer!.name,
+      quantityIn: Number(batch.quantityIn),
+      quantityTransferred: Number(batch.quantityTransferred),
+      receivedAt: batch.receivedAt,
+      ...summarizeSettlements(batch, batch.transferredBatches),
+    })),
+    ...settleNowPayments
+      .filter((txn) => txn.linkedGrainBatch !== null)
+      .map((txn) => {
+        const b = txn.linkedGrainBatch!;
+        const quantity = Number(b.quantityIn);
+        const rate = Number(b.rate);
+        return {
+          id: b.id,
+          customerId: txn.customerAccount.customerId,
+          customerName: txn.customerAccount.customer.name,
+          quantityIn: quantity,
+          quantityTransferred: 0,
+          receivedAt: b.receivedAt,
+          settlements: [
+            {
+              batchId: b.id,
+              quantity,
+              rate,
+              receivedAt: b.receivedAt,
+              paymentMethod: txn.paymentMethod,
+            },
+          ],
+          settledQuantity: quantity,
+          settledTotalAmount: quantity * rate,
+          unsettledQuantity: 0,
+        };
+      }),
+    // Re-sort after merging — see getCustomerGrainDeposits' identical
+    // comment on why concatenating two already-sorted arrays still
+    // needs a final sort, so GrainBatchList's date-header grouping
+    // never sees the same date twice, non-consecutively.
+  ].sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime());
 }
