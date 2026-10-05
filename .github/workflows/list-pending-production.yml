@@ -1,0 +1,44 @@
+name: List Pending Commits
+
+# Read-only — lists every commit on staging that main doesn't have
+# yet, with full detail (SHA, author, date, message), so you can
+# review exactly what's waiting before deciding what to promote.
+# Takes seconds, deploys nothing. Run this first, copy whichever
+# commit SHA you want, then paste it into "Deploy Production"'s own
+# Run workflow form (leave that field blank instead to ship
+# everything listed here at once).
+on:
+  workflow_dispatch:
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: List commits pending for production
+        run: |
+          git fetch origin main staging
+
+          AHEAD=$(git rev-list --count origin/main..origin/staging)
+
+          echo "## Staging vs. production" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$AHEAD" -eq 0 ]; then
+            echo "Production is already fully caught up with staging — nothing pending." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
+          echo "Staging is **$AHEAD commit(s)** ahead of production. Oldest first:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| # | Commit | Author | Date | Message |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|--------|--------|------|---------|" >> $GITHUB_STEP_SUMMARY
+          git log origin/main..origin/staging --reverse --pretty=format:"%h|%an|%ad|%s" --date=short | \
+            awk -F'|' '{printf "| %d | `%s` | %s | %s | %s |\n", NR, $1, $2, $3, $4}' >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**To deploy all of the above at once:** Actions → Deploy Production → Run workflow → leave the commit field blank → type \`deploy\` → Run." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**To deploy only up through a specific commit** (e.g. just #1–#2, holding back #3–#4): copy that commit's SHA from the table above into Deploy Production's commit field." >> $GITHUB_STEP_SUMMARY
