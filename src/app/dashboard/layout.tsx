@@ -86,7 +86,13 @@ export default async function DashboardLayout({
       <aside className="sidebar">
         <div className="shop-id">
           <div className="mark">S</div>
-          <p>{shopName}</p>
+          {/* Always "Shoaib Traders", regardless of the logged-in
+              user's real Shop.name — this is a single-shop app in
+              practice, and the sidebar label shouldn't shift per
+              account (e.g. a test signup showing "noman's Shop").
+              shopName itself stays real (used above to decide
+              whether a shop is assigned at all). */}
+          <p>Shoaib Traders</p>
           <EnvBadge />
         </div>
 
