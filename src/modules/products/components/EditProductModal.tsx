@@ -52,7 +52,7 @@ export function EditProductModal({
     setError(null);
     setIsSaving(true);
     try {
-      await updateProduct({
+      const result = await updateProduct({
         id: product.id,
         categoryId,
         unitId,
@@ -61,10 +61,14 @@ export function EditProductModal({
         sellPrice: Number(sellPrice),
         quantity: Number(quantity),
       });
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
       showToast("Product updated");
       onSaved();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update product");
+    } catch {
+      setError("Failed to update product");
     } finally {
       setIsSaving(false);
     }

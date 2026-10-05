@@ -47,11 +47,15 @@ export function AccountTypeFieldList({
     setError(null);
     setIsSaving(true);
     try {
-      await updateAccountTypeField({ id: fieldId, ...editDraft });
+      const result = await updateAccountTypeField({ id: fieldId, ...editDraft });
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
       setEditingId(null);
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update field");
+    } catch {
+      setError("Failed to update field");
     } finally {
       setIsSaving(false);
     }
@@ -61,10 +65,14 @@ export function AccountTypeFieldList({
     setError(null);
     setIsSaving(true);
     try {
-      await deleteAccountTypeField(fieldId);
+      const result = await deleteAccountTypeField(fieldId);
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete field");
+    } catch {
+      setError("Failed to delete field");
     } finally {
       setIsSaving(false);
     }
@@ -75,7 +83,7 @@ export function AccountTypeFieldList({
     setError(null);
     setIsSaving(true);
     try {
-      await addAccountTypeField({
+      const result = await addAccountTypeField({
         accountTypeId,
         fieldName: newField.fieldName,
         fieldLabel: newField.fieldLabel,
@@ -83,11 +91,15 @@ export function AccountTypeFieldList({
         isRequired: newField.isRequired,
         displayOrder: fields.length,
       });
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
       setNewField({ fieldName: "", fieldLabel: "", fieldType: "TEXT", isRequired: false });
       setShowAdd(false);
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add field");
+    } catch {
+      setError("Failed to add field");
     } finally {
       setIsSaving(false);
     }

@@ -98,12 +98,12 @@ export function EditSaleModal({
   );
 
   async function submitUpdate() {
-    if (!saleKind) return;
+    if (!saleKind) return { success: false, error: "Sale kind not loaded" };
     const cash = Number(payments.cash) || 0;
     const account = Number(payments.account) || 0;
     const credit = Number(payments.credit) || 0;
 
-    await updateDailySale({
+    return await updateDailySale({
       saleId,
       items:
         saleKind === "PRODUCT"
@@ -154,16 +154,16 @@ export function EditSaleModal({
     }
 
     setIsSaving(true);
-    try {
-      await submitUpdate();
-      showToast("Sale updated");
-      onClose();
-      router.refresh();
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to update sale");
-    } finally {
+    const response = await submitUpdate();
+    if (response && 'success' in response && !response.success) {
+      setSaveError((response as { success: false; error: string }).error);
       setIsSaving(false);
+      return;
     }
+    showToast("Sale updated");
+    onClose();
+    setIsSaving(false);
+    router.refresh();
   }
 
   return (

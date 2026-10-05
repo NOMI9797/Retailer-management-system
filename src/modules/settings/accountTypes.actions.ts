@@ -14,6 +14,7 @@ import {
   type AddAccountTypeFieldInput,
   type UpdateAccountTypeFieldInput,
 } from "./schema";
+import { ok, fail, type ActionResult } from "@/lib/actionResult";
 
 const ENTITY = "accountTypes";
 
@@ -60,7 +61,11 @@ export const listAccountTypes = cache(async (includeInactive = false) => {
 // Fetches one account type with its fields — used by the detail view
 // (clicking an account type's name). Not cached: it's a single-row
 // read, and the detail page needs to reflect field add/edit/delete
-// immediately.
+// immediately. Left throwing (not converted to ActionResult): this is
+// a data-fetch called from a Server Component during render, not a
+// form submission — its return type is also reused via
+// ReturnType<typeof getAccountType> by AccountTypeFieldList's Field
+// type, so wrapping it would ripple into that type derivation too.
 export async function getAccountType(id: string) {
   const shopId = await getCurrentShopId();
 
@@ -73,16 +78,18 @@ export async function getAccountType(id: string) {
   return accountType;
 }
 
-export async function updateAccountType(input: UpdateAccountTypeInput) {
+export async function updateAccountType(
+  input: UpdateAccountTypeInput
+): Promise<ActionResult<Awaited<ReturnType<typeof db.accountType.update>>>> {
   const shopId = await getCurrentShopId();
   const { id, ...data } = updateAccountTypeSchema.parse(input);
 
   const existing = await db.accountType.findFirst({ where: { id, shopId } });
-  if (!existing) throw new Error("Account type not found");
+  if (!existing) return fail("Account type not found");
 
   const accountType = await db.accountType.update({ where: { id }, data });
   invalidateShopCache(ENTITY, shopId);
-  return accountType;
+  return ok(accountType);
 }
 
 // Called once per shop the first time any account-type-dependent
@@ -106,21 +113,25 @@ export async function ensureDefaultAccountType() {
 
 // ── Custom fields (account type detail view) ────────────
 
-export async function addAccountTypeField(input: AddAccountTypeFieldInput) {
+export async function addAccountTypeField(
+  input: AddAccountTypeFieldInput
+): Promise<ActionResult<Awaited<ReturnType<typeof db.accountTypeField.create>>>> {
   const shopId = await getCurrentShopId();
   const { accountTypeId, ...data } = addAccountTypeFieldSchema.parse(input);
 
   const accountType = await db.accountType.findFirst({ where: { id: accountTypeId, shopId } });
-  if (!accountType) throw new Error("Account type not found");
+  if (!accountType) return fail("Account type not found");
 
   const field = await db.accountTypeField.create({
     data: { accountTypeId, ...data },
   });
   invalidateShopCache(ENTITY, shopId);
-  return field;
+  return ok(field);
 }
 
-export async function updateAccountTypeField(input: UpdateAccountTypeFieldInput) {
+export async function updateAccountTypeField(
+  input: UpdateAccountTypeFieldInput
+): Promise<ActionResult<Awaited<ReturnType<typeof db.accountTypeField.update>>>> {
   const shopId = await getCurrentShopId();
   const { id, ...data } = updateAccountTypeFieldSchema.parse(input);
 
@@ -129,11 +140,11 @@ export async function updateAccountTypeField(input: UpdateAccountTypeFieldInput)
   const existing = await db.accountTypeField.findFirst({
     where: { id, accountType: { shopId } },
   });
-  if (!existing) throw new Error("Field not found");
+  if (!existing) return fail("Field not found");
 
   const field = await db.accountTypeField.update({ where: { id }, data });
   invalidateShopCache(ENTITY, shopId);
-  return field;
+  return ok(field);
 }
 
 // TODO(Customers module): once customers can hold AccountFieldValue
@@ -143,14 +154,15 @@ export async function updateAccountTypeField(input: UpdateAccountTypeFieldInput)
 // the Customers module doesn't exist yet and no AccountFieldValue row
 // can exist for any field. Revisit this as part of the Customers
 // module's definition of done (Milestone 2, build step 3), not later.
-export async function deleteAccountTypeField(id: string) {
+export async function deleteAccountTypeField(id: string): Promise<ActionResult<null>> {
   const shopId = await getCurrentShopId();
 
   const existing = await db.accountTypeField.findFirst({
     where: { id, accountType: { shopId } },
   });
-  if (!existing) throw new Error("Field not found");
+  if (!existing) return fail("Field not found");
 
   await db.accountTypeField.delete({ where: { id } });
   invalidateShopCache(ENTITY, shopId);
+  return ok(null);
 }

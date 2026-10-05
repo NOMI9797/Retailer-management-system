@@ -47,13 +47,17 @@ export function PayExpenseDebtModal({
 
     setIsSaving(true);
     try {
-      await payExpenseDebt({ expenseId, amount: parsedAmount, paymentMethod, bankAccountId: bankAccountId || undefined });
+      const result = await payExpenseDebt({ expenseId, amount: parsedAmount, paymentMethod, bankAccountId: bankAccountId || undefined });
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
       showToast(`Paid ${formatMoney(parsedAmount)} — ${description}`);
       setOpen(false);
       router.refresh();
       onDone?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record payment");
+    } catch {
+      setError("Failed to record payment");
     } finally {
       setIsSaving(false);
     }

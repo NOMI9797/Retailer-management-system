@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { cachedShopQuery, invalidateShopCache } from "@/lib/cache";
 import { unitSchema, updateUnitSchema, type UnitInput, type UpdateUnitInput } from "./schema";
+import { ok, fail, type ActionResult } from "@/lib/actionResult";
 
 const ENTITY = "units";
 
@@ -34,14 +35,16 @@ export const listUnits = cache(async (includeInactive = false) => {
   );
 });
 
-export async function updateUnit(input: UpdateUnitInput) {
+export async function updateUnit(
+  input: UpdateUnitInput
+): Promise<ActionResult<Awaited<ReturnType<typeof db.unit.update>>>> {
   const shopId = await getCurrentShopId();
   const { id, ...data } = updateUnitSchema.parse(input);
 
   const existing = await db.unit.findFirst({ where: { id, shopId } });
-  if (!existing) throw new Error("Unit not found");
+  if (!existing) return fail("Unit not found");
 
   const unit = await db.unit.update({ where: { id }, data });
   invalidateShopCache(ENTITY, shopId);
-  return unit;
+  return ok(unit);
 }

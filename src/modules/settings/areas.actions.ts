@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { cachedShopQuery, invalidateShopCache } from "@/lib/cache";
 import { areaSchema, updateAreaSchema, type AreaInput, type UpdateAreaInput } from "./schema";
+import { ok, fail, type ActionResult } from "@/lib/actionResult";
 
 const ENTITY = "areas";
 
@@ -35,14 +36,14 @@ export const listAreas = cache(async () => {
   );
 });
 
-export async function updateArea(input: UpdateAreaInput) {
+export async function updateArea(input: UpdateAreaInput): Promise<ActionResult<{ id: string; name: string }>> {
   const shopId = await getCurrentShopId();
   const { id, name } = updateAreaSchema.parse(input);
 
   const existing = await db.area.findFirst({ where: { id, shopId } });
-  if (!existing) throw new Error("Area not found");
+  if (!existing) return fail("Area not found");
 
   const area = await db.area.update({ where: { id }, data: { name } });
   invalidateShopCache(ENTITY, shopId);
-  return area;
+  return ok(area);
 }

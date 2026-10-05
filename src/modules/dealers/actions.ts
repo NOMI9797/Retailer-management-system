@@ -22,6 +22,8 @@ import {
   type PayDealerDebtInput,
 } from "./schema";
 
+type Result<T> = { success: true; data: T } | { success: false; error: string };
+
 const ENTITY = "dealers";
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -97,11 +99,11 @@ export async function updateDealer(input: UpdateDealerInput) {
   const { id, ...data } = updateDealerSchema.parse(input);
 
   const existing = await db.dealer.findFirst({ where: { id, shopId } });
-  if (!existing) throw new Error("Dealer not found");
+  if (!existing) return { success: false, error: "Dealer not found" };
 
   const dealer = await db.dealer.update({ where: { id }, data });
   invalidateShopCache(ENTITY, shopId);
-  return dealer;
+  return { success: true, data: dealer };
 }
 
 // One dealer's full detail — balance, every product purchase, every
@@ -118,7 +120,7 @@ export async function getDealer(id: string) {
       batches: { include: { product: { include: { unit: true } } }, orderBy: { receivedAt: "desc" } },
     },
   });
-  if (!dealer) throw new Error("Dealer not found");
+  if (!dealer) return { success: false, error: "Dealer not found" };
 
   // Only one of purchases (PRODUCTS dealer) / batches (GRAIN dealer)
   // is ever non-empty for a given dealer, per Dealer.type's "one or
@@ -140,51 +142,54 @@ export async function getDealer(id: string) {
   const totalPaid = totalPurchased - Math.max(currentBalance, 0);
 
   return {
-    id: dealer.id,
-    name: dealer.name,
-    phone: dealer.phone,
-    type: dealer.type,
-    isActive: dealer.isActive,
-    currentBalance,
-    totalPurchased,
-    totalPaid,
-    purchases: dealer.purchases.map((p) => ({
-      id: p.id,
-      productId: p.productId,
-      productName: p.product.name,
-      quantity: Number(p.quantity),
-      costPrice: Number(p.costPrice),
-      amount: Number(p.quantity) * Number(p.costPrice),
-      purchaseDate: p.purchaseDate,
-      paymentMethod: p.paymentMethod,
-      notes: p.notes,
-    })),
-    grainBatches: dealer.batches.map((b) => ({
-      id: b.id,
-      productId: b.productId,
-      productName: b.product.name,
-      unitName: b.product.unit.name,
-      quantity: Number(b.quantityIn),
-      rate: b.rate !== null ? Number(b.rate) : 0,
-      amount: Number(b.quantityIn) * (b.rate !== null ? Number(b.rate) : 0),
-      receivedAt: b.receivedAt,
-    })),
-    // isSettledPurchase rows are excluded here — this table is Udhaar
-    // activity specifically ("Owed to dealer" / "Paid dealer"), and a
-    // Cash/Account purchase was never owed at all; it already shows up
-    // in the Purchases/Grain batches table above with its own payment
-    // method column. See isSettledPurchase's schema comment.
-    transactions: (dealer.account?.transactions ?? [])
-      .filter((t) => !t.isSettledPurchase)
-      .map((t) => ({
-        id: t.id,
-        direction: t.direction,
-        amount: Number(t.amount),
-        paymentMethod: t.paymentMethod,
-        transactionDate: t.transactionDate,
-        isDealerSale: t.isDealerSale,
-        notes: t.notes,
+    success: true,
+    data: {
+      id: dealer.id,
+      name: dealer.name,
+      phone: dealer.phone,
+      type: dealer.type,
+      isActive: dealer.isActive,
+      currentBalance,
+      totalPurchased,
+      totalPaid,
+      purchases: dealer.purchases.map((p) => ({
+        id: p.id,
+        productId: p.productId,
+        productName: p.product.name,
+        quantity: Number(p.quantity),
+        costPrice: Number(p.costPrice),
+        amount: Number(p.quantity) * Number(p.costPrice),
+        purchaseDate: p.purchaseDate,
+        paymentMethod: p.paymentMethod,
+        notes: p.notes,
       })),
+      grainBatches: dealer.batches.map((b) => ({
+        id: b.id,
+        productId: b.productId,
+        productName: b.product.name,
+        unitName: b.product.unit.name,
+        quantity: Number(b.quantityIn),
+        rate: b.rate !== null ? Number(b.rate) : 0,
+        amount: Number(b.quantityIn) * (b.rate !== null ? Number(b.rate) : 0),
+        receivedAt: b.receivedAt,
+      })),
+      // isSettledPurchase rows are excluded here — this table is Udhaar
+      // activity specifically ("Owed to dealer" / "Paid dealer"), and a
+      // Cash/Account purchase was never owed at all; it already shows up
+      // in the Purchases/Grain batches table above with its own payment
+      // method column. See isSettledPurchase's schema comment.
+      transactions: (dealer.account?.transactions ?? [])
+        .filter((t) => !t.isSettledPurchase)
+        .map((t) => ({
+          id: t.id,
+          direction: t.direction,
+          amount: Number(t.amount),
+          paymentMethod: t.paymentMethod,
+          transactionDate: t.transactionDate,
+          isDealerSale: t.isDealerSale,
+          notes: t.notes,
+        })),
+    },
   };
 }
 
@@ -200,10 +205,10 @@ export async function createDealerProductPurchase(input: DealerProductPurchaseIn
   const data = dealerProductPurchaseSchema.parse(input);
 
   const dealer = await db.dealer.findFirst({ where: { id: data.dealerId, shopId, type: "PRODUCTS" } });
-  if (!dealer) throw new Error("Products dealer not found");
+  if (!dealer) return { success: false, error: "Products dealer not found" };
 
   const product = await db.product.findFirst({ where: { id: data.productId, shopId, stockKind: "SIMPLE" } });
-  if (!product) throw new Error("Product not found");
+  if (!product) return { success: false, error: "Product not found" };
 
   const purchaseDate = data.purchaseDate ? parseLocalDateStart(data.purchaseDate) : new Date();
   const amount = data.quantity * data.costPrice;
@@ -270,7 +275,10 @@ export async function createDealerProductPurchase(input: DealerProductPurchaseIn
   });
 
   invalidateShopCache(ENTITY, shopId);
-  return { ...purchase, quantity: Number(purchase.quantity), costPrice: Number(purchase.costPrice) };
+  return {
+    success: true,
+    data: { ...purchase, quantity: Number(purchase.quantity), costPrice: Number(purchase.costPrice) },
+  };
 }
 
 // Every Shop Purchase across every PRODUCTS dealer — the Dealer (Shop
@@ -369,10 +377,10 @@ export async function createDealerGrainPurchase(input: DealerGrainPurchaseInput)
   const data = dealerGrainPurchaseSchema.parse(input);
 
   const dealer = await db.dealer.findFirst({ where: { id: data.dealerId, shopId, type: "GRAIN" } });
-  if (!dealer) throw new Error("Grain dealer not found");
+  if (!dealer) return { success: false, error: "Grain dealer not found" };
 
   const product = await db.product.findFirst({ where: { id: data.productId, shopId, stockKind: "GRAIN" } });
-  if (!product) throw new Error("Product not found");
+  if (!product) return { success: false, error: "Product not found" };
 
   const amount = data.quantity * data.rate;
 
@@ -427,7 +435,10 @@ export async function createDealerGrainPurchase(input: DealerGrainPurchaseInput)
   });
 
   invalidateShopCache(ENTITY, shopId);
-  return { ...batch, quantityIn: Number(batch.quantityIn), rate: batch.rate !== null ? Number(batch.rate) : null };
+  return {
+    success: true,
+    data: { ...batch, quantityIn: Number(batch.quantityIn), rate: batch.rate !== null ? Number(batch.rate) : null },
+  };
 }
 
 // Every grain batch bought from GRAIN dealers, across every dealer —
@@ -496,7 +507,7 @@ export async function recordDealerDebt(input: RecordDealerDebtInput) {
   const data = recordDealerDebtSchema.parse(input);
 
   const dealer = await db.dealer.findFirst({ where: { id: data.dealerId, shopId }, include: { account: true } });
-  if (!dealer || !dealer.account) throw new Error("Dealer not found");
+  if (!dealer || !dealer.account) return { success: false, error: "Dealer not found" };
 
   await db.$transaction(async (tx) => {
     await tx.dealerTransaction.create({
@@ -513,6 +524,7 @@ export async function recordDealerDebt(input: RecordDealerDebtInput) {
       data: { currentBalance: { increment: data.amount } },
     });
   });
+  return { success: true, data: undefined };
 }
 
 // Pays down what the shop owes a dealer — amount is capped at the
@@ -526,13 +538,14 @@ export async function payDealerDebt(input: PayDealerDebtInput) {
   const data = payDealerDebtSchema.parse(input);
 
   const dealer = await db.dealer.findFirst({ where: { id: data.dealerId, shopId }, include: { account: true } });
-  if (!dealer || !dealer.account) throw new Error("Dealer not found");
+  if (!dealer || !dealer.account) return { success: false, error: "Dealer not found" };
 
   const outstanding = Number(dealer.account.currentBalance);
   if (data.amount > outstanding + 0.01) {
-    throw new Error(
-      `This payment (Rs ${data.amount}) is more than what's actually owed to ${dealer.name} (Rs ${outstanding}) — a payment can't exceed what's owed.`
-    );
+    return {
+      success: false,
+      error: `This payment (Rs ${data.amount}) is more than what's actually owed to ${dealer.name} (Rs ${outstanding}) — a payment can't exceed what's owed.`,
+    };
   }
 
   await db.$transaction(async (tx) => {
@@ -554,4 +567,5 @@ export async function payDealerDebt(input: PayDealerDebtInput) {
       await postToBankAccount(tx, data.bankAccountId, -data.amount);
     }
   });
+  return { success: true, data: undefined };
 }

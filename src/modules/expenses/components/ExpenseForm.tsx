@@ -55,7 +55,11 @@ export function ExpenseForm({
         bankAccountId: bankAccountId || undefined,
       };
       if (expense) {
-        await updateExpense({ id: expense.id, ...data });
+        const result = await updateExpense({ id: expense.id, ...data });
+        if (!result.success) {
+          setError(result.error);
+          return;
+        }
         showToast("Expense updated");
       } else {
         await createExpense(data);

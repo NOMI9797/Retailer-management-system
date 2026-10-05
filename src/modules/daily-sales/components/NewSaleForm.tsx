@@ -126,7 +126,7 @@ export function NewSaleForm({
     const account = Number(payments.account) || 0;
     const credit = Number(payments.credit) || 0;
 
-    await createDailySale({
+    return await createDailySale({
       customerId,
       dealerId: buyerKind === "DEALER" ? dealerId : undefined,
       saleDate,
@@ -190,21 +190,21 @@ export function NewSaleForm({
     }
 
     setIsSaving(true);
-    try {
-      await submitSale();
-      showToast(`Sale recorded — ${formatMoney(itemTotal)}`);
-
-      if (onSaved) {
-        onSaved();
-      } else {
-        router.push("/dashboard/daily-sales");
-        router.refresh();
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record sale");
-    } finally {
+    const response = await submitSale();
+    if (response && 'error' in response && !('data' in response)) {
+      setError((response as { error: string }).error);
       setIsSaving(false);
+      return;
     }
+    showToast(`Sale recorded — ${formatMoney(itemTotal)}`);
+
+    if (onSaved) {
+      onSaved();
+    } else {
+      router.push("/dashboard/daily-sales");
+      router.refresh();
+    }
+    setIsSaving(false);
   }
 
   return (

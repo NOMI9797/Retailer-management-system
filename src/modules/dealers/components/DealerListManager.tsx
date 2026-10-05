@@ -22,25 +22,25 @@ export function DealerListManager({ dealers }: { dealers: Dealers }) {
 
   async function handleRename(id: string) {
     setError(null);
-    try {
-      await updateDealer({ id, name: editingName, phone: editingPhone || undefined });
-      showToast("Dealer updated");
-      setEditingId(null);
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update dealer");
+    const response = await updateDealer({ id, name: editingName, phone: editingPhone || undefined });
+    if (response && 'error' in response && !('data' in response)) {
+      setError((response as { error: string }).error);
+      return;
     }
+    showToast("Dealer updated");
+    setEditingId(null);
+    router.refresh();
   }
 
   async function handleToggle(id: string, isActive: boolean) {
     setError(null);
-    try {
-      await updateDealer({ id, isActive: !isActive });
-      showToast(isActive ? "Dealer deactivated" : "Dealer activated");
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update dealer");
+    const response = await updateDealer({ id, isActive: !isActive });
+    if (response && 'error' in response && !('data' in response)) {
+      setError((response as { error: string }).error);
+      return;
     }
+    showToast(isActive ? "Dealer deactivated" : "Dealer activated");
+    router.refresh();
   }
 
   return (

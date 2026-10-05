@@ -88,7 +88,7 @@ export function ShopBorrowedLoanModal({ areas, bankAccounts = [] }: { areas: Are
             ).id;
       const customerName = selection.name;
 
-      await createShopBorrowedLoan({
+      const result = await createShopBorrowedLoan({
         customerId,
         amount: Number(amount),
         paymentMethod,
@@ -97,6 +97,10 @@ export function ShopBorrowedLoanModal({ areas, bankAccounts = [] }: { areas: Are
         durationUnit,
         notes: notes || undefined,
       });
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
       showToast(`Borrowed from ${customerName} — ${formatMoney(Number(amount))}`);
       close();
       router.refresh();

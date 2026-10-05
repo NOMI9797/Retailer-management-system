@@ -68,15 +68,23 @@ export function MonthlyExpenseForm({
         bankAccountId: bankAccountId || undefined,
       };
       if (expense) {
-        await updateMonthlyExpense({ id: expense.id, ...data });
+        const result = await updateMonthlyExpense({ id: expense.id, ...data });
+        if (!result.success) {
+          setError(result.error);
+          return;
+        }
         showToast("Monthly expense updated");
       } else {
-        await createMonthlyExpense(data);
+        const result = await createMonthlyExpense(data);
+        if (!result.success) {
+          setError(result.error);
+          return;
+        }
         showToast(`Monthly expense added — ${formatMoney(Number(amount))}`);
       }
       onSaved?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save monthly expense");
+    } catch {
+      setError("Failed to save monthly expense");
     } finally {
       setIsSaving(false);
     }

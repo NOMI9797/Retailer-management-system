@@ -29,7 +29,12 @@ export default async function DealerDetailPage({
   const { id } = await params;
   const { tab: rawTab } = await searchParams;
   const tab: Tab = rawTab === "udhaar-history" ? "udhaar-history" : "purchases";
-  const [dealer, bankAccounts] = await Promise.all([getDealer(id), listBankAccounts()]);
+  const [dealerResult, bankAccounts] = await Promise.all([getDealer(id), listBankAccounts()]);
+
+  if (!dealerResult.success) {
+    return <div>Dealer not found</div>;
+  }
+  const dealer = dealerResult.data as NonNullable<typeof dealerResult.data>;
 
   return (
     <div>

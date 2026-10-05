@@ -102,6 +102,9 @@ export function GrainBatchForm({
       }
 
       if (sellingNow) {
+        // Not yet converted to ActionResult (stock/actions.ts is a
+        // separate, pending conversion) — still throws on failure,
+        // caught below same as createCustomer.
         await createDepositWithSettlement({
           productId,
           customerId: effectiveCustomerId!,
@@ -112,7 +115,7 @@ export function GrainBatchForm({
         });
         showToast("Purchased from customer — added to shop stock");
       } else {
-        await createGrainBatch({
+        const result = await createGrainBatch({
           productId,
           ownerCustomerId: owner === "CUSTOMER" ? effectiveCustomerId : undefined,
           quantityIn: Number(quantityIn),
@@ -120,12 +123,16 @@ export function GrainBatchForm({
           // priced at deposit time (Stock Management spec, section 2).
           rate: owner === "CUSTOMER" ? undefined : Number(rate),
         });
+        if (!result.success) {
+          setError(result.error);
+          return;
+        }
         showToast("Batch added");
       }
       resetForm();
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add batch");
+      setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setIsSaving(false);
     }

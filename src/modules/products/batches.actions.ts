@@ -6,10 +6,13 @@ import { getCurrentShopId } from "@/lib/tenant";
 import { serializeDecimals } from "@/lib/serialize";
 import { grainBatchSchema, type GrainBatchInput } from "./schema";
 import { postToPooledGrainStock } from "@/modules/stock/actions";
+import { ok, fail, type ActionResult } from "@/lib/actionResult";
 
 const DEFAULT_PAGE_SIZE = 50;
 
-export async function createGrainBatch(input: GrainBatchInput) {
+export async function createGrainBatch(
+  input: GrainBatchInput
+): Promise<ActionResult<ReturnType<typeof serializeDecimals>>> {
   const shopId = await getCurrentShopId();
   const data = grainBatchSchema.parse(input);
 
@@ -18,7 +21,7 @@ export async function createGrainBatch(input: GrainBatchInput) {
   const product = await db.product.findFirst({
     where: { id: data.productId, shopId },
   });
-  if (!product) throw new Error("Product not found");
+  if (!product) return fail("Product not found");
 
   if (data.ownerCustomerId) {
     // A customer-deposited batch just needs a valid, shop-scoped
@@ -36,12 +39,12 @@ export async function createGrainBatch(input: GrainBatchInput) {
     const customer = await db.customer.findFirst({
       where: { id: data.ownerCustomerId, shopId },
     });
-    if (!customer) throw new Error("Customer not found");
+    if (!customer) return fail("Customer not found");
   } else if (data.rate === undefined) {
     // A shop-owned batch is the shop's actual inventory — it must
     // always have a real cost basis, unlike a customer's
     // store-for-later deposit.
-    throw new Error("Rate is required for a shop-owned batch");
+    return fail("Rate is required for a shop-owned batch");
   }
 
   const batch = await db.$transaction(async (tx) => {
@@ -62,7 +65,7 @@ export async function createGrainBatch(input: GrainBatchInput) {
     }
     return batch;
   });
-  return serializeDecimals(batch);
+  return ok(serializeDecimals(batch));
 }
 
 function summarizeBatches(

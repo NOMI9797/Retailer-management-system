@@ -17,7 +17,11 @@ export function AccountTypeRowActions({ accountType }: { accountType: AccountTyp
   async function toggleActive() {
     setIsSaving(true);
     try {
-      await updateAccountType({ id: accountType.id, isActive: !accountType.isActive });
+      const result = await updateAccountType({ id: accountType.id, isActive: !accountType.isActive });
+      if (!result.success) {
+        showToast(result.error, "error");
+        return;
+      }
       showToast(accountType.isActive ? "Account type deactivated" : "Account type activated");
       router.refresh();
     } finally {

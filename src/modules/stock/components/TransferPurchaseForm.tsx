@@ -51,21 +51,21 @@ export function TransferPurchaseForm({
     }
 
     setIsSaving(true);
-    try {
-      await createTransferPurchase({
-        grainBatchId,
-        quantity: parsedQuantity,
-        rate: parsedRate,
-        paymentMethod,
-        bankAccountId: bankAccountId || undefined,
-      });
-      showToast(`Purchased ${parsedQuantity} ${unitName} from customer`);
-      onSaved();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record purchase");
-    } finally {
+    const response = await createTransferPurchase({
+      grainBatchId,
+      quantity: parsedQuantity,
+      rate: parsedRate,
+      paymentMethod,
+      bankAccountId: bankAccountId || undefined,
+    });
+    if (response && 'error' in response && !('data' in response)) {
+      setError((response as { error: string }).error);
       setIsSaving(false);
+      return;
     }
+    showToast(`Purchased ${parsedQuantity} ${unitName} from customer`);
+    setIsSaving(false);
+    onSaved();
   }
 
   return (

@@ -66,26 +66,29 @@ export function ProductForm({
     setError(null);
     setIsSaving(true);
     try {
-      if (stockKind === "SIMPLE") {
-        await createProduct({
-          categoryId,
-          unitId,
-          name,
-          costPrice: Number(costPrice),
-          sellPrice: Number(sellPrice),
-          quantity: quantity ? Number(quantity) : 0,
-        });
-      } else {
-        await createGrainProduct({
-          categoryId,
-          unitId,
-          name,
-        });
+      const result =
+        stockKind === "SIMPLE"
+          ? await createProduct({
+              categoryId,
+              unitId,
+              name,
+              costPrice: Number(costPrice),
+              sellPrice: Number(sellPrice),
+              quantity: quantity ? Number(quantity) : 0,
+            })
+          : await createGrainProduct({
+              categoryId,
+              unitId,
+              name,
+            });
+      if (!result.success) {
+        setError(result.error);
+        return;
       }
       showToast(`Product added — ${name}`);
       onSaved?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save product");
+    } catch {
+      setError("Failed to save product");
     } finally {
       setIsSaving(false);
     }

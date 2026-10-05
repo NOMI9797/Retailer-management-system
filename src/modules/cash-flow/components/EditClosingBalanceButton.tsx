@@ -23,12 +23,16 @@ export function EditClosingBalanceButton({ date, actualClosing }: { date: string
     setError(null);
     setIsSaving(true);
     try {
-      await editClosingBalance({ date, actualClosing: Number(value) });
+      const result = await editClosingBalance({ date, actualClosing: Number(value) });
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
       showToast("Closing balance updated");
       setEditing(false);
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+    } catch {
+      setError("Failed to save");
     } finally {
       setIsSaving(false);
     }

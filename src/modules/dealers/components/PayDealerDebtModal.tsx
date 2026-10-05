@@ -35,21 +35,21 @@ export function PayDealerDebtModal({
     e.preventDefault();
     setError(null);
     setIsSaving(true);
-    try {
-      await payDealerDebt({
-        dealerId,
-        amount: Number(amount),
-        paymentMethod,
-        bankAccountId: bankAccountId || undefined,
-      });
-      showToast(`Paid ${dealerName} — ${formatMoney(Number(amount))}`);
-      setOpen(false);
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record payment");
-    } finally {
+    const response = await payDealerDebt({
+      dealerId,
+      amount: Number(amount),
+      paymentMethod,
+      bankAccountId: bankAccountId || undefined,
+    });
+    if (response && 'error' in response && !('data' in response)) {
+      setError((response as { error: string }).error);
       setIsSaving(false);
+      return;
     }
+    showToast(`Paid ${dealerName} — ${formatMoney(Number(amount))}`);
+    setOpen(false);
+    setIsSaving(false);
+    router.refresh();
   }
 
   return (

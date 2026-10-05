@@ -14,6 +14,8 @@ import {
   type PayGrainDebtInput,
 } from "./schema";
 
+type Result<T> = { success: true; data: T } | { success: false; error: string };
+
 // The one shared implementation of "move quantity/money through a
 // grain product's pooled stock balance" — see Product.pooledStockValue's
 // schema comment for the full semantics. Every purchase (a real,
@@ -235,16 +237,17 @@ export async function createTransferPurchase(input: TransferPurchaseInput) {
       where: { id: data.grainBatchId, product: { shopId } },
       include: { product: true },
     });
-    if (!sourceBatch) throw new Error("Batch not found");
+    if (!sourceBatch) return { success: false, error: "Batch not found" };
     if (!sourceBatch.ownerCustomerId) {
-      throw new Error("Only a customer-deposited batch can be transfer-purchased — this batch is shop-owned.");
+      return { success: false, error: "Only a customer-deposited batch can be transfer-purchased — this batch is shop-owned." };
     }
 
     const remainingClaim = Number(sourceBatch.quantityIn) - Number(sourceBatch.quantityTransferred);
     if (data.quantity > remainingClaim) {
-      throw new Error(
-        `Only ${remainingClaim} ${sourceBatch.product.name} remains as this customer's claim on this batch (requested ${data.quantity}).`
-      );
+      return {
+        success: false,
+        error: `Only ${remainingClaim} ${sourceBatch.product.name} remains as this customer's claim on this batch (requested ${data.quantity}).`,
+      };
     }
 
     await tx.grainBatch.update({
@@ -290,9 +293,12 @@ export async function createTransferPurchase(input: TransferPurchaseInput) {
     const updatedSourceBatch = await tx.grainBatch.findUniqueOrThrow({ where: { id: sourceBatch.id } });
 
     return {
-      sourceBatch: serializeDecimals(updatedSourceBatch),
-      newBatch: serializeDecimals(newShopBatch),
-      payment,
+      success: true,
+      data: {
+        sourceBatch: serializeDecimals(updatedSourceBatch),
+        newBatch: serializeDecimals(newShopBatch),
+        payment,
+      },
     };
   });
 }
@@ -315,10 +321,10 @@ export async function createDepositWithSettlement(input: DepositWithSettlementIn
 
   return db.$transaction(async (tx) => {
     const product = await tx.product.findFirst({ where: { id: data.productId, shopId } });
-    if (!product) throw new Error("Product not found");
+    if (!product) return { success: false, error: "Product not found" };
 
     const customer = await tx.customer.findFirst({ where: { id: data.customerId, shopId } });
-    if (!customer) throw new Error("Customer not found");
+    if (!customer) return { success: false, error: "Customer not found" };
 
     const newShopBatch = await tx.grainBatch.create({
       data: {
@@ -350,8 +356,11 @@ export async function createDepositWithSettlement(input: DepositWithSettlementIn
     await postToPooledGrainStock(tx, data.productId, data.quantity, data.quantity * data.rate);
 
     return {
-      newBatch: serializeDecimals(newShopBatch),
-      payment,
+      success: true,
+      data: {
+        newBatch: serializeDecimals(newShopBatch),
+        payment,
+      },
     };
   });
 }
@@ -757,19 +766,20 @@ export async function payGrainDebt(input: PayGrainDebtInput) {
   const owed = await getShopOwedForGrain(data.customerId, data.productId);
   const outstanding = owed[0]?.amountOwed ?? 0;
   if (data.amount > outstanding + 0.01) {
-    throw new Error(
-      `This payment (Rs ${data.amount}) is more than what's actually owed for this product (Rs ${outstanding}) — a payment can't exceed what's owed.`
-    );
+    return {
+      success: false,
+      error: `This payment (Rs ${data.amount}) is more than what's actually owed for this product (Rs ${outstanding}) — a payment can't exceed what's owed.`,
+    };
   }
 
   const regularType = await db.accountType.findFirst({ where: { shopId, code: "REGULAR" } });
   if (!regularType) {
-    throw new Error("No Regular account type configured for this shop.");
+    return { success: false, error: "No Regular account type configured for this shop." };
   }
   const customerAccount = await db.customerAccount.findFirst({
     where: { customerId: data.customerId, accountTypeId: regularType.id },
   });
-  if (!customerAccount) throw new Error("This customer has no Regular account.");
+  if (!customerAccount) return { success: false, error: "This customer has no Regular account." };
 
   await db.$transaction(async (tx) => {
     await tx.accountTransaction.create({
@@ -797,6 +807,7 @@ export async function payGrainDebt(input: PayGrainDebtInput) {
       await postToBankAccount(tx, data.bankAccountId, -data.amount);
     }
   });
+  return { success: true, data: undefined };
 }
 
 // The Stock Management overview for one grain product: own-available,

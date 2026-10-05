@@ -47,13 +47,17 @@ export function PayShopBorrowedLoanModal({
 
     setIsSaving(true);
     try {
-      await payShopBorrowedLoan({ customerAccountId, amount: parsedAmount, paymentMethod, bankAccountId: bankAccountId || undefined });
+      const result = await payShopBorrowedLoan({ customerAccountId, amount: parsedAmount, paymentMethod, bankAccountId: bankAccountId || undefined });
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
       showToast(`Paid ${customerName} ${formatMoney(parsedAmount)}`);
       setOpen(false);
       router.refresh();
       onDone?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record payment");
+    } catch {
+      setError("Failed to record payment");
     } finally {
       setIsSaving(false);
     }
