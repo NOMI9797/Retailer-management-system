@@ -66,7 +66,7 @@ export function LongTermLoanModal({ bankAccounts }: { bankAccounts: { id: string
     setError(null);
     setIsSaving(true);
     try {
-      await createLongTermLoan({
+      const result = await createLongTermLoan({
         customerId: selectedCustomer.id,
         amount: Number(amount),
         paymentMethod,
@@ -75,11 +75,15 @@ export function LongTermLoanModal({ bankAccounts }: { bankAccounts: { id: string
         durationUnit,
         notes: notes || undefined,
       });
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
       showToast(`Long-term loan given — ${formatMoney(Number(amount))}`);
       close();
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record loan");
+    } catch {
+      setError("Failed to record loan");
     } finally {
       setIsSaving(false);
     }

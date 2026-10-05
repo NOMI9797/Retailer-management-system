@@ -12,6 +12,7 @@ import {
   type BankAccountInput,
   type UpdateBankAccountInput,
 } from "./schema";
+import { ok, fail, type ActionResult } from "@/lib/actionResult";
 
 const ENTITY = "bankAccounts";
 
@@ -67,16 +68,18 @@ export async function getBankAccountBalances() {
   }));
 }
 
-export async function updateBankAccount(input: UpdateBankAccountInput) {
+export async function updateBankAccount(
+  input: UpdateBankAccountInput
+): Promise<ActionResult<{ id: string; name: string; isActive: boolean; currentBalance: number }>> {
   const shopId = await getCurrentShopId();
   const { id, ...data } = updateBankAccountSchema.parse(input);
 
   const existing = await db.bankAccount.findFirst({ where: { id, shopId } });
-  if (!existing) throw new Error("Bank account not found");
+  if (!existing) return fail("Bank account not found");
 
   const bankAccount = await db.bankAccount.update({ where: { id }, data });
   invalidateShopCache(ENTITY, shopId);
-  return { ...bankAccount, currentBalance: Number(bankAccount.currentBalance) };
+  return ok({ ...bankAccount, currentBalance: Number(bankAccount.currentBalance) });
 }
 
 // The one shared implementation of "move money through a bank

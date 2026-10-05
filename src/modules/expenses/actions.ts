@@ -17,6 +17,7 @@ import {
   type UpdateMonthlyExpenseInput,
   type PayExpenseDebtInput,
 } from "./schema";
+import { ok, fail, type ActionResult } from "@/lib/actionResult";
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -63,12 +64,14 @@ export async function createExpense(input: ExpenseInput) {
   return serializeDecimals(expense);
 }
 
-export async function updateExpense(input: UpdateExpenseInput) {
+export async function updateExpense(
+  input: UpdateExpenseInput
+): Promise<ActionResult<ReturnType<typeof serializeDecimals>>> {
   const shopId = await getCurrentShopId();
   const data = updateExpenseSchema.parse(input);
 
   const existing = await db.expense.findFirst({ where: { id: data.id, shopId, expenseType: "DAILY" } });
-  if (!existing) throw new Error("Expense not found");
+  if (!existing) return fail("Expense not found");
 
   const expense = await db.$transaction(async (tx) => {
     // Reverse the old posting (if any) before applying the new one —
@@ -93,16 +96,16 @@ export async function updateExpense(input: UpdateExpenseInput) {
     }
     return updated;
   });
-  return serializeDecimals(expense);
+  return ok(serializeDecimals(expense));
 }
 
 // Shared by both Daily and Monthly expenses — deleting is identical
 // either way, and the id already scopes which row it removes.
-export async function deleteExpense(id: string) {
+export async function deleteExpense(id: string): Promise<ActionResult<null>> {
   const shopId = await getCurrentShopId();
 
   const existing = await db.expense.findFirst({ where: { id, shopId } });
-  if (!existing) throw new Error("Expense not found");
+  if (!existing) return fail("Expense not found");
 
   await db.$transaction(async (tx) => {
     if (existing.paymentMethod === "ACCOUNT" && existing.bankAccountId) {
@@ -110,6 +113,7 @@ export async function deleteExpense(id: string) {
     }
     await tx.expense.delete({ where: { id } });
   });
+  return ok(null);
 }
 
 // Filterable by date range, per the milestone doc. Summary rows are
@@ -216,7 +220,7 @@ export async function getShopExpenseUdhaarSummary() {
 // outstanding remainder, never trusted from the client. Supports
 // partial payments; the expense simply stops appearing in
 // listShopExpenseUdhaar once its remainder reaches zero.
-export async function payExpenseDebt(input: PayExpenseDebtInput) {
+export async function payExpenseDebt(input: PayExpenseDebtInput): Promise<ActionResult<null>> {
   const shopId = await getCurrentShopId();
   const data = payExpenseDebtSchema.parse(input);
 
@@ -224,12 +228,12 @@ export async function payExpenseDebt(input: PayExpenseDebtInput) {
     where: { id: data.expenseId, shopId, paymentMethod: "CREDIT" },
     include: { payments: true },
   });
-  if (!expense) throw new Error("Expense not found");
+  if (!expense) return fail("Expense not found");
 
   const paidSoFar = expense.payments.reduce((sum, p) => sum + Number(p.amount), 0);
   const remaining = Number(expense.amount) - paidSoFar;
   if (data.amount > remaining + 0.01) {
-    throw new Error(
+    return fail(
       `This payment (Rs ${data.amount}) is more than what's actually owed (Rs ${remaining}) — a payment can't exceed what's owed.`
     );
   }
@@ -248,17 +252,20 @@ export async function payExpenseDebt(input: PayExpenseDebtInput) {
       await postToBankAccount(tx, data.bankAccountId, -data.amount);
     }
   });
+  return ok(null);
 }
 
 // ── Monthly expense types (Settings-managed) ────────────────
 // Same shape/pattern as Category/Unit — a shopkeeper-maintained list,
 // never hardcoded.
 
-export async function createMonthlyExpenseType(name: string) {
+export async function createMonthlyExpenseType(
+  name: string
+): Promise<ActionResult<Awaited<ReturnType<typeof db.monthlyExpenseType.create>>>> {
   const shopId = await getCurrentShopId();
-  if (!name.trim()) throw new Error("Name is required");
+  if (!name.trim()) return fail("Name is required");
 
-  return db.monthlyExpenseType.create({ data: { shopId, name: name.trim() } });
+  return ok(await db.monthlyExpenseType.create({ data: { shopId, name: name.trim() } }));
 }
 
 export async function listMonthlyExpenseTypes(includeInactive = false) {
@@ -270,13 +277,16 @@ export async function listMonthlyExpenseTypes(includeInactive = false) {
   });
 }
 
-export async function updateMonthlyExpenseType(id: string, data: { name?: string; isActive?: boolean }) {
+export async function updateMonthlyExpenseType(
+  id: string,
+  data: { name?: string; isActive?: boolean }
+): Promise<ActionResult<Awaited<ReturnType<typeof db.monthlyExpenseType.update>>>> {
   const shopId = await getCurrentShopId();
 
   const existing = await db.monthlyExpenseType.findFirst({ where: { id, shopId } });
-  if (!existing) throw new Error("Monthly expense type not found");
+  if (!existing) return fail("Monthly expense type not found");
 
-  return db.monthlyExpenseType.update({ where: { id }, data });
+  return ok(await db.monthlyExpenseType.update({ where: { id }, data }));
 }
 
 // ── Monthly expenses ─────────────────────────────────────────
@@ -286,12 +296,14 @@ export async function updateMonthlyExpenseType(id: string, data: { name?: string
 // ExpenseType comment). A monthly expense always picks a
 // MonthlyExpenseType instead of typing free text.
 
-export async function createMonthlyExpense(input: MonthlyExpenseInput) {
+export async function createMonthlyExpense(
+  input: MonthlyExpenseInput
+): Promise<ActionResult<ReturnType<typeof serializeDecimals>>> {
   const shopId = await getCurrentShopId();
   const data = monthlyExpenseSchema.parse(input);
 
   const type = await db.monthlyExpenseType.findFirst({ where: { id: data.monthlyExpenseTypeId, shopId } });
-  if (!type) throw new Error("Monthly expense type not found");
+  if (!type) return fail("Monthly expense type not found");
 
   const expense = await db.$transaction(async (tx) => {
     const created = await tx.expense.create({
@@ -311,18 +323,20 @@ export async function createMonthlyExpense(input: MonthlyExpenseInput) {
     }
     return created;
   });
-  return serializeDecimals(expense);
+  return ok(serializeDecimals(expense));
 }
 
-export async function updateMonthlyExpense(input: UpdateMonthlyExpenseInput) {
+export async function updateMonthlyExpense(
+  input: UpdateMonthlyExpenseInput
+): Promise<ActionResult<ReturnType<typeof serializeDecimals>>> {
   const shopId = await getCurrentShopId();
   const data = updateMonthlyExpenseSchema.parse(input);
 
   const existing = await db.expense.findFirst({ where: { id: data.id, shopId, expenseType: "MONTHLY" } });
-  if (!existing) throw new Error("Monthly expense not found");
+  if (!existing) return fail("Monthly expense not found");
 
   const type = await db.monthlyExpenseType.findFirst({ where: { id: data.monthlyExpenseTypeId, shopId } });
-  if (!type) throw new Error("Monthly expense type not found");
+  if (!type) return fail("Monthly expense type not found");
 
   const expense = await db.$transaction(async (tx) => {
     if (existing.paymentMethod === "ACCOUNT" && existing.bankAccountId) {
@@ -344,7 +358,7 @@ export async function updateMonthlyExpense(input: UpdateMonthlyExpenseInput) {
     }
     return updated;
   });
-  return serializeDecimals(expense);
+  return ok(serializeDecimals(expense));
 }
 
 export async function listMonthlyExpenses(options?: {

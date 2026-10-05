@@ -18,6 +18,7 @@ import {
   type CreateShopBorrowedLoanInput,
   type PayShopBorrowedLoanInput,
 } from "./schema";
+import { ok, fail, type ActionResult } from "@/lib/actionResult";
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -93,21 +94,24 @@ export async function createCustomer(input: CustomerInput) {
 // Regular one. No-ops if they already hold that account type (picking
 // it again from the UI shouldn't create a second row of the same
 // type).
-export async function addCustomerAccount(customerId: string, accountTypeId: string) {
+export async function addCustomerAccount(
+  customerId: string,
+  accountTypeId: string
+): Promise<ActionResult<{ id: string; customerId: string; accountTypeId: string; currentBalance: number } & Record<string, unknown>>> {
   const shopId = await getCurrentShopId();
 
   const customer = await db.customer.findFirst({ where: { id: customerId, shopId } });
-  if (!customer) throw new Error("Customer not found");
+  if (!customer) return fail("Customer not found");
 
   const accountType = await db.accountType.findFirst({ where: { id: accountTypeId, shopId } });
-  if (!accountType) throw new Error("Account type not found");
+  if (!accountType) return fail("Account type not found");
 
   const existing = await db.customerAccount.findFirst({ where: { customerId, accountTypeId } });
   const account = existing ?? (await db.customerAccount.create({ data: { customerId, accountTypeId } }));
 
   // currentBalance is a Prisma Decimal — must be a plain number before
   // crossing into the Client Component that calls this (CustomerPicker).
-  return { ...account, currentBalance: Number(account.currentBalance) };
+  return ok({ ...account, currentBalance: Number(account.currentBalance) });
 }
 
 // Swaps which account type an existing account slot represents (e.g.
@@ -120,67 +124,71 @@ export async function addCustomerAccount(customerId: string, accountTypeId: stri
 // rather than guess" rule exists to prevent. The shopkeeper must
 // resolve the balance first (e.g. via a correcting transaction) if
 // they truly need to change it.
-export async function changeCustomerAccountType(customerAccountId: string, newAccountTypeId: string) {
+export async function changeCustomerAccountType(
+  customerAccountId: string,
+  newAccountTypeId: string
+): Promise<ActionResult<{ currentBalance: number } & Record<string, unknown>>> {
   const shopId = await getCurrentShopId();
 
   const account = await db.customerAccount.findFirst({
     where: { id: customerAccountId, customer: { shopId } },
     include: { transactions: true },
   });
-  if (!account) throw new Error("Account not found");
+  if (!account) return fail("Account not found");
 
   if (Number(account.currentBalance) !== 0 || account.transactions.length > 0) {
-    throw new Error(
+    return fail(
       "This account has a balance or transaction history — clear it before changing its account type."
     );
   }
 
   const newAccountType = await db.accountType.findFirst({ where: { id: newAccountTypeId, shopId } });
-  if (!newAccountType) throw new Error("Account type not found");
+  if (!newAccountType) return fail("Account type not found");
 
   const alreadyHeld = await db.customerAccount.findFirst({
     where: { customerId: account.customerId, accountTypeId: newAccountTypeId },
   });
-  if (alreadyHeld) throw new Error("This customer already has an account of that type");
+  if (alreadyHeld) return fail("This customer already has an account of that type");
 
   const updated = await db.customerAccount.update({
     where: { id: customerAccountId },
     data: { accountTypeId: newAccountTypeId },
   });
 
-  return { ...updated, currentBalance: Number(updated.currentBalance) };
+  return ok({ ...updated, currentBalance: Number(updated.currentBalance) });
 }
 
 // Permanently removes an account slot from a customer — blocked
 // whenever it has any balance or transaction history, for the same
 // reason changeCustomerAccountType blocks a swap: deleting an account
 // with real financial history attached would silently erase it.
-export async function removeCustomerAccount(customerAccountId: string) {
+export async function removeCustomerAccount(customerAccountId: string): Promise<ActionResult<null>> {
   const shopId = await getCurrentShopId();
 
   const account = await db.customerAccount.findFirst({
     where: { id: customerAccountId, customer: { shopId } },
     include: { transactions: true },
   });
-  if (!account) throw new Error("Account not found");
+  if (!account) return fail("Account not found");
 
   if (Number(account.currentBalance) !== 0 || account.transactions.length > 0) {
-    throw new Error(
-      "This account has a balance or transaction history — it can't be removed."
-    );
+    return fail("This account has a balance or transaction history — it can't be removed.");
   }
 
   await db.customerAccount.delete({ where: { id: customerAccountId } });
+  return ok(null);
 }
 
-export async function updateCustomer(input: UpdateCustomerInput) {
+export async function updateCustomer(
+  input: UpdateCustomerInput
+): Promise<ActionResult<Awaited<ReturnType<typeof db.customer.update>>>> {
   const shopId = await getCurrentShopId();
   const { id, ...data } = updateCustomerSchema.parse(input);
 
   const existing = await db.customer.findFirst({ where: { id, shopId } });
-  if (!existing) throw new Error("Customer not found");
+  if (!existing) return fail("Customer not found");
 
-  return db.customer.update({ where: { id }, data });
+  return ok(await db.customer.update({ where: { id }, data }));
 }
 
 // Paginated + filterable by area, searchable by name/phone — the
@@ -260,6 +268,14 @@ export async function getCustomerStats() {
 // customer holds, each with its transaction history, so the running
 // balance and full history render from one fetch with no further
 // round trips per account.
+//
+// Left as a throw (NOT converted to ActionResult): this is a pure
+// data-fetch called directly during a Server Component's render
+// (src/app/dashboard/customers/[id]/page.tsx), and its return shape is
+// reused elsewhere via ReturnType<typeof getCustomer>
+// (CustomerAccountsList.tsx) — converting it would break that
+// destructuring and isn't needed, since there's no form-submission
+// path that calls it.
 export async function getCustomer(id: string) {
   const shopId = await getCurrentShopId();
 
@@ -305,7 +321,9 @@ export async function getCustomer(id: string) {
 // createTransferPurchase) posts the OPPOSITE-meaning OUT — shop owes
 // the customer, decrementing balance — directly, bypassing this
 // function entirely, so it never needs to be special-cased here.
-export async function recordAccountTransaction(input: RecordAccountTransactionInput) {
+export async function recordAccountTransaction(
+  input: RecordAccountTransactionInput
+): Promise<ActionResult<{ amount: number; quantity: number | null } & Record<string, unknown>>> {
   const shopId = await getCurrentShopId();
   const data = recordAccountTransactionSchema.parse(input);
 
@@ -313,7 +331,7 @@ export async function recordAccountTransaction(input: RecordAccountTransactionIn
     where: { id: data.customerAccountId, customer: { shopId } },
     include: { accountType: true, transactions: true },
   });
-  if (!account) throw new Error("Account not found");
+  if (!account) return fail("Account not found");
 
   // A repayment can't exceed what's actually remaining IN THIS
   // BUCKET — Regular and Long-term are isolated (see
@@ -328,7 +346,7 @@ export async function recordAccountTransaction(input: RecordAccountTransactionIn
     );
     if (data.amount > bucketBalance + 0.01) {
       const bucketLabel = data.isLongTerm ? "Long-term Udhaar" : "Regular/Daily Udhaar";
-      throw new Error(
+      return fail(
         `This repayment (Rs ${data.amount}) is more than what's remaining on ${bucketLabel} (Rs ${bucketBalance}) — a payment can't exceed what's actually owed.`
       );
     }
@@ -375,11 +393,11 @@ export async function recordAccountTransaction(input: RecordAccountTransactionIn
   // before crossing back into the Client Component that calls this
   // (RecordAccountTransactionModal), same reasoning as every other
   // action returning Prisma rows to a client caller.
-  return {
+  return ok({
     ...txn,
     amount: Number(txn.amount),
     quantity: txn.quantity ? Number(txn.quantity) : null,
-  };
+  });
 }
 
 // A deliberate cash loan with a chosen term (e.g. "3 months"), as
@@ -394,13 +412,15 @@ export async function recordAccountTransaction(input: RecordAccountTransactionIn
 // under the hood (direction OUT, isLongTerm: true) so there's still
 // exactly one implementation of the balance math, not a second one
 // duplicated here.
-export async function createLongTermLoan(input: CreateLongTermLoanInput) {
+export async function createLongTermLoan(
+  input: CreateLongTermLoanInput
+): Promise<ActionResult<{ amount: number; quantity: number | null } & Record<string, unknown>>> {
   const shopId = await getCurrentShopId();
   const data = createLongTermLoanSchema.parse(input);
 
   const udharType = await db.accountType.findFirst({ where: { shopId, isLoan: true } });
   if (!udharType) {
-    throw new Error("No loan-type account configured for this shop — mark an account type as a loan in Settings.");
+    return fail("No loan-type account configured for this shop — mark an account type as a loan in Settings.");
   }
 
   let account = await db.customerAccount.findFirst({
@@ -444,17 +464,17 @@ export async function createLongTermLoan(input: CreateLongTermLoanInput) {
 // activity of any kind), since isShopBorrowed alone is enough to keep
 // this bucket's totals fully isolated in every query that reads it.
 
-export async function createShopBorrowedLoan(input: CreateShopBorrowedLoanInput) {
+export async function createShopBorrowedLoan(input: CreateShopBorrowedLoanInput): Promise<ActionResult<null>> {
   const shopId = await getCurrentShopId();
   const data = createShopBorrowedLoanSchema.parse(input);
 
   const udharType = await db.accountType.findFirst({ where: { shopId, isLoan: true } });
   if (!udharType) {
-    throw new Error("No loan-type account configured for this shop — mark an account type as a loan in Settings.");
+    return fail("No loan-type account configured for this shop — mark an account type as a loan in Settings.");
   }
 
   const customer = await db.customer.findFirst({ where: { id: data.customerId, shopId } });
-  if (!customer) throw new Error("Customer not found");
+  if (!customer) return fail("Customer not found");
 
   let account = await db.customerAccount.findFirst({
     where: { customerId: data.customerId, accountTypeId: udharType.id },
@@ -491,6 +511,7 @@ export async function createShopBorrowedLoan(input: CreateShopBorrowedLoanInput)
       await postToBankAccount(tx, data.bankAccountId, data.amount);
     }
   });
+  return ok(null);
 }
 
 // Every customer the shop currently owes money to via a Shop
@@ -623,7 +644,7 @@ export async function getCustomerShopBorrowedHistory(customerId: string) {
 // createShopBorrowedLoan (this bucket's IN means "shop repays," the
 // opposite of recordAccountTransaction's convention, and never
 // touches currentBalance).
-export async function payShopBorrowedLoan(input: PayShopBorrowedLoanInput) {
+export async function payShopBorrowedLoan(input: PayShopBorrowedLoanInput): Promise<ActionResult<null>> {
   const shopId = await getCurrentShopId();
   const data = payShopBorrowedLoanSchema.parse(input);
 
@@ -631,7 +652,7 @@ export async function payShopBorrowedLoan(input: PayShopBorrowedLoanInput) {
     where: { id: data.customerAccountId, customer: { shopId } },
     include: { transactions: { where: { isShopBorrowed: true } } },
   });
-  if (!account) throw new Error("Account not found");
+  if (!account) return fail("Account not found");
 
   const totalBorrowed = account.transactions
     .filter((t) => t.direction === "OUT")
@@ -642,7 +663,7 @@ export async function payShopBorrowedLoan(input: PayShopBorrowedLoanInput) {
   const balance = totalBorrowed - totalPaid;
 
   if (data.amount > balance + 0.01) {
-    throw new Error(
+    return fail(
       `This payment (Rs ${data.amount}) is more than what's actually owed (Rs ${balance}) — a payment can't exceed what's owed.`
     );
   }
@@ -666,4 +687,5 @@ export async function payShopBorrowedLoan(input: PayShopBorrowedLoanInput) {
       await postToBankAccount(tx, data.bankAccountId, -data.amount);
     }
   });
+  return ok(null);
 }

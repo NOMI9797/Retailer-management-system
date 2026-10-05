@@ -31,17 +31,18 @@ export function DayCloseForm({
     setError(null);
     setIsSaving(true);
     try {
-      if (needsOpeningBalance) {
-        await setOpeningBalance({ date, openingBalance: Number(value) });
-        showToast(`Opening balance set — ${formatMoney(Number(value))}`);
-      } else {
-        await closeDay({ date, actualClosing: Number(value) });
-        showToast("Day closed");
+      const result = needsOpeningBalance
+        ? await setOpeningBalance({ date, openingBalance: Number(value) })
+        : await closeDay({ date, actualClosing: Number(value) });
+      if (!result.success) {
+        setError(result.error);
+        return;
       }
+      showToast(needsOpeningBalance ? `Opening balance set — ${formatMoney(Number(value))}` : "Day closed");
       setValue("");
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+    } catch {
+      setError("Failed to save");
     } finally {
       setIsSaving(false);
     }

@@ -14,16 +14,16 @@ export function DeleteSaleButton({ saleId }: { saleId: string }) {
   async function handleDelete() {
     setIsDeleting(true);
     setError(null);
-    try {
-      await deleteDailySale(saleId);
-      showToast("Sale deleted");
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete sale");
+    const response = await deleteDailySale(saleId);
+    if (response && 'success' in response && !response.success) {
+      setError((response as { success: false; error: string }).error);
       setConfirming(false);
-    } finally {
       setIsDeleting(false);
+      return;
     }
+    showToast("Sale deleted");
+    setIsDeleting(false);
+    router.refresh();
   }
 
   if (confirming) {

@@ -57,7 +57,7 @@ export function RecordAccountTransactionModal({
     setError(null);
     setIsSaving(true);
     try {
-      await recordAccountTransaction({
+      const result = await recordAccountTransaction({
         customerAccountId,
         direction,
         amount: Number(amount),
@@ -67,14 +67,18 @@ export function RecordAccountTransactionModal({
         notes: notes || undefined,
         isLongTerm: lockBucket ?? isLongTerm,
       });
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
       showToast(direction === "OUT" ? `Loan recorded — ${formatMoney(Number(amount))}` : `Payment recorded — ${formatMoney(Number(amount))}`);
       setAmount("");
       setDueDate("");
       setNotes("");
       close();
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record transaction");
+    } catch {
+      setError("Failed to record transaction");
     } finally {
       setIsSaving(false);
     }

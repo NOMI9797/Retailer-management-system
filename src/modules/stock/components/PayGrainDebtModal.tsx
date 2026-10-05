@@ -69,17 +69,17 @@ export function PayGrainDebtModal({
     }
 
     setIsSaving(true);
-    try {
-      await payGrainDebt({ customerId, productId, amount: parsedAmount, paymentMethod, bankAccountId: bankAccountId || undefined });
-      showToast(`Paid ${customerName} ${formatMoney(parsedAmount)}`);
-      setOpen(false);
-      router.refresh();
-      onDone?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record payment");
-    } finally {
+    const response = await payGrainDebt({ customerId, productId, amount: parsedAmount, paymentMethod, bankAccountId: bankAccountId || undefined });
+    if (response && 'error' in response && !('data' in response)) {
+      setError((response as { error: string }).error);
       setIsSaving(false);
+      return;
     }
+    showToast(`Paid ${customerName} ${formatMoney(parsedAmount)}`);
+    setOpen(false);
+    setIsSaving(false);
+    router.refresh();
+    onDone?.();
   }
 
   return (

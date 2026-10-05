@@ -51,24 +51,24 @@ export function RecordDealerProductPurchaseModal({
     e.preventDefault();
     setError(null);
     setIsSaving(true);
-    try {
-      await createDealerProductPurchase({
-        dealerId,
-        productId,
-        quantity: Number(quantity),
-        costPrice: Number(costPrice),
-        paymentMethod,
-        bankAccountId: bankAccountId || undefined,
-      });
-      showToast(`Purchase recorded — ${formatMoney(total)}`);
-      setOpen(false);
-      reset();
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to record purchase");
-    } finally {
+    const response = await createDealerProductPurchase({
+      dealerId,
+      productId,
+      quantity: Number(quantity),
+      costPrice: Number(costPrice),
+      paymentMethod,
+      bankAccountId: bankAccountId || undefined,
+    });
+    if (response && 'error' in response && !('data' in response)) {
+      setError((response as { error: string }).error);
       setIsSaving(false);
+      return;
     }
+    showToast(`Purchase recorded — ${formatMoney(total)}`);
+    setOpen(false);
+    reset();
+    setIsSaving(false);
+    router.refresh();
   }
 
   return (

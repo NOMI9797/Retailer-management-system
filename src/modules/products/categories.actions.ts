@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { cachedShopQuery, invalidateShopCache } from "@/lib/cache";
 import { categorySchema, updateCategorySchema, type CategoryInput, type UpdateCategoryInput } from "./schema";
+import { ok, fail, type ActionResult } from "@/lib/actionResult";
 
 const ENTITY = "categories";
 
@@ -43,16 +44,18 @@ export const listCategories = cache(async (includeInactive = false, stockKind?: 
   );
 });
 
-export async function updateCategory(input: UpdateCategoryInput) {
+export async function updateCategory(
+  input: UpdateCategoryInput
+): Promise<ActionResult<Awaited<ReturnType<typeof db.category.update>>>> {
   const shopId = await getCurrentShopId();
   const { id, ...data } = updateCategorySchema.parse(input);
 
   // findFirst scoped by shopId before the write, so a category id from
   // another shop can never be updated through this action.
   const existing = await db.category.findFirst({ where: { id, shopId } });
-  if (!existing) throw new Error("Category not found");
+  if (!existing) return fail("Category not found");
 
   const category = await db.category.update({ where: { id }, data });
   invalidateShopCache(ENTITY, shopId);
-  return category;
+  return ok(category);
 }

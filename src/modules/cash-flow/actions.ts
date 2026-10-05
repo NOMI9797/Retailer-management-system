@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { parseLocalDateStart, parseLocalDateEnd } from "@/lib/utils";
 import { setOpeningBalanceSchema, closeDaySchema, type SetOpeningBalanceInput, type CloseDayInput } from "./schema";
+import { ok, fail, type ActionResult } from "@/lib/actionResult";
 
 // Calendar-day bounds in server local time — same convention
 // findTodaysSale (daily-sales/actions.ts) and listExpenses use, so a
@@ -611,13 +612,13 @@ export async function getCashFlowForDate(dateStr: string) {
 // Rejects if a register entry already exists for this date, since
 // that means an opening balance (derived or manual) already governs
 // it — use closeDay to record the day's actual count instead.
-export async function setOpeningBalance(input: SetOpeningBalanceInput) {
+export async function setOpeningBalance(input: SetOpeningBalanceInput): Promise<ActionResult<null>> {
   const shopId = await getCurrentShopId();
   const data = setOpeningBalanceSchema.parse(input);
   const { start, end } = dayBounds(data.date);
 
   const existing = await db.dailyCashRegister.findUnique({ where: { shopId_date: { shopId, date: start } } });
-  if (existing) throw new Error("This day already has a register entry");
+  if (existing) return fail("This day already has a register entry");
 
   const cashIn = await sumCashIn(shopId, start, end);
   const cashOut = await sumCashOut(shopId, start, end);
@@ -631,6 +632,7 @@ export async function setOpeningBalance(input: SetOpeningBalanceInput) {
       openingBalanceIsManual: true,
     },
   });
+  return ok(null);
 }
 
 // Overrides a day's opening balance — whether it was previously
@@ -688,7 +690,7 @@ export async function editOpeningBalance(input: SetOpeningBalanceInput) {
 // freezes it rather than leaving it always-live. Works whether or not
 // a register row already exists for the day (a day with a derived-only
 // opening balance won't have one yet).
-export async function closeDay(input: CloseDayInput) {
+export async function closeDay(input: CloseDayInput): Promise<ActionResult<null>> {
   const shopId = await getCurrentShopId();
   const data = closeDaySchema.parse(input);
   const { start, end } = dayBounds(data.date);
@@ -701,7 +703,7 @@ export async function closeDay(input: CloseDayInput) {
   const ownRow = await db.dailyCashRegister.findUnique({ where: { shopId_date: { shopId, date: start } } });
   const openingBalance = ownRow ? Number(ownRow.openingBalance) : await resolveOpeningBalance(shopId, start);
   if (openingBalance === null) {
-    throw new Error("Set an opening balance for this shop before closing a day");
+    return fail("Set an opening balance for this shop before closing a day");
   }
 
   const cashIn = await sumCashIn(shopId, start, end);
@@ -729,6 +731,7 @@ export async function closeDay(input: CloseDayInput) {
   // balance from — walk forward and recompute anything downstream that
   // depended on it.
   await cascadeForward(shopId, start);
+  return ok(null);
 }
 
 // Corrects a day's actual closing after the fact — e.g. a miscount
@@ -739,14 +742,14 @@ export async function closeDay(input: CloseDayInput) {
 // and today's cash in/out haven't changed, only what was counted) and
 // then cascades forward exactly like closeDay does, since this day's
 // closing is what later derived days depend on.
-export async function editClosingBalance(input: CloseDayInput) {
+export async function editClosingBalance(input: CloseDayInput): Promise<ActionResult<null>> {
   const shopId = await getCurrentShopId();
   const data = closeDaySchema.parse(input);
   const { start, end } = dayBounds(data.date);
 
   const existing = await db.dailyCashRegister.findUnique({ where: { shopId_date: { shopId, date: start } } });
   if (!existing) {
-    throw new Error("This day hasn't been closed yet — use Close day to record its first count.");
+    return fail("This day hasn't been closed yet — use Close day to record its first count.");
   }
 
   const cashIn = await sumCashIn(shopId, start, end);
@@ -759,6 +762,7 @@ export async function editClosingBalance(input: CloseDayInput) {
   });
 
   await cascadeForward(shopId, start);
+  return ok(null);
 }
 
 // Historical register — past days' closes, filterable by date range.

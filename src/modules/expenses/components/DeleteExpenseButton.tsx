@@ -15,11 +15,16 @@ export function DeleteExpenseButton({ expenseId }: { expenseId: string }) {
     setIsDeleting(true);
     setError(null);
     try {
-      await deleteExpense(expenseId);
+      const result = await deleteExpense(expenseId);
+      if (!result.success) {
+        setError(result.error);
+        setConfirming(false);
+        return;
+      }
       showToast("Expense deleted");
       router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete expense");
+    } catch {
+      setError("Failed to delete expense");
       setConfirming(false);
     } finally {
       setIsDeleting(false);

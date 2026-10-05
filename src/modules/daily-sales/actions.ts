@@ -18,6 +18,8 @@ import {
 } from "./schema";
 import type { Prisma } from "@prisma/client";
 
+type Result<T> = { success: true; data: T } | { success: false; error: string };
+
 const DEFAULT_PAGE_SIZE = 50;
 const PAYMENT_SPLIT_EPSILON = 0.01; // guards against float rounding, not real mismatches
 
@@ -35,13 +37,13 @@ async function applySaleItems(
   saleId: string,
   items: DailySaleItemInput[],
   visitAt: Date
-) {
+): Promise<Result<{ itemTotal: number; grainItems: { id: string; creditAmount: Prisma.Decimal | null }[] }>> {
   let itemTotal = 0;
   const grainItems: { id: string; creditAmount: Prisma.Decimal | null }[] = [];
 
   for (const item of items) {
     const product = await tx.product.findFirst({ where: { id: item.productId, shopId } });
-    if (!product) throw new Error("Product not found");
+    if (!product) return { success: false, error: "Product not found" };
 
     const saleItem = await tx.dailySaleItem.create({
       data: {
@@ -72,7 +74,7 @@ async function applySaleItems(
 
     if (product.stockKind === "SIMPLE") {
       if (Number(product.quantity) < item.quantity) {
-        throw new Error(`Not enough stock for ${product.name} (have ${product.quantity}, need ${item.quantity})`);
+        return { success: false, error: `Not enough stock for ${product.name} (have ${product.quantity}, need ${item.quantity})` };
       }
       await tx.product.update({
         where: { id: product.id },
@@ -161,7 +163,7 @@ async function applySaleItems(
       }
 
       if (remaining > 0) {
-        throw new Error(`Not enough grain stock for ${product.name} (short by ${remaining})`);
+        return { success: false, error: `Not enough grain stock for ${product.name} (short by ${remaining})` };
       }
 
       // Pooled stock: deduct the quantity sold and the full sale
@@ -175,7 +177,7 @@ async function applySaleItems(
     itemTotal += item.actualPrice * item.quantity;
   }
 
-  return { itemTotal, grainItems };
+  return { success: true, data: { itemTotal, grainItems } };
 }
 
 // The BUYER side: validates the Cash/Account/Credit split sums to the
@@ -216,12 +218,13 @@ async function applyPaymentSplit(
   payments: PaymentSplitInput,
   visitAt: Date,
   grainItems: { id: string; creditAmount: Prisma.Decimal | null }[]
-) {
+): Promise<Result<void>> {
   const splitTotal = payments.cash + payments.account + payments.credit;
   if (Math.abs(splitTotal - itemTotal) > PAYMENT_SPLIT_EPSILON) {
-    throw new Error(
-      `Payment split (${splitTotal}) doesn't match the bill total (${itemTotal}) — cash + account + credit must add up exactly.`
-    );
+    return {
+      success: false,
+      error: `Payment split (${splitTotal}) doesn't match the bill total (${itemTotal}) — cash + account + credit must add up exactly.`,
+    };
   }
 
   if (payments.credit > 0 && grainItems.length === 1 && grainItems[0].creditAmount === null) {
@@ -238,15 +241,17 @@ async function applyPaymentSplit(
   } else if (payments.credit > 0 && grainItems.length > 1) {
     const missing = grainItems.some((g) => g.creditAmount === null);
     if (missing) {
-      throw new Error(
-        "This sale has more than one grain item and an Udhaar amount — specify how much Udhaar applies to each grain item."
-      );
+      return {
+        success: false,
+        error: "This sale has more than one grain item and an Udhaar amount — specify how much Udhaar applies to each grain item.",
+      };
     }
     const grainCreditTotal = grainItems.reduce((sum, g) => sum + Number(g.creditAmount), 0);
     if (grainCreditTotal > payments.credit + PAYMENT_SPLIT_EPSILON) {
-      throw new Error(
-        `The grain items' Udhaar amounts (${grainCreditTotal}) add up to more than the sale's total Udhaar (${payments.credit}).`
-      );
+      return {
+        success: false,
+        error: `The grain items' Udhaar amounts (${grainCreditTotal}) add up to more than the sale's total Udhaar (${payments.credit}).`,
+      };
     }
   }
 
@@ -334,6 +339,7 @@ async function applyPaymentSplit(
       });
     }
   }
+  return { success: true, data: undefined };
 }
 
 // Completely undoes a sale's effects: restores simple stock and grain
@@ -348,12 +354,16 @@ async function applyPaymentSplit(
 // same id after reapplying, rather than the edit silently creating a
 // new sale with a different id. deleteDailySale calls this and then
 // removes the row as its own final step.
-async function reverseSaleContents(tx: Prisma.TransactionClient, shopId: string, saleId: string) {
+async function reverseSaleContents(
+  tx: Prisma.TransactionClient,
+  shopId: string,
+  saleId: string
+): Promise<Result<{ customerId: string | null; dealerId: string | null; season: string | null }>> {
   const sale = await tx.dailySale.findFirst({
     where: { id: saleId, shopId },
     include: { items: { include: { batchAllocations: true } } },
   });
-  if (!sale) throw new Error("Sale not found");
+  if (!sale) return { success: false, error: "Sale not found" };
 
   for (const item of sale.items) {
     const product = await tx.product.findFirst({ where: { id: item.productId } });
@@ -473,15 +483,16 @@ async function reverseSaleContents(tx: Prisma.TransactionClient, shopId: string,
     where: { dailySaleItemId: { in: itemIds } },
   });
   if (existingPayment) {
-    throw new Error(
-      "This sale has a recorded Udhaar repayment against one of its grain items — it can't be edited or deleted while that payment history exists."
-    );
+    return {
+      success: false,
+      error: "This sale has a recorded Udhaar repayment against one of its grain items — it can't be edited or deleted while that payment history exists.",
+    };
   }
 
   await tx.dailySaleItemBatch.deleteMany({ where: { dailySaleItemId: { in: itemIds } } });
   await tx.dailySaleItem.deleteMany({ where: { dailySaleId: saleId } });
 
-  return { customerId: sale.customerId, dealerId: sale.dealerId, season: sale.season };
+  return { success: true, data: { customerId: sale.customerId, dealerId: sale.dealerId, season: sale.season } };
 }
 
 // A customer buying again later the same day joins their existing
@@ -549,10 +560,10 @@ export async function createDailySale(input: CreateDailySaleInput) {
   return db.$transaction(async (tx) => {
     if ("customerId" in buyer) {
       const customer = await tx.customer.findFirst({ where: { id: buyer.customerId, shopId } });
-      if (!customer) throw new Error("Customer not found");
+      if (!customer) return { success: false, error: "Customer not found" };
     } else {
       const dealer = await tx.dealer.findFirst({ where: { id: buyer.dealerId, shopId } });
-      if (!dealer) throw new Error("Dealer not found");
+      if (!dealer) return { success: false, error: "Dealer not found" };
     }
 
     const existingSale = await findTodaysSale(tx, shopId, buyer, targetDateTime);
@@ -572,8 +583,12 @@ export async function createDailySale(input: CreateDailySaleInput) {
     // the same target date/time as the sale itself, so a backdated
     // entry's visit groups under the picked date, not under today.
     const visitAt = targetDateTime;
-    const { itemTotal, grainItems } = await applySaleItems(tx, shopId, sale.id, data.items, visitAt);
-    await applyPaymentSplit(tx, shopId, buyer, sale.id, itemTotal, data.payments, visitAt, grainItems);
+    const itemsResult = await applySaleItems(tx, shopId, sale.id, data.items, visitAt);
+    if (!itemsResult.success) return itemsResult;
+    const { itemTotal, grainItems } = itemsResult.data;
+
+    const paymentResult = await applyPaymentSplit(tx, shopId, buyer, sale.id, itemTotal, data.payments, visitAt, grainItems);
+    if (!paymentResult.success) return paymentResult;
 
     const created = await tx.dailySale.findUniqueOrThrow({
       where: { id: sale.id },
@@ -584,8 +599,11 @@ export async function createDailySale(input: CreateDailySaleInput) {
     // plain numbers before this crosses into the Client Component
     // that calls createDailySale (NewSaleForm's onSaved).
     return {
-      ...created,
-      items: created.items.map(serializeDecimals),
+      success: true,
+      data: {
+        ...created,
+        items: created.items.map(serializeDecimals),
+      },
     };
   });
 }
@@ -608,7 +626,8 @@ export async function updateDailySale(input: UpdateDailySaleInput) {
 
   return db.$transaction(async (tx) => {
     const existingSale = await tx.dailySale.findFirstOrThrow({ where: { id: data.saleId, shopId } });
-    await reverseSaleContents(tx, shopId, data.saleId);
+    const reverseResult = await reverseSaleContents(tx, shopId, data.saleId);
+    if (!reverseResult.success) return reverseResult;
 
     // The edited items/payments are written as a single fresh visit —
     // editing a sale collapses whatever visit structure it had before
@@ -618,8 +637,12 @@ export async function updateDailySale(input: UpdateDailySaleInput) {
     const buyer = existingSale.customerId
       ? { customerId: existingSale.customerId }
       : { dealerId: existingSale.dealerId! };
-    const { itemTotal, grainItems } = await applySaleItems(tx, shopId, data.saleId, data.items, visitAt);
-    await applyPaymentSplit(tx, shopId, buyer, data.saleId, itemTotal, data.payments, visitAt, grainItems);
+    const itemsResult = await applySaleItems(tx, shopId, data.saleId, data.items, visitAt);
+    if (!itemsResult.success) return itemsResult;
+    const { itemTotal, grainItems } = itemsResult.data;
+
+    const paymentResult = await applyPaymentSplit(tx, shopId, buyer, data.saleId, itemTotal, data.payments, visitAt, grainItems);
+    if (!paymentResult.success) return paymentResult;
 
     const updated = await tx.dailySale.findUniqueOrThrow({
       where: { id: data.saleId },
@@ -627,8 +650,11 @@ export async function updateDailySale(input: UpdateDailySaleInput) {
     });
 
     return {
-      ...updated,
-      items: updated.items.map(serializeDecimals),
+      success: true,
+      data: {
+        ...updated,
+        items: updated.items.map(serializeDecimals),
+      },
     };
   });
 }
@@ -641,9 +667,11 @@ export async function updateDailySale(input: UpdateDailySaleInput) {
 export async function deleteDailySale(saleId: string) {
   const shopId = await getCurrentShopId();
 
-  await db.$transaction(async (tx) => {
-    await reverseSaleContents(tx, shopId, saleId);
+  return db.$transaction(async (tx) => {
+    const reverseResult = await reverseSaleContents(tx, shopId, saleId);
+    if (!reverseResult.success) return reverseResult;
     await tx.dailySale.delete({ where: { id: saleId } });
+    return { success: true, data: undefined };
   });
 }
 
@@ -833,14 +861,15 @@ export async function payGrainSaleItemCredit(input: PayGrainSaleItemCreditInput)
     where: { id: data.dailySaleItemId, product: { shopId } },
     include: { creditPayments: true },
   });
-  if (!item || item.creditAmount === null) throw new Error("Grain sale item not found");
+  if (!item || item.creditAmount === null) return { success: false, error: "Grain sale item not found" };
 
   const paidSoFar = item.creditPayments.reduce((sum, p) => sum + Number(p.amount), 0);
   const remaining = Number(item.creditAmount) - paidSoFar;
   if (data.amount > remaining + 0.01) {
-    throw new Error(
-      `This payment (Rs ${data.amount}) is more than what's actually owed (Rs ${remaining}) — a payment can't exceed what's owed.`
-    );
+    return {
+      success: false,
+      error: `This payment (Rs ${data.amount}) is more than what's actually owed (Rs ${remaining}) — a payment can't exceed what's owed.`,
+    };
   }
 
   await db.$transaction(async (tx) => {
@@ -858,6 +887,7 @@ export async function payGrainSaleItemCredit(input: PayGrainSaleItemCreditInput)
       await postToBankAccount(tx, data.bankAccountId, data.amount);
     }
   });
+  return { success: true, data: undefined };
 }
 
 // The edit form's data source for one sale — same shape
