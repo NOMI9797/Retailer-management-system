@@ -46,10 +46,17 @@ export async function createCustomer(input: CustomerInput) {
   const shopId = await getCurrentShopId();
   const data = customerSchema.parse(input);
 
-  const regularType = await db.accountType.findFirst({ where: { shopId, code: "REGULAR" } });
-  const accountTypeIds = regularType
-    ? Array.from(new Set([regularType.id, ...data.accountTypeIds]))
-    : data.accountTypeIds;
+  // Find-or-create — a brand new shop has no Regular account type
+  // seeded anywhere yet (nothing runs at signup to create one), so
+  // the very first customer added must create it rather than silently
+  // skip attaching it, which otherwise surfaces later as a confusing
+  // throw deep inside an unrelated flow (see payCustomerForGrain in
+  // stock/actions.ts, which hit exactly this gap).
+  let regularType = await db.accountType.findFirst({ where: { shopId, code: "REGULAR" } });
+  if (!regularType) {
+    regularType = await db.accountType.create({ data: { shopId, name: "Regular", code: "REGULAR" } });
+  }
+  const accountTypeIds = Array.from(new Set([regularType.id, ...data.accountTypeIds]));
 
   const existing = await db.customer.findFirst({
     where: { shopId, name: { equals: data.name, mode: "insensitive" } },

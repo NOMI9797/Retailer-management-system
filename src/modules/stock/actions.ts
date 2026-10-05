@@ -89,12 +89,15 @@ async function payCustomerForGrain(
     newShopBatchId: string;
   }
 ) {
-  // Find-or-create the customer's Regular account — same
-  // find-or-create pattern applyPaymentSplit already uses for Udhaar
-  // (see daily-sales/actions.ts).
-  const regularType = await tx.accountType.findFirst({ where: { shopId, code: "REGULAR" } });
+  // Find-or-create the shop's Regular account TYPE first — a brand
+  // new shop has none yet (nothing seeds it at signup; see
+  // ensureDefaultAccountType's now-stale comment, which assumed a
+  // caller that doesn't exist), so this must create it on first use
+  // rather than throw, same reasoning as the account find-or-create
+  // right below it.
+  let regularType = await tx.accountType.findFirst({ where: { shopId, code: "REGULAR" } });
   if (!regularType) {
-    throw new Error("No Regular account type configured for this shop — run ensureDefaultAccountType first.");
+    regularType = await tx.accountType.create({ data: { shopId, name: "Regular", code: "REGULAR" } });
   }
   let customerAccount = await tx.customerAccount.findFirst({
     where: { customerId: params.customerId, accountTypeId: regularType.id },
@@ -228,11 +231,14 @@ async function payCustomerForGrain(
 // Total physical stock is unchanged throughout — only ownership moved.
 // See createDepositWithSettlement for the "selling right at drop-off"
 // shortcut, which skips ever creating a customer-owned batch at all.
-export async function createTransferPurchase(input: TransferPurchaseInput) {
+export async function createTransferPurchase(
+  input: TransferPurchaseInput
+): Promise<{ success: false; error: string } | { success: true; data: Record<string, unknown> }> {
   const shopId = await getCurrentShopId();
   const data = transferPurchaseSchema.parse(input);
 
-  return db.$transaction(async (tx) => {
+  try {
+    return await db.$transaction(async (tx) => {
     const sourceBatch = await tx.grainBatch.findFirst({
       where: { id: data.grainBatchId, product: { shopId } },
       include: { product: true },
@@ -300,7 +306,17 @@ export async function createTransferPurchase(input: TransferPurchaseInput) {
         payment,
       },
     };
-  });
+    });
+  } catch (err) {
+    // postToBankAccount's overdraft guard (and any other invariant
+    // thrown inside the transaction) must surface as a real message,
+    // not Next.js's production-redacted digest box — see
+    // src/lib/actionResult.ts's rationale. Caught here instead of
+    // converting postToBankAccount itself, since that helper is
+    // shared across six modules' $transaction blocks and a throw is
+    // what correctly rolls the transaction back.
+    return { success: false, error: err instanceof Error ? err.message : "Failed to record purchase" };
+  }
 }
 
 // The "selling right at drop-off" shortcut (Stock Management spec: a
@@ -315,11 +331,14 @@ export async function createTransferPurchase(input: TransferPurchaseInput) {
 // PHYSICALLY a real addition to the shop's stock (unlike a later
 // transfer-purchase, where the grain was already sitting there) — the
 // grain is arriving for the first time right now.
-export async function createDepositWithSettlement(input: DepositWithSettlementInput) {
+export async function createDepositWithSettlement(
+  input: DepositWithSettlementInput
+): Promise<{ success: false; error: string } | { success: true; data: Record<string, unknown> }> {
   const shopId = await getCurrentShopId();
   const data = depositWithSettlementSchema.parse(input);
 
-  return db.$transaction(async (tx) => {
+  try {
+    return await db.$transaction(async (tx) => {
     const product = await tx.product.findFirst({ where: { id: data.productId, shopId } });
     if (!product) return { success: false, error: "Product not found" };
 
@@ -362,7 +381,14 @@ export async function createDepositWithSettlement(input: DepositWithSettlementIn
         payment,
       },
     };
-  });
+    });
+  } catch (err) {
+    // Same reasoning as createTransferPurchase's catch above —
+    // postToBankAccount's overdraft guard throws inside this
+    // transaction and must surface as a real message, not
+    // production's redacted digest box.
+    return { success: false, error: err instanceof Error ? err.message : "Failed to record purchase" };
+  }
 }
 
 // A customer batch's settlement breakdown: every purchase the

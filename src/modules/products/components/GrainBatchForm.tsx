@@ -102,10 +102,7 @@ export function GrainBatchForm({
       }
 
       if (sellingNow) {
-        // Not yet converted to ActionResult (stock/actions.ts is a
-        // separate, pending conversion) — still throws on failure,
-        // caught below same as createCustomer.
-        await createDepositWithSettlement({
+        const result = await createDepositWithSettlement({
           productId,
           customerId: effectiveCustomerId!,
           quantity: Number(quantityIn),
@@ -113,6 +110,10 @@ export function GrainBatchForm({
           paymentMethod,
           bankAccountId: bankAccountId || undefined,
         });
+        if (!result.success) {
+          setError(result.error);
+          return;
+        }
         showToast("Purchased from customer — added to shop stock");
       } else {
         const result = await createGrainBatch({
