@@ -19,6 +19,7 @@ jobs:
     environment: staging
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm }
       - run: npm ci
@@ -41,3 +42,19 @@ jobs:
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      # Shows exactly what's now waiting to be promoted to production
+      # — this commit, plus any earlier staging commits main still
+      # doesn't have. Visible right in the run's own summary, no need
+      # to go dig through `git log` separately before deciding what to
+      # deploy.
+      - name: Show commits pending for production
+        run: |
+          git fetch origin main
+          echo "## Pending for production" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Commits on staging not yet on main:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          git log origin/main..HEAD --pretty=format:"- \`%h\` %s" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "To ship this commit (or any of the above) to production: Actions → Deploy Production → Run workflow → paste the commit SHA (or leave blank for the latest)." >> $GITHUB_STEP_SUMMARY

@@ -1,28 +1,92 @@
 name: Deploy Production
 
-# Manual only — never triggered by a push, to staging, main, or
-# anywhere else. Go to Actions -> Deploy Production -> "Run workflow"
-# once staging has been tested and confirmed. Always deploys whatever
-# is currently on main (the branch dropdown defaults to main and
-# should be left there), after running CI and migrations fresh.
+# Manual only — never triggered by a push. Go to Actions -> Deploy
+# Production -> "Run workflow" once staging has been tested and
+# confirmed. Deploys one specific commit from staging (leave the
+# commit field blank to deploy everything currently on staging, the
+# common case), after fast-forwarding main to it — so main always
+# reflects exactly what's actually live, and "what's in production"
+# is always answerable just by looking at main's latest commit. See
+# deploy-staging.yml's "Pending for production" summary for the
+# commit SHAs to pick from if you want to promote one commit at a
+# time instead of everything at once.
 on:
   workflow_dispatch:
     inputs:
+      commit:
+        description: "Commit SHA to deploy (from staging's pending list) — leave blank to deploy everything currently on staging"
+        required: false
       confirm:
         description: 'Type "deploy" to confirm — this ships to real production'
         required: true
 
+permissions:
+  contents: write
+
 jobs:
+  resolve-and-promote:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'deploy'
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, ref: main }
+
+      # Confirms the requested commit actually exists in staging's
+      # history before touching main at all — a typo'd or unrelated
+      # SHA fails loudly here instead of silently fast-forwarding main
+      # to the wrong place.
+      - name: Resolve target commit
+        id: resolve
+        run: |
+          git fetch origin staging
+          if [ -z "${{ github.event.inputs.commit }}" ]; then
+            SHA=$(git rev-parse origin/staging)
+            echo "No commit given — deploying staging's current HEAD ($SHA), i.e. everything on staging right now."
+          else
+            SHA="${{ github.event.inputs.commit }}"
+            if ! git merge-base --is-ancestor "$SHA" origin/staging; then
+              echo "::error::$SHA is not an ancestor of staging — refusing to deploy a commit that was never actually on staging."
+              exit 1
+            fi
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Show what's shipping
+        run: |
+          echo "## Deploying to production" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Target commit: \`${{ steps.resolve.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Commits this adds beyond what's currently live on main:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          git log origin/main..${{ steps.resolve.outputs.sha }} --pretty=format:"- \`%h\` %s" >> $GITHUB_STEP_SUMMARY || echo "(main is already at or ahead of this commit)" >> $GITHUB_STEP_SUMMARY
+
+      # Real git push — main's history becomes an honest record of
+      # every production release, per explicit design decision (not
+      # just deploying this commit's code while leaving main stale).
+      - name: Fast-forward main to the target commit
+        run: |
+          git fetch origin main
+          git checkout main
+          git merge --ff-only ${{ steps.resolve.outputs.sha }}
+          git push origin main
+
   ci:
+    needs: resolve-and-promote
     uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.resolve-and-promote.outputs.sha }}
 
   deploy:
-    needs: ci
-    if: github.event.inputs.confirm == 'deploy'
+    needs: [resolve-and-promote, ci]
     runs-on: ubuntu-latest
     environment: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-and-promote.outputs.sha }}
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm }
       - run: npm ci
