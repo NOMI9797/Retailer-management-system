@@ -1,5 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // "native" covers local dev (macOS/Linux dev machines, whatever
+  // that happens to be); "rhel-openssl-3.0.x" is what Vercel's
+  // serverless functions actually run on at deploy time — without it
+  // explicitly listed, `prisma generate` only bundles the engine for
+  // whatever machine ran it (CI's own Linux runner, Debian-based, not
+  // RHEL), and every Prisma call throws PrismaClientInitializationError
+  // at runtime in production/staging.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
