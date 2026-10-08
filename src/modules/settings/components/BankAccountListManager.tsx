@@ -1,7 +1,7 @@
 "use client";
 
 import { SimpleListManager } from "./SimpleListManager";
-import { createBankAccount, updateBankAccount } from "../bankAccounts.actions";
+import { createBankAccount, updateBankAccount, deleteBankAccount } from "../bankAccounts.actions";
 import type { listBankAccounts } from "../bankAccounts.actions";
 
 // Thin adapter — same pattern as UnitListManager/AreaListManager.
@@ -19,6 +19,7 @@ export function BankAccountListManager({
       onCreate={(name) => createBankAccount({ name })}
       onRename={(id, name) => updateBankAccount({ id, name })}
       onToggleActive={(id, isActive) => updateBankAccount({ id, isActive: !isActive })}
+      onDelete={(id) => deleteBankAccount(id)}
     />
   );
 }

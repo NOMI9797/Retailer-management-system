@@ -4,6 +4,7 @@ import { SimpleListManager } from "./SimpleListManager";
 import {
   createMonthlyExpenseType,
   updateMonthlyExpenseType,
+  deleteMonthlyExpenseType,
   listMonthlyExpenseTypes,
 } from "@/modules/expenses/actions";
 
@@ -23,6 +24,7 @@ export function MonthlyExpenseTypeListManager({
       onCreate={(name) => createMonthlyExpenseType(name)}
       onRename={(id, name) => updateMonthlyExpenseType(id, { name })}
       onToggleActive={(id, isActive) => updateMonthlyExpenseType(id, { isActive: !isActive })}
+      onDelete={(id) => deleteMonthlyExpenseType(id)}
     />
   );
 }

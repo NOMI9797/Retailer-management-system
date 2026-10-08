@@ -29,7 +29,9 @@ export const listUnits = cache(async (includeInactive = false) => {
 
   return cachedShopQuery(ENTITY, shopId, [includeInactive], () =>
     db.unit.findMany({
-      where: { shopId, isActive: includeInactive ? undefined : true },
+      // isDeleted is never shown regardless of includeInactive — see
+      // deleteUnit's comment.
+      where: { shopId, isActive: includeInactive ? undefined : true, isDeleted: false },
       orderBy: { name: "asc" },
     })
   );
@@ -47,4 +49,22 @@ export async function updateUnit(
   const unit = await db.unit.update({ where: { id }, data });
   invalidateShopCache(ENTITY, shopId);
   return ok(unit);
+}
+
+// Soft-deletes a unit — same reasoning as deleteCategory
+// (categories.actions.ts): Product.unitId is a required foreign key,
+// so there is no safe hard-delete. Requires deactivation first, then
+// flips isDeleted instead of removing the row.
+export async function deleteUnit(id: string): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+
+  const existing = await db.unit.findFirst({ where: { id, shopId } });
+  if (!existing) return fail("Unit not found");
+  if (existing.isActive) {
+    return fail("Deactivate this unit first, then delete it.");
+  }
+
+  await db.unit.update({ where: { id }, data: { isDeleted: true } });
+  invalidateShopCache(ENTITY, shopId);
+  return ok(null);
 }

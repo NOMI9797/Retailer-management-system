@@ -1,7 +1,7 @@
 "use client";
 
 import { SimpleListManager } from "./SimpleListManager";
-import { createUnit, updateUnit } from "@/modules/products/actions";
+import { createUnit, updateUnit, deleteUnit } from "@/modules/products/actions";
 import type { listUnits } from "@/modules/products/actions";
 
 // Thin adapter — same pattern as CategoryListManager.
@@ -13,6 +13,7 @@ export function UnitListManager({ units }: { units: Awaited<ReturnType<typeof li
       onCreate={(name) => createUnit({ name })}
       onRename={(id, name) => updateUnit({ id, name })}
       onToggleActive={(id, isActive) => updateUnit({ id, isActive: !isActive })}
+      onDelete={(id) => deleteUnit(id)}
     />
   );
 }

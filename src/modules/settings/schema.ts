@@ -65,7 +65,8 @@ export type AreaInput = z.infer<typeof areaSchema>;
 
 export const updateAreaSchema = z.object({
   id: z.string().uuid(),
-  name: z.string().min(1, "Name is required"),
+  name: z.string().min(1, "Name is required").optional(),
+  isActive: z.boolean().optional(),
 });
 export type UpdateAreaInput = z.infer<typeof updateAreaSchema>;
 

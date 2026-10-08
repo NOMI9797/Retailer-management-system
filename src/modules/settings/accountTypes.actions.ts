@@ -51,7 +51,9 @@ export const listAccountTypes = cache(async (includeInactive = false) => {
 
   return cachedShopQuery(ENTITY, shopId, [includeInactive], () =>
     db.accountType.findMany({
-      where: { shopId, isActive: includeInactive ? undefined : true },
+      // isDeleted is never shown regardless of includeInactive — see
+      // deleteAccountType's comment.
+      where: { shopId, isActive: includeInactive ? undefined : true, isDeleted: false },
       include: { fields: { orderBy: { displayOrder: "asc" } } },
       orderBy: { name: "asc" },
     })
@@ -90,6 +92,29 @@ export async function updateAccountType(
   const accountType = await db.accountType.update({ where: { id }, data });
   invalidateShopCache(ENTITY, shopId);
   return ok(accountType);
+}
+
+// Soft-deletes an account type — CustomerAccount.accountTypeId is a
+// required foreign key, so a real DELETE would either violate it or
+// orphan every customer's account history under this type; there is
+// no safe hard-delete here even once nothing new is being created
+// against it. Requires the type be deactivated FIRST (same two-step
+// rule every Settings entity now follows), then flips isDeleted
+// instead of removing the row — permanently hidden from the Settings
+// list and every picker, while every historical customer account
+// under it keeps resolving its real name unchanged.
+export async function deleteAccountType(id: string): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+
+  const existing = await db.accountType.findFirst({ where: { id, shopId } });
+  if (!existing) return fail("Account type not found");
+  if (existing.isActive) {
+    return fail("Deactivate this account type first, then delete it.");
+  }
+
+  await db.accountType.update({ where: { id }, data: { isDeleted: true } });
+  invalidateShopCache(ENTITY, shopId);
+  return ok(null);
 }
 
 // Called once per shop the first time any account-type-dependent

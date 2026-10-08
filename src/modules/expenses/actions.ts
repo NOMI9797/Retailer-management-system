@@ -289,6 +289,25 @@ export async function updateMonthlyExpenseType(
   return ok(await db.monthlyExpenseType.update({ where: { id }, data }));
 }
 
+// Permanently removes a monthly expense type — blocked whenever any
+// expense still references it, same "clear it before removing" rule
+// deleteCategory/deleteUnit follow.
+export async function deleteMonthlyExpenseType(id: string): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+
+  const existing = await db.monthlyExpenseType.findFirst({ where: { id, shopId }, include: { expenses: true } });
+  if (!existing) return fail("Monthly expense type not found");
+  if (existing.isActive) {
+    return fail("Deactivate this monthly expense type first, then delete it.");
+  }
+  if (existing.expenses.length > 0) {
+    return fail(`This monthly expense type has ${existing.expenses.length} expense(s) recorded against it — it can't be removed.`);
+  }
+
+  await db.monthlyExpenseType.delete({ where: { id } });
+  return ok(null);
+}
+
 // ── Monthly expenses ─────────────────────────────────────────
 // Recorded here for now but deliberately NOT wired into Cash Flow or
 // anything else yet — that's future work, once Cash Flow grows a

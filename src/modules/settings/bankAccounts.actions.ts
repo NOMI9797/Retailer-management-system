@@ -82,6 +82,46 @@ export async function updateBankAccount(
   return ok({ ...bankAccount, currentBalance: Number(bankAccount.currentBalance) });
 }
 
+// Permanently removes a bank account — blocked whenever it has a
+// non-zero balance or ANY transaction history across the six
+// different tables that can post to one (account transactions, daily
+// sale payments, grain sale credit payments, expenses, expense
+// payments, dealer transactions/purchases). Same "clear it before
+// removing" rule removeCustomerAccount follows, scaled up since a
+// bank account is referenced far more widely than a customer account.
+export async function deleteBankAccount(id: string): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+
+  const existing = await db.bankAccount.findFirst({ where: { id, shopId } });
+  if (!existing) return fail("Bank account not found");
+  if (existing.isActive) {
+    return fail("Deactivate this bank account first, then delete it.");
+  }
+  if (Number(existing.currentBalance) !== 0) {
+    return fail("This bank account still has a balance — move it to zero before deleting.");
+  }
+
+  const [txnCount, salePaymentCount, grainCreditCount, expenseCount, expensePaymentCount, dealerTxnCount, dealerPurchaseCount] =
+    await Promise.all([
+      db.accountTransaction.count({ where: { bankAccountId: id } }),
+      db.dailySalePayment.count({ where: { bankAccountId: id } }),
+      db.grainSaleCreditPayment.count({ where: { bankAccountId: id } }),
+      db.expense.count({ where: { bankAccountId: id } }),
+      db.expensePayment.count({ where: { bankAccountId: id } }),
+      db.dealerTransaction.count({ where: { bankAccountId: id } }),
+      db.dealerProductPurchase.count({ where: { bankAccountId: id } }),
+    ]);
+  const totalHistory =
+    txnCount + salePaymentCount + grainCreditCount + expenseCount + expensePaymentCount + dealerTxnCount + dealerPurchaseCount;
+  if (totalHistory > 0) {
+    return fail("This bank account has transaction history — it can't be removed.");
+  }
+
+  await db.bankAccount.delete({ where: { id } });
+  invalidateShopCache(ENTITY, shopId);
+  return ok(null);
+}
+
 // The one shared implementation of "move money through a bank
 // account's tracked balance" — every module that writes a row with
 // paymentMethod = ACCOUNT calls this in the SAME transaction as that

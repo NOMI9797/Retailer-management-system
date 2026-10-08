@@ -38,7 +38,11 @@ export const listCategories = cache(async (includeInactive = false, stockKind?: 
 
   return cachedShopQuery(ENTITY, shopId, [includeInactive, stockKind ?? "ALL"], () =>
     db.category.findMany({
-      where: { shopId, isActive: includeInactive ? undefined : true, stockKind },
+      // isDeleted is never shown regardless of includeInactive — a
+      // soft-deleted category is gone for good, not just toggled off
+      // (see deleteCategory's comment), so it never resurfaces even
+      // in the Settings list's "show inactive too" view.
+      where: { shopId, isActive: includeInactive ? undefined : true, isDeleted: false, stockKind },
       orderBy: { name: "asc" },
     })
   );
@@ -58,4 +62,28 @@ export async function updateCategory(
   const category = await db.category.update({ where: { id }, data });
   invalidateShopCache(ENTITY, shopId);
   return ok(category);
+}
+
+// Soft-deletes a category — Product.categoryId is a required foreign
+// key, so a real DELETE would either violate it or orphan every
+// product filed under this category; there is no safe hard-delete
+// here even once nothing new is being added to it. Requires the
+// category be deactivated FIRST (same two-step rule every Settings
+// entity now follows), then flips isDeleted instead of removing the
+// row — permanently hidden from the Settings list and every picker
+// from this point on, with no "undelete" path in the UI, while every
+// historical product filed under it keeps resolving its real name
+// unchanged.
+export async function deleteCategory(id: string): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+
+  const existing = await db.category.findFirst({ where: { id, shopId } });
+  if (!existing) return fail("Category not found");
+  if (existing.isActive) {
+    return fail("Deactivate this category first, then delete it.");
+  }
+
+  await db.category.update({ where: { id }, data: { isDeleted: true } });
+  invalidateShopCache(ENTITY, shopId);
+  return ok(null);
 }

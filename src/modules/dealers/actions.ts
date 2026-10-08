@@ -61,7 +61,9 @@ export const listDealers = cache(async (options?: { type?: "PRODUCTS" | "GRAIN";
 
   return cachedShopQuery(ENTITY, shopId, [type ?? "ALL", includeInactive], () =>
     db.dealer.findMany({
-      where: { shopId, type, isActive: includeInactive ? undefined : true },
+      // isDeleted is never shown regardless of includeInactive — see
+      // deleteDealer's comment.
+      where: { shopId, type, isActive: includeInactive ? undefined : true, isDeleted: false },
       orderBy: { name: "asc" },
     })
   );
@@ -104,6 +106,43 @@ export async function updateDealer(input: UpdateDealerInput) {
   const dealer = await db.dealer.update({ where: { id }, data });
   invalidateShopCache(ENTITY, shopId);
   return { success: true, data: dealer };
+}
+
+// Permanently removes a dealer — blocked whenever they have any
+// purchase/Udhaar history: a non-zero Udhaar balance, any product
+// purchase, grain batch, daily sale (dealer-sold-to-shop), or
+// transaction. The shopkeeper must deactivate instead if this dealer
+// just isn't supplying anymore, same "deactivate when there's real
+// history" rule every other entity in this module follows.
+// Soft-deletes a dealer — DealerProductPurchase.dealerId is a
+// required foreign key, so a real DELETE would either violate it or
+// orphan every historical purchase from this dealer; there is no safe
+// hard-delete here even once nothing new is being bought from them.
+// Requires the dealer be deactivated FIRST (same two-step rule every
+// Settings entity now follows), then flips isDeleted instead of
+// removing the row. Still blocked on a non-zero Udhaar balance
+// specifically (unlike Category/Unit/AccountType) — that's real,
+// unresolved money either owed to or by this dealer, not just a
+// referential-integrity concern, and hiding the dealer would make it
+// invisible without actually resolving it.
+export async function deleteDealer(id: string): Promise<{ success: false; error: string } | { success: true; data: null }> {
+  const shopId = await getCurrentShopId();
+
+  const existing = await db.dealer.findFirst({
+    where: { id, shopId },
+    include: { account: true },
+  });
+  if (!existing) return { success: false, error: "Dealer not found" };
+  if (existing.isActive) {
+    return { success: false, error: "Deactivate this dealer first, then delete it." };
+  }
+  if (existing.account && Number(existing.account.currentBalance) !== 0) {
+    return { success: false, error: "This dealer still has an outstanding Udhaar balance — settle it before deleting." };
+  }
+
+  await db.dealer.update({ where: { id }, data: { isDeleted: true } });
+  invalidateShopCache(ENTITY, shopId);
+  return { success: true, data: null };
 }
 
 // One dealer's full detail — balance, every product purchase, every

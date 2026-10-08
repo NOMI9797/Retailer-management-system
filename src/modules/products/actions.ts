@@ -10,9 +10,10 @@ export {
   createCategory,
   listCategories,
   updateCategory,
+  deleteCategory,
 } from "./categories.actions";
 
-export { createUnit, listUnits, updateUnit } from "./units.actions";
+export { createUnit, listUnits, updateUnit, deleteUnit } from "./units.actions";
 
 export {
   createProduct,

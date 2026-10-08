@@ -30,12 +30,17 @@ export function SimpleListManager<T extends SimpleListItem>({
   onCreate,
   onRename,
   onToggleActive,
+  onDelete,
 }: {
   items: T[];
   itemLabel: string;
   onCreate: (name: string) => Promise<unknown>;
   onRename: (id: string, name: string) => Promise<unknown>;
   onToggleActive?: (id: string, isActive: boolean) => Promise<unknown>;
+  // Omitted entirely means no Delete button at all — not every caller
+  // necessarily wants one, same "button only appears if the callback
+  // is wired" convention onToggleActive already follows.
+  onDelete?: (id: string) => Promise<unknown>;
 }) {
   const router = useRouter();
   const [newName, setNewName] = useState("");
@@ -43,6 +48,12 @@ export function SimpleListManager<T extends SimpleListItem>({
   const [editingName, setEditingName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  // Which item's Delete button is in the "Confirm?" state — only ever
+  // one at a time, same reasoning DeleteExpenseButton/
+  // DeleteSaleButton use a local confirming flag instead of a native
+  // confirm() dialog.
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -93,6 +104,28 @@ export function SimpleListManager<T extends SimpleListItem>({
       router.refresh();
     } catch {
       setError(`Failed to update ${itemLabel}`);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!onDelete) return;
+    setError(null);
+    setIsDeleting(true);
+    try {
+      const result = await onDelete(id);
+      if (isActionResult(result) && !result.success) {
+        setError(result.error);
+        setConfirmingDeleteId(null);
+        return;
+      }
+      showToast(`${itemLabel.charAt(0).toUpperCase() + itemLabel.slice(1)} deleted`);
+      setConfirmingDeleteId(null);
+      router.refresh();
+    } catch {
+      setError(`Failed to delete ${itemLabel}`);
+      setConfirmingDeleteId(null);
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -150,6 +183,16 @@ export function SimpleListManager<T extends SimpleListItem>({
                     Cancel
                   </button>
                 </>
+              ) : confirmingDeleteId === item.id ? (
+                <>
+                  <span style={{ fontSize: 12.5, color: "var(--consigned-600)", marginRight: 4 }}>Delete?</span>
+                  <button className="btn btn-primary" onClick={() => handleDelete(item.id)} disabled={isDeleting}>
+                    {isDeleting ? "Deleting…" : "Yes, delete"}
+                  </button>
+                  <button className="btn btn-ghost" onClick={() => setConfirmingDeleteId(null)} disabled={isDeleting}>
+                    Cancel
+                  </button>
+                </>
               ) : (
                 <>
                   <button
@@ -164,6 +207,11 @@ export function SimpleListManager<T extends SimpleListItem>({
                   {onToggleActive && (
                     <button className="btn btn-ghost" onClick={() => handleToggle(item.id, item.isActive!)}>
                       {item.isActive ? "Deactivate" : "Activate"}
+                    </button>
+                  )}
+                  {onDelete && (
+                    <button className="btn btn-ghost" onClick={() => setConfirmingDeleteId(item.id)}>
+                      Delete
                     </button>
                   )}
                 </>

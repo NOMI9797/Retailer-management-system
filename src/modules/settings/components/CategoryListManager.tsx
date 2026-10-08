@@ -1,7 +1,7 @@
 "use client";
 
 import { SimpleListManager } from "./SimpleListManager";
-import { createCategory, updateCategory } from "@/modules/products/actions";
+import { createCategory, updateCategory, deleteCategory } from "@/modules/products/actions";
 import type { listCategories } from "@/modules/products/actions";
 
 // Two real, separate sections — Product (Simple stock) and Grain —
@@ -37,6 +37,7 @@ export function CategoryListManager({
           onCreate={(name) => createCategory({ name, stockKind: "SIMPLE" })}
           onRename={(id, name) => updateCategory({ id, name })}
           onToggleActive={(id, isActive) => updateCategory({ id, isActive: !isActive })}
+          onDelete={(id) => deleteCategory(id)}
         />
       </div>
 
@@ -48,6 +49,7 @@ export function CategoryListManager({
           onCreate={(name) => createCategory({ name, stockKind: "GRAIN" })}
           onRename={(id, name) => updateCategory({ id, name })}
           onToggleActive={(id, isActive) => updateCategory({ id, isActive: !isActive })}
+          onDelete={(id) => deleteCategory(id)}
         />
       </div>
     </div>

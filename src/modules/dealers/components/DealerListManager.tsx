@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { updateDealer } from "../actions";
+import { updateDealer, deleteDealer } from "../actions";
 import { AddDealerModal } from "./AddDealerModal";
 import { showToast } from "@/components/shared/toastStore";
 import type { listDealers } from "../actions";
@@ -19,6 +19,8 @@ export function DealerListManager({ dealers }: { dealers: Dealers }) {
   const [editingName, setEditingName] = useState("");
   const [editingPhone, setEditingPhone] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   async function handleRename(id: string) {
     setError(null);
@@ -41,6 +43,24 @@ export function DealerListManager({ dealers }: { dealers: Dealers }) {
     }
     showToast(isActive ? "Dealer deactivated" : "Dealer activated");
     router.refresh();
+  }
+
+  async function handleDelete(id: string) {
+    setError(null);
+    setIsDeleting(true);
+    try {
+      const result = await deleteDealer(id);
+      if (!result.success) {
+        setError(result.error);
+        setConfirmingDeleteId(null);
+        return;
+      }
+      showToast("Dealer deleted");
+      setConfirmingDeleteId(null);
+      router.refresh();
+    } finally {
+      setIsDeleting(false);
+    }
   }
 
   return (
@@ -118,6 +138,16 @@ export function DealerListManager({ dealers }: { dealers: Dealers }) {
                           Cancel
                         </button>
                       </>
+                    ) : confirmingDeleteId === dealer.id ? (
+                      <>
+                        <span style={{ fontSize: 12.5, color: "var(--consigned-600)", marginRight: 4 }}>Delete?</span>
+                        <button className="btn btn-primary" onClick={() => handleDelete(dealer.id)} disabled={isDeleting}>
+                          {isDeleting ? "Deleting…" : "Yes, delete"}
+                        </button>
+                        <button className="btn btn-ghost" onClick={() => setConfirmingDeleteId(null)} disabled={isDeleting}>
+                          Cancel
+                        </button>
+                      </>
                     ) : (
                       <>
                         <button
@@ -132,6 +162,9 @@ export function DealerListManager({ dealers }: { dealers: Dealers }) {
                         </button>
                         <button className="btn btn-ghost" onClick={() => handleToggle(dealer.id, dealer.isActive)}>
                           {dealer.isActive ? "Deactivate" : "Activate"}
+                        </button>
+                        <button className="btn btn-ghost" onClick={() => setConfirmingDeleteId(dealer.id)}>
+                          Delete
                         </button>
                       </>
                     )}

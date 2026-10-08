@@ -112,6 +112,13 @@ model Area {
   shopId       String
   shop         Shop    @relation(fields: [shopId], references: [id])
   name         String
+  // Added alongside Delete — Area previously had no Active/Inactive
+  // concept at all (a flat list, no deactivate toggle), but Delete now
+  // requires an item be deactivated first, same rule every other
+  // Settings entity follows. customerId on Customer is nullable, so
+  // deleting an area (once inactive and unused) is a real DELETE, not
+  // a soft-delete like Category/Unit/AccountType/Dealer.
+  isActive     Boolean @default(true)
   parentAreaId String?
   parentArea   Area?   @relation("AreaHierarchy", fields: [parentAreaId], references: [id])
   subAreas     Area[]  @relation("AreaHierarchy")
@@ -165,6 +172,14 @@ model Dealer {
   // dealers that actually make sense there.
   type      DealerType
   isActive  Boolean    @default(true)
+  // Soft-delete — Dealer can't be truly removed once it has any
+  // purchase history, since DealerProductPurchase.dealerId is a
+  // required (non-nullable) foreign key: a real DELETE would either
+  // violate that constraint or orphan historical purchases. Set only
+  // after isActive is false (enforced in deleteDealer), and once set,
+  // the dealer is permanently hidden from the Settings list and every
+  // picker — unlike isActive, there is no "undelete" path in the UI.
+  isDeleted Boolean    @default(false)
   createdAt DateTime   @default(now())
 
   account   DealerAccount?
@@ -299,6 +314,12 @@ model AccountType {
   // "On account" badge.
   isLoan         Boolean @default(false)
   isActive       Boolean @default(true)
+  // Soft-delete — same reasoning as Dealer.isDeleted:
+  // CustomerAccount.accountTypeId is a required foreign key, so a
+  // real DELETE would either violate it or orphan every customer's
+  // account history. Set only after isActive is false, and once set,
+  // permanently hidden from the Settings list and every picker.
+  isDeleted      Boolean @default(false)
 
   fields           AccountTypeField[]
   customerAccounts CustomerAccount[]
@@ -452,6 +473,12 @@ model Category {
   shop      Shop      @relation(fields: [shopId], references: [id])
   name      String
   isActive  Boolean   @default(true)
+  // Soft-delete — same reasoning as Dealer.isDeleted: Product.categoryId
+  // is a required foreign key, so a real DELETE would either violate
+  // it or orphan every product filed under this category. Set only
+  // after isActive is false, and once set, permanently hidden from the
+  // Settings list and every picker.
+  isDeleted Boolean   @default(false)
   // Which kind of product this category is for — Simple stock
   // (general merchandise) or Grain stock. A category is one or the
   // other, never shared: this is what lets Settings show two real
@@ -478,6 +505,9 @@ model Unit {
   shop     Shop    @relation(fields: [shopId], references: [id])
   name     String
   isActive Boolean @default(true)
+  // Soft-delete — same reasoning as Category.isDeleted: Product.unitId
+  // is a required foreign key.
+  isDeleted Boolean @default(false)
 
   products Product[]
 

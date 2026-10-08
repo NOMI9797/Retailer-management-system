@@ -107,7 +107,7 @@ async function UnitsSection() {
 }
 
 async function AreasSection() {
-  const areas = await listAreas();
+  const areas = await listAreas(true);
   return <AreaListManager areas={areas} />;
 }
 
