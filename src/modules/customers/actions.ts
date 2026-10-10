@@ -409,6 +409,71 @@ export async function recordAccountTransaction(
   });
 }
 
+// Deletes a plain AccountTransaction row and reverses whatever it did
+// — the Bank Accounts page's entry point for "Loan given," "Udhaar
+// repayment," "Borrowed from customer," and "Repaid to customer" rows
+// (see listBankAccountTransactions). Deliberately refuses anything
+// with quantity set (a grain settlement/repayment, linkedGrainBatchId)
+// or linkedSaleId set (a Credit sale's own Udhaar posting, already
+// deleted by deleting that sale) — those need their own dedicated
+// reversal, not this generic one, since both touch far more than a
+// balance (batch stock, pooled stock, Stock Udhaar entries, or the
+// sale's own item/stock effects).
+export async function deleteAccountTransaction(id: string): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+
+  const txn = await db.accountTransaction.findFirst({
+    where: { id, customerAccount: { customer: { shopId } } },
+  });
+  if (!txn) return fail("Transaction not found");
+  // A real grain settlement (linkedGrainBatchId set — payCustomerForGrain's
+  // OUT posting) touches a batch/pooled-stock, which this generic
+  // reversal doesn't handle — see deleteGrainSettlement
+  // (stock/actions.ts) for that one specifically. A "Grain debt
+  // repayment" (payGrainDebt's IN posting, quantity: 0 as a pure
+  // marker, linkedProductId set instead) is a plain balance+bank
+  // move with nothing else attached, so it's handled by the normal
+  // path below same as any other Regular-bucket transaction.
+  if (txn.linkedGrainBatchId) {
+    return fail("This is a grain settlement — delete it from the Grain page instead.");
+  }
+  if (txn.linkedSaleId) {
+    return fail("This is a sale's own Udhaar charge — delete the sale itself instead.");
+  }
+
+  const amount = Number(txn.amount);
+
+  await db.$transaction(async (tx) => {
+    if (txn.isShopBorrowed) {
+      // This bucket never touches currentBalance at all (see
+      // createShopBorrowedLoan/payShopBorrowedLoan's comments) — only
+      // the bank posting needs reversing, with the INVERTED sign this
+      // bucket already uses (OUT = cash came IN, so reversing pays it
+      // back OUT; IN = shop repaid, so reversing brings it back IN).
+      if (txn.paymentMethod === "ACCOUNT" && txn.bankAccountId) {
+        await postToBankAccount(tx, txn.bankAccountId, txn.direction === "OUT" ? -amount : amount);
+      }
+    } else {
+      // Normal Regular/Long-term Udhaar convention — reverse the
+      // balance move and the bank posting, exactly opposite of
+      // recordAccountTransaction's own writes.
+      await tx.customerAccount.update({
+        where: { id: txn.customerAccountId },
+        data: {
+          currentBalance: txn.direction === "OUT" ? { decrement: amount } : { increment: amount },
+        },
+      });
+      if (txn.paymentMethod === "ACCOUNT" && txn.bankAccountId) {
+        await postToBankAccount(tx, txn.bankAccountId, txn.direction === "OUT" ? amount : -amount);
+      }
+    }
+
+    await tx.accountTransaction.delete({ where: { id } });
+  });
+
+  return ok(null);
+}
+
 // A deliberate cash loan with a chosen term (e.g. "3 months"), as
 // opposed to Regular/Daily Udhaar which accrues naturally from Credit
 // sales with no fixed term — the shopkeeper picks a duration instead

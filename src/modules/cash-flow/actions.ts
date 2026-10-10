@@ -489,6 +489,21 @@ async function cascadeForward(shopId: string, fromDate: Date) {
   const priorRow = await db.dailyCashRegister.findUnique({ where: { shopId_date: { shopId, date: fromDate } } });
   if (priorRow?.actualClosing != null) priorClosing = Number(priorRow.actualClosing);
 
+  await cascadeForwardFrom(shopId, fromDate, priorClosing);
+}
+
+// The actual walk-forward-and-recompute loop, factored out of
+// cascadeForward so deleteCashRegisterEntry can reuse it with a
+// DIFFERENT starting closing — cascadeForward always reads fromDate's
+// OWN row for its baseline (the normal "this day's closing just
+// changed" case), but a delete needs the closing from whatever day is
+// now the latest one BEFORE fromDate instead, since fromDate's own
+// row is gone by the time this runs (see
+// resolveOpeningBalance, the same lookup getCashFlowForDate's
+// needsOpeningBalance case already uses).
+async function cascadeForwardFrom(shopId: string, fromDate: Date, startingClosing: number | null) {
+  let priorClosing = startingClosing;
+
   // Walk every later register row in date order — only rows that
   // exist need touching; a day with no row yet has nothing stored to
   // go stale, and will simply resolve correctly on its own next visit.
@@ -762,6 +777,31 @@ export async function editClosingBalance(input: CloseDayInput): Promise<ActionRe
   });
 
   await cascadeForward(shopId, start);
+  return ok(null);
+}
+
+// Deletes a day's register entry entirely — e.g. a day closed by
+// mistake, or test/incorrect data entered while setting things up.
+// Unlike editClosingBalance (which keeps the row and only changes its
+// counted amount), this removes it outright, so every LATER day that
+// derived its opening balance from this one needs to re-derive from
+// whatever closing now exists before it instead — same cascade
+// cascadeForward already runs after an edit, just anchored at a
+// different starting point (see cascadeForwardFrom's comment): the
+// most recent actual closing strictly BEFORE this day, since this
+// day's own row won't exist anymore by the time the cascade runs.
+export async function deleteCashRegisterEntry(date: string): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+  const { start } = dayBounds(date);
+
+  const existing = await db.dailyCashRegister.findUnique({ where: { shopId_date: { shopId, date: start } } });
+  if (!existing) return fail("No register entry exists for this day.");
+
+  const newStartingClosing = await resolveOpeningBalance(shopId, start);
+
+  await db.dailyCashRegister.delete({ where: { id: existing.id } });
+  await cascadeForwardFrom(shopId, start, newStartingClosing);
+
   return ok(null);
 }
 

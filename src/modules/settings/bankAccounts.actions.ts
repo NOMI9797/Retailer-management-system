@@ -13,6 +13,11 @@ import {
   type UpdateBankAccountInput,
 } from "./schema";
 import { ok, fail, type ActionResult } from "@/lib/actionResult";
+import { deleteDailySale, deleteGrainSaleItemCreditPayment } from "@/modules/daily-sales/actions";
+import { deleteExpense, deleteExpensePayment } from "@/modules/expenses/actions";
+import { deleteDealerProductPurchase, deleteDealerTransaction } from "@/modules/dealers/actions";
+import { deleteAccountTransaction } from "@/modules/customers/actions";
+import { deleteGrainSettlement } from "@/modules/stock/actions";
 
 const ENTITY = "bankAccounts";
 
@@ -163,6 +168,22 @@ export async function postToBankAccount(
   });
 }
 
+// Which "delete" a row's trash icon should trigger, and the id of the
+// actual underlying record that action needs — the row's own `id` is
+// whichever leaf table it came from (e.g. a DailySalePayment's id for
+// a "Sale" row), which usually isn't the same record the real delete
+// action takes (e.g. deleteDailySale wants the DailySale's own id).
+// One kind per source table this page merges from.
+export type BankAccountRowDeleteRef =
+  | { kind: "SALE"; dailySaleId: string }
+  | { kind: "EXPENSE"; expenseId: string }
+  | { kind: "DEALER_PURCHASE"; purchaseId: string }
+  | { kind: "ACCOUNT_TRANSACTION"; transactionId: string }
+  | { kind: "GRAIN_SETTLEMENT"; transactionId: string }
+  | { kind: "GRAIN_CREDIT_PAYMENT"; paymentId: string }
+  | { kind: "EXPENSE_PAYMENT"; paymentId: string }
+  | { kind: "DEALER_TRANSACTION"; transactionId: string };
+
 export type BankAccountTransactionRow = {
   id: string;
   date: Date;
@@ -172,6 +193,7 @@ export type BankAccountTransactionRow = {
   amount: number;
   source: string;
   description: string;
+  deleteRef: BankAccountRowDeleteRef;
 };
 
 // Every single row, across every feature in the app, where money
@@ -310,6 +332,16 @@ export async function listBankAccountTransactions(options?: {
             ? "Loan given"
             : "Udhaar repayment",
       description: customerName,
+      // A grain settlement (quantity !== null, direction OUT) touches
+      // a batch/pooled-stock on top of the balance/bank move, so it
+      // routes to its own dedicated reversal (deleteGrainSettlement)
+      // — everything else here (loan given, Udhaar repayment, grain
+      // debt repayment, shop-borrowed) is a plain balance+bank move,
+      // handled by deleteAccountTransaction.
+      deleteRef:
+        txn.quantity !== null && direction === "OUT"
+          ? { kind: "GRAIN_SETTLEMENT", transactionId: txn.id }
+          : { kind: "ACCOUNT_TRANSACTION", transactionId: txn.id },
     });
   }
 
@@ -327,6 +359,7 @@ export async function listBankAccountTransactions(options?: {
       // schema comment) — a sale paid via Account can come from
       // either a customer or a bulk dealer.
       description: payment.dailySale.customer?.name ?? payment.dailySale.dealer?.name ?? "Unknown buyer",
+      deleteRef: { kind: "SALE", dailySaleId: payment.dailySale.id },
     });
   }
 
@@ -343,6 +376,7 @@ export async function listBankAccountTransactions(options?: {
       amount: Number(payment.amount),
       source: "Grain Udhaar repayment",
       description: `${buyerName} — ${payment.dailySaleItem.product.name}`,
+      deleteRef: { kind: "GRAIN_CREDIT_PAYMENT", paymentId: payment.id },
     });
   }
 
@@ -357,6 +391,7 @@ export async function listBankAccountTransactions(options?: {
       amount: Number(expense.amount),
       source: expense.expenseType === "MONTHLY" ? "Monthly expense" : "Daily expense",
       description: expense.monthlyExpenseType?.name ?? expense.description,
+      deleteRef: { kind: "EXPENSE", expenseId: expense.id },
     });
   }
 
@@ -371,6 +406,7 @@ export async function listBankAccountTransactions(options?: {
       amount: Number(payment.amount),
       source: "Expense Udhaar repayment",
       description: payment.expense.description,
+      deleteRef: { kind: "EXPENSE_PAYMENT", paymentId: payment.id },
     });
   }
 
@@ -385,6 +421,7 @@ export async function listBankAccountTransactions(options?: {
       amount: Number(purchase.quantity) * Number(purchase.costPrice),
       source: "Dealer purchase",
       description: `${purchase.dealer.name} — ${purchase.product.name}`,
+      deleteRef: { kind: "DEALER_PURCHASE", purchaseId: purchase.id },
     });
   }
 
@@ -406,6 +443,7 @@ export async function listBankAccountTransactions(options?: {
       amount: Number(txn.amount),
       source: "Dealer Udhaar repayment",
       description: txn.dealerAccount.dealer.name,
+      deleteRef: { kind: "DEALER_TRANSACTION", transactionId: txn.id },
     });
   }
 
@@ -421,4 +459,55 @@ export async function listBankAccountTransactions(options?: {
     pageSize,
     totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
   };
+}
+
+// Deletes a Bank Accounts transaction-history row from the SOURCE it
+// actually came from — this page is a merged read-only view over 7
+// different tables (see listBankAccountTransactions), so "delete this
+// row" always means "delete/reverse the real underlying record,"
+// never a row that only exists here. Each kind below delegates to
+// that record's own existing delete/reversal logic (same stock/
+// balance/bank-account effects as deleting it from its own page would
+// cause), so there is exactly one implementation of each reversal,
+// never a second copy duplicated for this merged view.
+export async function deleteBankAccountRow(ref: BankAccountRowDeleteRef): Promise<ActionResult<null>> {
+  switch (ref.kind) {
+    case "SALE": {
+      const result = await deleteDailySale(ref.dailySaleId);
+      if (!result.success) return fail("error" in result ? result.error : "Failed to delete sale");
+      return ok(null);
+    }
+    case "EXPENSE": {
+      const result = await deleteExpense(ref.expenseId);
+      if (!result.success) return fail(result.error);
+      return ok(null);
+    }
+    case "DEALER_PURCHASE": {
+      const result = await deleteDealerProductPurchase(ref.purchaseId);
+      if (!result.success) return fail(result.error);
+      return ok(null);
+    }
+    case "ACCOUNT_TRANSACTION":
+      return deleteAccountTransaction(ref.transactionId);
+    case "GRAIN_SETTLEMENT": {
+      const result = await deleteGrainSettlement(ref.transactionId);
+      if (!result.success) return fail(result.error);
+      return ok(null);
+    }
+    case "GRAIN_CREDIT_PAYMENT": {
+      const result = await deleteGrainSaleItemCreditPayment(ref.paymentId);
+      if (!result.success) return fail(result.error);
+      return ok(null);
+    }
+    case "EXPENSE_PAYMENT": {
+      const result = await deleteExpensePayment(ref.paymentId);
+      if (!result.success) return fail(result.error);
+      return ok(null);
+    }
+    case "DEALER_TRANSACTION": {
+      const result = await deleteDealerTransaction(ref.transactionId);
+      if (!result.success) return fail(result.error);
+      return ok(null);
+    }
+  }
 }

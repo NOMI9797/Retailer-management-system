@@ -391,6 +391,113 @@ export async function createDepositWithSettlement(
   }
 }
 
+// Fully reverses a grain settlement — the Bank Accounts page's entry
+// point for a "Grain settlement" row (an AccountTransaction with
+// linkedGrainBatchId set, created by payCustomerForGrain inside
+// createTransferPurchase or createDepositWithSettlement). Undoes
+// every effect those two functions cause, in reverse: the pooled
+// stock gain, the new shop-owned batch itself, any StockUdhaarEntry
+// settlements it cleared, the customer balance move (CREDIT) or bank
+// posting (ACCOUNT), and — only for a transfer-purchase, never a
+// settle-now deposit, which has no source batch — the source batch's
+// quantityTransferred claim.
+//
+// Blocked outright if any of the new batch's quantity has already
+// been SOLD onward (quantitySold > 0) — that stock physically left
+// the shop to an end customer, so there is nothing left to safely
+// "un-settle"; the shopkeeper would need to handle that sale first.
+// Also blocked if it settled any Stock Udhaar shortfall that has
+// SINCE been further settled by a LATER purchase (a later settlement
+// entry pointing back at this one via linkedTransferBatchId) — undoing
+// this one first would leave that later entry's own math inconsistent.
+export async function deleteGrainSettlement(accountTransactionId: string): Promise<{ success: false; error: string } | { success: true; data: null }> {
+  const shopId = await getCurrentShopId();
+
+  const txn = await db.accountTransaction.findFirst({
+    where: { id: accountTransactionId, customerAccount: { customer: { shopId } } },
+    include: { linkedGrainBatch: true },
+  });
+  if (!txn || !txn.linkedGrainBatch) return { success: false, error: "Settlement not found" };
+
+  const newShopBatch = txn.linkedGrainBatch;
+  if (Number(newShopBatch.quantitySold) > 0) {
+    return {
+      success: false,
+      error: "Some of this settlement's stock has already been sold — it can't be undone until that's resolved.",
+    };
+  }
+
+  const laterSettlement = await db.stockUdhaarEntry.findFirst({
+    where: { linkedTransferBatchId: newShopBatch.id, createdAt: { gt: txn.transactionDate } },
+  });
+  if (laterSettlement) {
+    return {
+      success: false,
+      error: "A later settlement depends on this one having happened — it can't be undone out of order.",
+    };
+  }
+
+  const amount = Number(txn.amount);
+  const quantity = Number(txn.quantity ?? newShopBatch.quantityIn);
+  const rate = Number(newShopBatch.rate);
+
+  await db.$transaction(async (tx) => {
+    // Reverse the pooled-stock gain this settlement added.
+    await postToPooledGrainStock(tx, newShopBatch.productId, -quantity, -(quantity * rate));
+
+    // Reverse the customer balance / bank posting payCustomerForGrain
+    // made, same conventions as recordAccountTransaction's own
+    // reversal (deleteAccountTransaction in customers/actions.ts).
+    if (txn.paymentMethod === "CREDIT") {
+      await tx.customerAccount.update({
+        where: { id: txn.customerAccountId },
+        data: { currentBalance: { increment: amount } },
+      });
+    }
+    if (txn.paymentMethod === "ACCOUNT" && txn.bankAccountId) {
+      await postToBankAccount(tx, txn.bankAccountId, amount);
+    }
+
+    // Reverse whatever Stock Udhaar shortfall this settlement cleared
+    // — append-only ledger (see StockUdhaarEntry's own comment), so
+    // this adds a compensating POSITIVE entry rather than deleting
+    // the negative settlement rows, keeping the full history intact.
+    const settlementEntries = await tx.stockUdhaarEntry.findMany({
+      where: { linkedTransferBatchId: newShopBatch.id },
+    });
+    for (const entry of settlementEntries) {
+      await tx.stockUdhaarEntry.create({
+        data: {
+          customerId: entry.customerId,
+          productId: entry.productId,
+          grainBatchId: entry.grainBatchId,
+          quantity: -Number(entry.quantity),
+          notes: "Reversed — settlement deleted",
+        },
+      });
+    }
+
+    // If this settlement came from a transfer-purchase (has a source
+    // batch), give that claim back; a settle-now deposit has no
+    // source batch to restore.
+    if (newShopBatch.sourceBatchId) {
+      await tx.grainBatch.update({
+        where: { id: newShopBatch.sourceBatchId },
+        data: { quantityTransferred: { decrement: quantity } },
+      });
+    }
+
+    // The AccountTransaction and the new shop batch it's linked to
+    // are deleted together — the transaction's own cascade would
+    // otherwise leave the batch orphaned (linkedGrainBatchId set to
+    // something gone).
+    await tx.accountTransaction.delete({ where: { id: accountTransactionId } });
+    await tx.grainBatch.delete({ where: { id: newShopBatch.id } });
+  });
+
+  return { success: true, data: null };
+}
+
 // A customer batch's settlement breakdown: every purchase the
 // shopkeeper has made against it so far, each as its own entry — NOT
 // averaged into one blended rate, since two settlements against the

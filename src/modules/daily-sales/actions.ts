@@ -624,39 +624,48 @@ export async function updateDailySale(input: UpdateDailySaleInput) {
   const shopId = await getCurrentShopId();
   const data = updateDailySaleSchema.parse(input);
 
-  return db.$transaction(async (tx) => {
-    const existingSale = await tx.dailySale.findFirstOrThrow({ where: { id: data.saleId, shopId } });
-    const reverseResult = await reverseSaleContents(tx, shopId, data.saleId);
-    if (!reverseResult.success) return reverseResult;
+  try {
+    return await db.$transaction(async (tx) => {
+      const existingSale = await tx.dailySale.findFirstOrThrow({ where: { id: data.saleId, shopId } });
+      const reverseResult = await reverseSaleContents(tx, shopId, data.saleId);
+      if (!reverseResult.success) return reverseResult;
 
-    // The edited items/payments are written as a single fresh visit —
-    // editing a sale collapses whatever visit structure it had before
-    // into the one edited version, which matches how the edit form
-    // presents it (one combined item list, one combined split).
-    const visitAt = new Date();
-    const buyer = existingSale.customerId
-      ? { customerId: existingSale.customerId }
-      : { dealerId: existingSale.dealerId! };
-    const itemsResult = await applySaleItems(tx, shopId, data.saleId, data.items, visitAt);
-    if (!itemsResult.success) return itemsResult;
-    const { itemTotal, grainItems } = itemsResult.data;
+      // The edited items/payments are written as a single fresh visit —
+      // editing a sale collapses whatever visit structure it had before
+      // into the one edited version, which matches how the edit form
+      // presents it (one combined item list, one combined split).
+      const visitAt = new Date();
+      const buyer = existingSale.customerId
+        ? { customerId: existingSale.customerId }
+        : { dealerId: existingSale.dealerId! };
+      const itemsResult = await applySaleItems(tx, shopId, data.saleId, data.items, visitAt);
+      if (!itemsResult.success) return itemsResult;
+      const { itemTotal, grainItems } = itemsResult.data;
 
-    const paymentResult = await applyPaymentSplit(tx, shopId, buyer, data.saleId, itemTotal, data.payments, visitAt, grainItems);
-    if (!paymentResult.success) return paymentResult;
+      const paymentResult = await applyPaymentSplit(tx, shopId, buyer, data.saleId, itemTotal, data.payments, visitAt, grainItems);
+      if (!paymentResult.success) return paymentResult;
 
-    const updated = await tx.dailySale.findUniqueOrThrow({
-      where: { id: data.saleId },
-      include: { items: true },
+      const updated = await tx.dailySale.findUniqueOrThrow({
+        where: { id: data.saleId },
+        include: { items: true },
+      });
+
+      return {
+        success: true,
+        data: {
+          ...updated,
+          items: updated.items.map(serializeDecimals),
+        },
+      };
     });
-
-    return {
-      success: true,
-      data: {
-        ...updated,
-        items: updated.items.map(serializeDecimals),
-      },
-    };
-  });
+  } catch (err) {
+    // Same reasoning as deleteDailySale's own catch — either the
+    // reverse step's bank-reversal or the reapply step's new payment
+    // can throw postToBankAccount's overdraft guard, and that must
+    // surface as a real message, not Next.js's production-redacted
+    // digest box.
+    return { success: false, error: err instanceof Error ? err.message : "Failed to update sale" };
+  }
 }
 
 // Deletes a past sale entirely — reverses every stock/batch/ledger
@@ -667,12 +676,23 @@ export async function updateDailySale(input: UpdateDailySaleInput) {
 export async function deleteDailySale(saleId: string) {
   const shopId = await getCurrentShopId();
 
-  return db.$transaction(async (tx) => {
-    const reverseResult = await reverseSaleContents(tx, shopId, saleId);
-    if (!reverseResult.success) return reverseResult;
-    await tx.dailySale.delete({ where: { id: saleId } });
-    return { success: true, data: undefined };
-  });
+  try {
+    return await db.$transaction(async (tx) => {
+      const reverseResult = await reverseSaleContents(tx, shopId, saleId);
+      if (!reverseResult.success) return reverseResult;
+      await tx.dailySale.delete({ where: { id: saleId } });
+      return { success: true, data: undefined };
+    });
+  } catch (err) {
+    // reverseSaleContents' bank-reversal call can throw
+    // postToBankAccount's overdraft guard — e.g. deleting an old sale
+    // whose ACCOUNT payment money has since been spent elsewhere, so
+    // there's no longer enough balance to take it back out. Same
+    // reasoning as createTransferPurchase/createDepositWithSettlement's
+    // own try/catch (stock/actions.ts): this must surface as a real
+    // message, not Next.js's production-redacted digest box.
+    return { success: false, error: err instanceof Error ? err.message : "Failed to delete sale" };
+  }
 }
 
 // The customer detail page's purchase history data source — every
@@ -919,6 +939,35 @@ export async function payGrainSaleItemCredit(input: PayGrainSaleItemCreditInput)
     if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
       await postToBankAccount(tx, data.bankAccountId, data.amount);
     }
+  });
+  return { success: true, data: undefined };
+}
+
+// Reverses a grain-credit repayment — the bank posting (if ACCOUNT),
+// then removes the row. Same "doesn't touch currentBalance" reasoning
+// as payGrainSaleItemCredit itself: this ledger is a view into the
+// sale's own AccountTransaction debt, not a second source of truth,
+// so deleting a payment here needs nothing more than undoing its own
+// bank posting — the item's "remaining" figure is computed live from
+// whatever creditPayments rows still exist, so it corrects itself the
+// moment this row is gone.
+export async function deleteGrainSaleItemCreditPayment(
+  id: string
+): Promise<{ success: false; error: string } | { success: true; data: undefined }> {
+  const shopId = await getCurrentShopId();
+
+  const payment = await db.grainSaleCreditPayment.findFirst({
+    where: { id, dailySaleItem: { product: { shopId } } },
+  });
+  if (!payment) return { success: false, error: "Payment not found" };
+
+  await db.$transaction(async (tx) => {
+    if (payment.paymentMethod === "ACCOUNT" && payment.bankAccountId) {
+      // The repayment brought money IN — reversing it takes that
+      // money back OUT.
+      await postToBankAccount(tx, payment.bankAccountId, -Number(payment.amount));
+    }
+    await tx.grainSaleCreditPayment.delete({ where: { id } });
   });
   return { success: true, data: undefined };
 }

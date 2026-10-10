@@ -255,6 +255,31 @@ export async function payExpenseDebt(input: PayExpenseDebtInput): Promise<Action
   return ok(null);
 }
 
+// Reverses an expense-debt repayment — this is the SHOP paying down
+// its own Credit debt (e.g. rent bought on Credit, now being settled)
+// — unlike a customer-owed repayment, money LEAVES the bank account
+// when this is first recorded (see payExpenseDebt's own
+// postToBankAccount call, -amount), so reversing it brings that money
+// back IN. The expense's own remaining-owed figure is computed live
+// from whatever payments rows still exist, so it corrects itself the
+// moment this one is gone.
+export async function deleteExpensePayment(id: string): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+
+  const payment = await db.expensePayment.findFirst({
+    where: { id, expense: { shopId } },
+  });
+  if (!payment) return fail("Payment not found");
+
+  await db.$transaction(async (tx) => {
+    if (payment.paymentMethod === "ACCOUNT" && payment.bankAccountId) {
+      await postToBankAccount(tx, payment.bankAccountId, Number(payment.amount));
+    }
+    await tx.expensePayment.delete({ where: { id } });
+  });
+  return ok(null);
+}
+
 // ── Monthly expense types (Settings-managed) ────────────────
 // Same shape/pattern as Category/Unit — a shopkeeper-maintained list,
 // never hardcoded.

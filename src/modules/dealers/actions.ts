@@ -320,6 +320,55 @@ export async function createDealerProductPurchase(input: DealerProductPurchaseIn
   };
 }
 
+// Reverses a product purchase entirely — the product's stock increment,
+// the bank posting (if ACCOUNT), the linked DealerTransaction, and the
+// dealer's own Udhaar balance (if CREDIT) — then removes both rows.
+// Mirrors createDealerProductPurchase's own writes exactly, in
+// reverse, since every purchase always creates exactly one linked
+// DealerTransaction (via linkedPurchaseId) regardless of payment
+// method (see that function's comment on why — Cash Flow needs a real
+// row for "money left the shop today" even when nothing was borrowed).
+export async function deleteDealerProductPurchase(id: string): Promise<Result<null>> {
+  const shopId = await getCurrentShopId();
+
+  const purchase = await db.dealerProductPurchase.findFirst({
+    where: { id, dealer: { shopId } },
+    include: { dealer: { include: { account: true } } },
+  });
+  if (!purchase) return { success: false, error: "Purchase not found" };
+
+  const amount = Number(purchase.quantity) * Number(purchase.costPrice);
+
+  await db.$transaction(async (tx) => {
+    await tx.product.update({
+      where: { id: purchase.productId },
+      data: { quantity: { decrement: Number(purchase.quantity) } },
+    });
+
+    if (purchase.paymentMethod === "ACCOUNT" && purchase.bankAccountId) {
+      // The original purchase paid OUT of the account (money leaving
+      // the shop) — reversing it pays that money back IN.
+      await postToBankAccount(tx, purchase.bankAccountId, amount);
+    }
+
+    if (purchase.paymentMethod === "CREDIT" && purchase.dealer.account) {
+      // The shop's debt to the dealer grew by `amount` when this was
+      // purchased on Credit (see createDealerProductPurchase) — undo
+      // that growth.
+      await tx.dealerAccount.update({
+        where: { id: purchase.dealer.account.id },
+        data: { currentBalance: { decrement: amount } },
+      });
+    }
+
+    await tx.dealerTransaction.deleteMany({ where: { linkedPurchaseId: purchase.id } });
+    await tx.dealerProductPurchase.delete({ where: { id: purchase.id } });
+  });
+
+  invalidateShopCache(ENTITY, shopId);
+  return { success: true, data: null };
+}
+
 // Every Shop Purchase across every PRODUCTS dealer — the Dealer (Shop
 // Purchases) page's own table, same shape as every other paginated
 // list in the app.
@@ -607,4 +656,38 @@ export async function payDealerDebt(input: PayDealerDebtInput) {
     }
   });
   return { success: true, data: undefined };
+}
+
+// Reverses a dealer-debt repayment — the dealer's Udhaar balance (back
+// up, since a repayment decremented it) and the bank posting (if
+// ACCOUNT, a repayment took money OUT, so reversing brings it back
+// IN), then removes the row. Only ever called on a genuine repayment
+// row (isSettledPurchase: false) — a purchase's own DealerTransaction
+// (isSettledPurchase: true, or a Credit purchase's debt-creating OUT
+// row) is deleted as part of deleteDealerProductPurchase instead,
+// never through this function.
+export async function deleteDealerTransaction(id: string): Promise<Result<null>> {
+  const shopId = await getCurrentShopId();
+
+  const txn = await db.dealerTransaction.findFirst({
+    where: { id, dealerAccount: { dealer: { shopId } }, isSettledPurchase: false },
+  });
+  if (!txn) return { success: false, error: "Transaction not found" };
+
+  const amount = Number(txn.amount);
+
+  await db.$transaction(async (tx) => {
+    await tx.dealerAccount.update({
+      where: { id: txn.dealerAccountId },
+      data: {
+        currentBalance: txn.direction === "IN" ? { increment: amount } : { decrement: amount },
+      },
+    });
+    if (txn.paymentMethod === "ACCOUNT" && txn.bankAccountId) {
+      await postToBankAccount(tx, txn.bankAccountId, txn.direction === "IN" ? amount : -amount);
+    }
+    await tx.dealerTransaction.delete({ where: { id } });
+  });
+
+  return { success: true, data: null };
 }
