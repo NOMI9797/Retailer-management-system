@@ -131,3 +131,25 @@ export const payShopBorrowedLoanSchema = z
     path: ["bankAccountId"],
   });
 export type PayShopBorrowedLoanInput = z.infer<typeof payShopBorrowedLoanSchema>;
+
+// A legacy Udhaar balance carried over from the shopkeeper's paper
+// register, entered once while moving to this software — not a new
+// loan given today, just an existing debt being recorded here for the
+// first time. Always posts as CREDIT (no real cash/bank movement
+// happens from entering old data — see importLegacyUdhaar's comment)
+// and always to the shop's own loan-type account (same as
+// createLongTermLoan — a legacy balance is real Udhaar, not a plain
+// Regular running tab, but also not a deliberate NEW long-term loan
+// with its own chosen duration, even though it can still carry an
+// optional recovery date). sourceKind is purely a label on the
+// resulting transaction's notes for the shopkeeper's own bookkeeping
+// clarity — it never feeds the real per-batch Stock Udhaar system
+// (that requires an actual GrainBatch, which an import has none of).
+export const importLegacyUdhaarSchema = z.object({
+  customerId: z.string().uuid(),
+  amount: z.number().positive("Amount must be positive"),
+  sourceKind: z.enum(["PRODUCT", "GRAIN"]),
+  recoveryDate: z.string().optional(),
+  notes: z.string().optional(),
+});
+export type ImportLegacyUdhaarInput = z.infer<typeof importLegacyUdhaarSchema>;

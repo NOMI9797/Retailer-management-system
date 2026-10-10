@@ -55,6 +55,7 @@ export const updateProductSchema = z.object({
   costPrice: z.number().positive("Cost price must be positive").optional(),
   sellPrice: z.number().positive("Sell price must be positive").optional(),
   quantity: z.number().nonnegative("Quantity can't be negative").optional(),
+  isActive: z.boolean().optional(),
 });
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 

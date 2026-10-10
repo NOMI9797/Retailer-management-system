@@ -3,15 +3,21 @@ import Link from "next/link";
 import type { listCustomerBatchesForProduct, getStockOverview } from "@/modules/stock/actions";
 import { StockSummary } from "./StockSummary";
 import { AddBatchModal } from "./AddBatchModal";
+import { GrainProductActions } from "./GrainProductActions";
 import { BuyFromCustomerModal } from "@/modules/stock/components/BuyFromCustomerModal";
 import { formatMoney, formatDate } from "@/lib/utils";
 import type { listAreas } from "@/modules/settings/areas.actions";
+import type { listCategories } from "../actions";
 
 type Area = Awaited<ReturnType<typeof listAreas>>[number];
+type Category = Awaited<ReturnType<typeof listCategories>>[number];
 
 type GrainProduct = {
   id: string;
   name: string;
+  categoryId: string;
+  unitId: string;
+  isActive: boolean;
   category: { name: string };
   unit: { name: string };
 };
@@ -43,6 +49,7 @@ export function GrainBatchList({
   overview,
   areas,
   bankAccounts = [],
+  categories,
 }: {
   product: GrainProduct;
   batchCount: number;
@@ -50,6 +57,7 @@ export function GrainBatchList({
   overview: Overview;
   areas: Area[];
   bankAccounts?: { id: string; name: string }[];
+  categories: Category[];
 }) {
   // Date-header rows grouped by deposit date (receivedAt) — same
   // "insert a header row whenever the date changes" pattern
@@ -63,8 +71,18 @@ export function GrainBatchList({
   return (
     <>
       <div className="page-head" style={{ marginBottom: 8, alignItems: "center" }}>
-        <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: "var(--primary-600)" }}>{product.name}</h2>
-        <AddBatchModal productId={product.id} areas={areas} bankAccounts={bankAccounts} />
+        <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: "var(--primary-600)" }}>
+          {product.name}
+          {!product.isActive && (
+            <span className="status-badge inactive" style={{ marginLeft: 10, verticalAlign: "middle" }}>
+              Inactive
+            </span>
+          )}
+        </h2>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <GrainProductActions product={product} categories={categories} />
+          <AddBatchModal productId={product.id} areas={areas} bankAccounts={bankAccounts} />
+        </div>
       </div>
 
       <StockSummary

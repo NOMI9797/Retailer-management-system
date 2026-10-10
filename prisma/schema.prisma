@@ -560,6 +560,20 @@ model Product {
   pooledStockQuantity Decimal @default(0) @db.Decimal(14, 3)
   pooledStockValue    Decimal @default(0) @db.Decimal(14, 2)
 
+  // Added alongside Delete — Product previously had no Active/
+  // Inactive concept at all. Delete requires deactivation first, same
+  // rule every other Settings/catalog entity follows.
+  isActive  Boolean @default(true)
+  // Soft-delete, not a real DELETE — DailySaleItem.productId,
+  // DealerProductPurchase.productId, GrainBatch.productId, and
+  // StockUdhaarEntry.productId are all required (NOT NULL) foreign
+  // keys, so a hard delete would either violate one of them or orphan
+  // historical sales/purchases/batches. Once isDeleted, the product is
+  // permanently hidden from every list/picker (no undelete path in
+  // the UI), while every past sale/purchase/batch keeps resolving its
+  // real name unchanged.
+  isDeleted Boolean @default(false)
+
   batches            GrainBatch[]
   saleItems          DailySaleItem[]
   stockUdhaars       StockUdhaarEntry[]

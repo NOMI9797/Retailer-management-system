@@ -694,7 +694,7 @@ export async function deleteDailySale(saleId: string) {
 export async function getCustomerPurchaseHistory(customerId: string) {
   const shopId = await getCurrentShopId();
 
-  const [sales, clearances] = await Promise.all([
+  const [sales, clearances, udhaarGiven] = await Promise.all([
     db.dailySale.findMany({
       where: { customerId, shopId },
       include: { items: { include: { product: true } }, payments: true },
@@ -703,6 +703,28 @@ export async function getCustomerPurchaseHistory(customerId: string) {
     db.accountTransaction.findMany({
       where: {
         direction: "IN",
+        customerAccount: { customerId, customer: { shopId } },
+      },
+      orderBy: { transactionDate: "desc" },
+    }),
+    // A loan given on the Regular/Daily Udhaar bucket — either a
+    // manually recorded one (RecordAccountTransactionModal) or an
+    // imported legacy balance (importLegacyUdhaar) — shows up here
+    // too, same as a real Credit sale already does, since both are
+    // "this customer now owes the shop more." Excludes isLongTerm
+    // (its own separate Debts tab) and isShopBorrowed (the opposite
+    // direction entirely — shop owes customer) so neither leaks into
+    // this customer-owes-shop history feed. Also excludes anything
+    // with linkedSaleId set — that's the posting applyPaymentSplit
+    // already writes for a Credit sale's own Udhaar charge, which is
+    // already shown via its DailySale row above; without this
+    // exclusion the same Credit purchase would render twice.
+    db.accountTransaction.findMany({
+      where: {
+        direction: "OUT",
+        isLongTerm: false,
+        isShopBorrowed: false,
+        linkedSaleId: null,
         customerAccount: { customerId, customer: { shopId } },
       },
       orderBy: { transactionDate: "desc" },
@@ -750,7 +772,18 @@ export async function getCustomerPurchaseHistory(customerId: string) {
     paymentMethod: txn.paymentMethod,
   }));
 
-  return [...saleEntries, ...clearanceEntries].sort((a, b) => b.saleDate.getTime() - a.saleDate.getTime());
+  const udhaarGivenEntries = udhaarGiven.map((txn) => ({
+    kind: "UDHAAR_GIVEN" as const,
+    id: txn.id,
+    saleDate: txn.transactionDate,
+    amount: Number(txn.amount),
+    paymentMethod: txn.paymentMethod,
+    notes: txn.notes,
+  }));
+
+  return [...saleEntries, ...clearanceEntries, ...udhaarGivenEntries].sort(
+    (a, b) => b.saleDate.getTime() - a.saleDate.getTime()
+  );
 }
 
 // ── Customer Udhaar (a customer buying grain FROM the shop on

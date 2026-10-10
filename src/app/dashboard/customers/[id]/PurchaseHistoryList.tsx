@@ -23,19 +23,19 @@ function paymentLabel(method: string) {
 
 // Every item bought, at what price, on what date — pulled directly
 // from the same DailySale/DailySaleItem rows Daily Sales wrote, not a
-// copy. Exists for every sale, cash or on-account (unlike the
-// Accounts panel above, which only shows entries where money is
-// actually outstanding). Also shows this customer's Udhaar Clearances
-// (repayments) merged into the same date-sorted feed, tagged
-// distinctly — same "sales AND repayments in one history" shape as
-// the shop-wide Sales History table. Edit/delete on a past sale lives
-// here, per the milestone — reversing and reapplying stock/batch/
-// ledger effects correctly, not just overwriting the row (repayments
-// have no edit/delete here; that's the account ledger's job). Flat
-// table, same shape as the Expenses table — one date-header row per
-// day, then one row per item; Edit/Delete act on the whole visit (not
-// a single item), so they only appear once, on that visit's last item
-// row.
+// copy. Exists for every sale, cash or on-account. Also shows this
+// customer's Udhaar Clearances (repayments) AND any loan given on the
+// Regular/Daily Udhaar bucket — whether a manually recorded one or an
+// imported legacy balance (see ImportUdhaarModal) — merged into the
+// same date-sorted feed, each tagged distinctly, same "every kind of
+// activity in one history" shape as the shop-wide Sales History
+// table. Edit/delete on a past sale lives here, per the milestone —
+// reversing and reapplying stock/batch/ledger effects correctly, not
+// just overwriting the row (clearances/loans-given have no edit/
+// delete here; that's the Debts page's job). Flat table, same shape
+// as the Expenses table — one date-header row per day, then one row
+// per item; Edit/Delete act on the whole visit (not a single item),
+// so they only appear once, on that visit's last item row.
 export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sales: Sale[]; products: Product[]; bankAccounts?: { id: string; name: string }[] }) {
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
 
@@ -77,6 +77,22 @@ export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sa
                     </td>
                     <td className="num" style={{ textAlign: "right", fontWeight: 600, color: "var(--primary-600)" }}>
                       +{formatMoney(entry.amount)}
+                    </td>
+                    <td></td>
+                  </tr>
+                ) : entry.kind === "UDHAAR_GIVEN" ? (
+                  <tr>
+                    <td style={{ color: "var(--ink-muted)" }}>
+                      {entry.notes || "Udhaar recorded"}
+                    </td>
+                    <td className="num" style={{ textAlign: "right" }}>
+                      <span className="dash">—</span>
+                    </td>
+                    <td>
+                      <span className="pay-badge pay-credit">Udhaar</span>
+                    </td>
+                    <td className="num" style={{ textAlign: "right", fontWeight: 600, color: "var(--consigned-600)" }}>
+                      {formatMoney(entry.amount)}
                     </td>
                     <td></td>
                   </tr>

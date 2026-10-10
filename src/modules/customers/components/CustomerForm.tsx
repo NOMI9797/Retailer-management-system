@@ -1,11 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { createCustomer } from "../actions";
+import { createCustomer, updateCustomer } from "../actions";
 import { showToast } from "@/components/shared/toastStore";
 import type { listAreas } from "@/modules/settings/areas.actions";
 
 type Area = Awaited<ReturnType<typeof listAreas>>[number];
+// Structural, not tied to getCustomer's specific return type — both
+// getCustomer (detail page) and listCustomers (list page) satisfy
+// this, since this form only ever reads these four fields regardless
+// of which richer shape the caller actually fetched.
+type Customer = {
+  id: string;
+  name: string;
+  phone: string | null;
+  areaId: string | null;
+  notes: string | null;
+};
 
 // No account-type picker here — every customer automatically gets a
 // Regular account (createCustomer's job), and an Udhaar account is
@@ -14,17 +25,27 @@ type Area = Awaited<ReturnType<typeof listAreas>>[number];
 // still exists for any other future account type — this form just
 // doesn't surface a picker for it anymore, per the "keep it simple"
 // decision.
+//
+// One form for both add and edit, same shape ExpenseForm already
+// uses — only whether an existing customer is passed in and which
+// Server Action gets called differs. Editing never touches
+// accountTypeIds (updateCustomer doesn't accept it) — which account
+// types a customer holds is managed separately via
+// addCustomerAccount/changeCustomerAccountType/removeCustomerAccount,
+// not through this name/phone/area/notes form.
 export function CustomerForm({
   areas,
+  customer,
   onSaved,
 }: {
   areas: Area[];
+  customer?: Customer;
   onSaved?: () => void;
 }) {
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [areaId, setAreaId] = useState("");
-  const [notes, setNotes] = useState("");
+  const [name, setName] = useState(customer?.name ?? "");
+  const [phone, setPhone] = useState(customer?.phone ?? "");
+  const [areaId, setAreaId] = useState(customer?.areaId ?? "");
+  const [notes, setNotes] = useState(customer?.notes ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -33,14 +54,29 @@ export function CustomerForm({
     setError(null);
     setIsSaving(true);
     try {
-      await createCustomer({
-        name,
-        phone: phone || undefined,
-        areaId: areaId || undefined,
-        notes: notes || undefined,
-        accountTypeIds: [],
-      });
-      showToast(`Customer added — ${name}`);
+      if (customer) {
+        const result = await updateCustomer({
+          id: customer.id,
+          name,
+          phone: phone || undefined,
+          areaId: areaId || null,
+          notes: notes || undefined,
+        });
+        if (!result.success) {
+          setError(result.error);
+          return;
+        }
+        showToast("Customer updated");
+      } else {
+        await createCustomer({
+          name,
+          phone: phone || undefined,
+          areaId: areaId || undefined,
+          notes: notes || undefined,
+          accountTypeIds: [],
+        });
+        showToast(`Customer added — ${name}`);
+      }
       onSaved?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save customer");
@@ -83,7 +119,7 @@ export function CustomerForm({
 
       <div className="modal-actions">
         <button type="submit" className="btn btn-primary" disabled={isSaving}>
-          {isSaving ? "Saving…" : "Save customer"}
+          {isSaving ? "Saving…" : customer ? "Save changes" : "Save customer"}
         </button>
       </div>
     </form>

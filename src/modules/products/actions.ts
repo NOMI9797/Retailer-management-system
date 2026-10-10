@@ -18,6 +18,7 @@ export { createUnit, listUnits, updateUnit, deleteUnit } from "./units.actions";
 export {
   createProduct,
   updateProduct,
+  deleteProduct,
   listProducts,
   createGrainProduct,
   getProductStats,

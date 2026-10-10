@@ -72,6 +72,30 @@ export async function updateProduct(
   return ok(serializeDecimals(product));
 }
 
+// Soft-deletes a product (Simple or Grain) — DailySaleItem.productId,
+// DealerProductPurchase.productId, GrainBatch.productId, and
+// StockUdhaarEntry.productId are all required foreign keys, so a real
+// DELETE would either violate one of them or orphan historical sales/
+// purchases/batches; there is no safe hard-delete here even once
+// nothing new is being sold/bought against it. Requires the product
+// be deactivated FIRST (same two-step rule every Settings/catalog
+// entity now follows), then flips isDeleted instead of removing the
+// row — permanently hidden from every list/picker from this point on
+// (no undelete path in the UI), while every historical sale/purchase/
+// batch keeps resolving its real name unchanged.
+export async function deleteProduct(id: string): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+
+  const existing = await db.product.findFirst({ where: { id, shopId } });
+  if (!existing) return fail("Product not found");
+  if (existing.isActive) {
+    return fail("Deactivate this product first, then delete it.");
+  }
+
+  await db.product.update({ where: { id }, data: { isDeleted: true } });
+  return ok(null);
+}
+
 // Paginated so a shop with a large catalog doesn't pull every row on
 // every navigation — page/pageSize follow Prisma's skip/take shape.
 // totalCount lets the UI render "Page 2 of 14" without a second
@@ -82,6 +106,12 @@ export async function listProducts(options?: {
   stockKind?: "SIMPLE" | "GRAIN";
   page?: number;
   pageSize?: number;
+  // Settings-style convention (see listCategories/listUnits) — the
+  // default view hides an inactive product from pickers/forms, while
+  // a management view (the Products/Grain page itself) passes true to
+  // still show it with its Inactive badge. isDeleted is NEVER shown
+  // regardless of this flag — see Product.isDeleted's schema comment.
+  includeInactive?: boolean;
 }) {
   const shopId = await getCurrentShopId();
   const page = Math.max(1, options?.page ?? 1);
@@ -92,6 +122,8 @@ export async function listProducts(options?: {
     categoryId: options?.categoryId || undefined,
     stockKind: options?.stockKind,
     name: options?.search ? { contains: options.search, mode: "insensitive" as const } : undefined,
+    isActive: options?.includeInactive ? undefined : true,
+    isDeleted: false,
   };
 
   const [products, totalCount] = await Promise.all([

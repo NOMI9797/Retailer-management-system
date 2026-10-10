@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { listProducts, getGrainStockSummary } from "@/modules/products/actions";
+import { listProducts, getGrainStockSummary, listCategories } from "@/modules/products/actions";
 import { getStockOverview, listCustomerBatchesForProduct } from "@/modules/stock/actions";
 import { listAreas } from "@/modules/settings/areas.actions";
 import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
@@ -19,7 +19,7 @@ export async function GrainStockList({ searchParams }: { searchParams: GrainSear
   // a visible tab, not spread across pages) — fetch a single large
   // page. 500 is already generous for one shop's product catalog; a
   // shop with more than that revisits this if it ever comes up.
-  const { products } = await listProducts({ stockKind: "GRAIN", pageSize: 500 });
+  const { products } = await listProducts({ stockKind: "GRAIN", pageSize: 500, includeInactive: true });
 
   if (products.length === 0) {
     return (
@@ -33,27 +33,32 @@ export async function GrainStockList({ searchParams }: { searchParams: GrainSear
 
   const activeProduct = products.find((p) => p.id === searchParams.product) ?? products[0];
 
-  const [summary, overview, customerBatches, areas, bankAccounts] = await Promise.all([
+  const [summary, overview, customerBatches, areas, bankAccounts, categories] = await Promise.all([
     getGrainStockSummary(activeProduct.id),
     getStockOverview(activeProduct.id),
     listCustomerBatchesForProduct(activeProduct.id),
     listAreas(),
     listBankAccounts(),
+    listCategories(false, "GRAIN"),
   ]);
 
   return (
     <>
       {/* Squared, full-width chips (not the plain underline .tab) so
           switching products is an obvious UI affordance — flex: 1 on
-          each chip (see .product-chip) stretches them to fill the row. */}
+          each chip (see .product-chip) stretches them to fill the row.
+          A deactivated product still appears here (includeInactive:
+          true above) so it stays manageable, just visibly dimmed. */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
         {products.map((product) => (
           <Link
             key={product.id}
             className={`product-chip${product.id === activeProduct.id ? " active" : ""}`}
             href={buildGrainHref(searchParams, { product: product.id })}
+            style={product.isActive ? undefined : { opacity: 0.5 }}
           >
             {product.name}
+            {!product.isActive && " (Inactive)"}
           </Link>
         ))}
       </div>
@@ -65,6 +70,7 @@ export async function GrainStockList({ searchParams }: { searchParams: GrainSear
         overview={overview}
         areas={areas}
         bankAccounts={bankAccounts}
+        categories={categories}
       />
     </>
   );

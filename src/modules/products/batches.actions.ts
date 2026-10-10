@@ -199,7 +199,7 @@ export async function listGrainProductDetailsForShop(options?: { page?: number; 
   const page = Math.max(1, options?.page ?? 1);
   const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE;
 
-  const where = { shopId, stockKind: "GRAIN" as const };
+  const where = { shopId, stockKind: "GRAIN" as const, isDeleted: false };
 
   const [products, totalCount] = await Promise.all([
     db.product.findMany({

@@ -11,12 +11,14 @@ import {
   createLongTermLoanSchema,
   createShopBorrowedLoanSchema,
   payShopBorrowedLoanSchema,
+  importLegacyUdhaarSchema,
   type CustomerInput,
   type UpdateCustomerInput,
   type RecordAccountTransactionInput,
   type CreateLongTermLoanInput,
   type CreateShopBorrowedLoanInput,
   type PayShopBorrowedLoanInput,
+  type ImportLegacyUdhaarInput,
 } from "./schema";
 import { ok, fail, type ActionResult } from "@/lib/actionResult";
 
@@ -453,6 +455,66 @@ export async function createLongTermLoan(
     dueDate: toLocalDateString(dueDate),
     notes: data.notes,
     isLongTerm: true,
+  });
+}
+
+// Brings an existing Udhaar balance from the shopkeeper's paper
+// register into the software — used once per customer while migrating
+// off paper, not for recording a loan given today. Always posts
+// through recordAccountTransaction with paymentMethod: "CREDIT" (no
+// real cash/bank movement — this is history being recorded, not a
+// cash event happening now, so it must never touch Cash Flow or a
+// bank account's balance) and isLongTerm: false (a legacy balance is
+// Regular/Daily Udhaar, not a deliberate long-term loan — see
+// createLongTermLoan above for that separate, duration-based flow).
+// sourceKind (Product/Grain) is NOT a real Stock Udhaar posting — that
+// system requires an actual GrainBatch, which an import has none of —
+// it's folded into the transaction's own notes purely so the
+// shopkeeper can still tell, later, what an imported balance was
+// originally for. Same find-or-create-the-Regular-account pattern
+// createCustomer/payCustomerForGrain already use, since a customer
+// being imported fresh from a register may have no account yet.
+export async function importLegacyUdhaar(
+  input: ImportLegacyUdhaarInput
+): Promise<ActionResult<{ amount: number; quantity: number | null } & Record<string, unknown>>> {
+  const shopId = await getCurrentShopId();
+  const data = importLegacyUdhaarSchema.parse(input);
+
+  const customer = await db.customer.findFirst({ where: { id: data.customerId, shopId } });
+  if (!customer) return fail("Customer not found");
+
+  // A legacy Udhaar balance belongs on the shop's own designated
+  // loan-type account (same as createLongTermLoan above) — not
+  // Regular, which is a plain running tab, not a loan. Never
+  // auto-created here: same reasoning createLongTermLoan/
+  // createShopBorrowedLoan already follow — the shopkeeper names and
+  // configures their own loan-type account type in Settings, this
+  // action doesn't guess one into existence.
+  const udharType = await db.accountType.findFirst({ where: { shopId, isLoan: true } });
+  if (!udharType) {
+    return fail("No loan-type account configured for this shop — mark an account type as a loan in Settings.");
+  }
+
+  let account = await db.customerAccount.findFirst({
+    where: { customerId: data.customerId, accountTypeId: udharType.id },
+  });
+  if (!account) {
+    account = await db.customerAccount.create({
+      data: { customerId: data.customerId, accountTypeId: udharType.id },
+    });
+  }
+
+  const sourceLabel = data.sourceKind === "GRAIN" ? "Grain" : "Product";
+  const notes = `Imported from register (${sourceLabel})${data.notes ? ` — ${data.notes}` : ""}`;
+
+  return recordAccountTransaction({
+    customerAccountId: account.id,
+    direction: "OUT",
+    amount: data.amount,
+    paymentMethod: "CREDIT",
+    dueDate: data.recoveryDate,
+    notes,
+    isLongTerm: false,
   });
 }
 

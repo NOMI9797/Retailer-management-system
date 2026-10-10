@@ -5,10 +5,13 @@ import { getCustomerPurchaseHistory, getCustomerGrainCreditPurchases } from "@/m
 import { listCategories, listUnits, listProducts } from "@/modules/products/actions";
 import { getCustomerGrainDeposits, getShopOwedForGrainByProduct } from "@/modules/stock/actions";
 import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
+import { listAreas } from "@/modules/settings/areas.actions";
 import { CustomerGrainSection } from "@/modules/stock/components/CustomerGrainSection";
 import { PageLoader } from "@/components/shared/PageLoader";
 import { PurchaseHistoryList } from "./PurchaseHistoryList";
 import { ShopBorrowedHistoryPanel } from "./ShopBorrowedHistoryPanel";
+import { EditCustomerModal } from "@/modules/customers/components/EditCustomerModal";
+import { ImportUdhaarModal } from "@/modules/customers/components/ImportUdhaarModal";
 import { buildCustomerDetailHref, type CustomerDetailSearchParams } from "./searchParamsHref";
 
 const TAB_LABELS = {
@@ -23,8 +26,14 @@ type Tab = keyof typeof TAB_LABELS;
 // other detail page in the app. Purchase history / Grain / Udhaar to
 // Shop are tabs below the header — same real ?tab= navigation pattern
 // as Settings/Expenses/Reports/New Sale, rather than all stacked one
-// after another. The raw Accounts ledger card is deliberately not
-// shown here for now — not needed on this page currently.
+// after another. The raw Accounts ledger card (CustomerAccountsList)
+// is deliberately not shown here — an imported legacy Udhaar balance
+// (see ImportUdhaarModal) or a manually recorded loan/repayment both
+// already surface through the existing, shop-wide Udhaar section
+// (Debts page) exactly like any other recorded loan, which is the one
+// place the shopkeeper actually wants to see/manage this, per
+// explicit decision — this page doesn't need a second place showing
+// the same balance.
 //
 // Stock Udhaar deliberately has NO tab here — it's a shopkeeper-side
 // concern (which customers' deposited stock has been sold ahead of
@@ -87,23 +96,29 @@ export default async function CustomerDetailPage({
 }
 
 async function CustomerDetail({ id }: { id: string }) {
-  const customer = await getCustomer(id);
+  const [customer, areas] = await Promise.all([getCustomer(id), listAreas()]);
   const initial = customer.name.charAt(0).toUpperCase();
 
   return (
     <>
-      <div className="cust-header">
-        <div className="cust-avatar-lg">{initial}</div>
-        <div>
-          <h1>{customer.name}</h1>
-          <p>
-            {customer.phone || "No phone"}
-            {" · "}
-            {customer.area?.name || "No area"}
-          </p>
-          {customer.notes && (
-            <p style={{ marginTop: 4, fontStyle: "italic" }}>{customer.notes}</p>
-          )}
+      <div className="cust-header" style={{ justifyContent: "space-between" }}>
+        <div style={{ display: "flex", gap: 16 }}>
+          <div className="cust-avatar-lg">{initial}</div>
+          <div>
+            <h1>{customer.name}</h1>
+            <p>
+              {customer.phone || "No phone"}
+              {" · "}
+              {customer.area?.name || "No area"}
+            </p>
+            {customer.notes && (
+              <p style={{ marginTop: 4, fontStyle: "italic" }}>{customer.notes}</p>
+            )}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <ImportUdhaarModal customerId={customer.id} />
+          <EditCustomerModal areas={areas} customer={customer} />
         </div>
       </div>
     </>
@@ -120,8 +135,11 @@ async function PurchaseHistorySection({ customerId }: { customerId: string }) {
     getCustomerPurchaseHistory(customerId),
     listCategories(),
     listUnits(),
-    listProducts({ stockKind: "SIMPLE", pageSize: 500 }),
-    listProducts({ stockKind: "GRAIN", pageSize: 500 }),
+    // includeInactive — see SalesHistoryTable.tsx's identical comment:
+    // this feeds PurchaseHistoryList's EditSaleModal, which must still
+    // resolve a deactivated product an old sale already used.
+    listProducts({ stockKind: "SIMPLE", pageSize: 500, includeInactive: true }),
+    listProducts({ stockKind: "GRAIN", pageSize: 500, includeInactive: true }),
     listBankAccounts(),
   ]);
 

@@ -32,6 +32,7 @@ export async function SimpleStockTable({
     categoryId: searchParams.category,
     search: searchParams.search,
     page,
+    includeInactive: true,
   });
 
   return (
@@ -46,13 +47,14 @@ export async function SimpleStockTable({
               <th>Cost price</th>
               <th>Sell price</th>
               <th>Quantity</th>
+              <th>Status</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {result.products.length === 0 ? (
               <tr className="empty-row">
-                <td colSpan={7}>No products found.</td>
+                <td colSpan={8}>No products found.</td>
               </tr>
             ) : (
               result.products.map((product) => {
@@ -68,6 +70,11 @@ export async function SimpleStockTable({
                     <td>{formatMoney(Number(product.sellPrice))}</td>
                     <td className={quantity <= LOW_STOCK_THRESHOLD ? "qty-low" : undefined}>
                       {quantity}
+                    </td>
+                    <td>
+                      <span className={`status-badge${product.isActive ? "" : " inactive"}`}>
+                        {product.isActive ? "Active" : "Inactive"}
+                      </span>
                     </td>
                     <td>
                       <div className="row-actions">
