@@ -492,9 +492,13 @@ export async function createLongTermLoan(
   const shopId = await getCurrentShopId();
   const data = createLongTermLoanSchema.parse(input);
 
-  const udharType = await db.accountType.findFirst({ where: { shopId, isLoan: true } });
+  // Find-or-create, same self-healing pattern importLegacyUdhaar
+  // follows — a brand new shop has no loan-type account type
+  // configured yet, and giving a long-term loan shouldn't require a
+  // Settings trip first.
+  let udharType = await db.accountType.findFirst({ where: { shopId, isLoan: true } });
   if (!udharType) {
-    return fail("No loan-type account configured for this shop — mark an account type as a loan in Settings.");
+    udharType = await db.accountType.create({ data: { shopId, name: "Udhaar", code: "UDHAAR", isLoan: true } });
   }
 
   let account = await db.customerAccount.findFirst({
@@ -550,14 +554,15 @@ export async function importLegacyUdhaar(
 
   // A legacy Udhaar balance belongs on the shop's own designated
   // loan-type account (same as createLongTermLoan above) — not
-  // Regular, which is a plain running tab, not a loan. Never
-  // auto-created here: same reasoning createLongTermLoan/
-  // createShopBorrowedLoan already follow — the shopkeeper names and
-  // configures their own loan-type account type in Settings, this
-  // action doesn't guess one into existence.
-  const udharType = await db.accountType.findFirst({ where: { shopId, isLoan: true } });
+  // Regular, which is a plain running tab, not a loan. Find-or-create,
+  // same self-healing pattern createCustomer/payCustomerForGrain
+  // already follow for "Regular" — a brand new shop has no loan-type
+  // account type configured yet, and Import is often one of the very
+  // FIRST things a shopkeeper does while migrating off paper, so it
+  // must never block on a Settings step they haven't gotten to yet.
+  let udharType = await db.accountType.findFirst({ where: { shopId, isLoan: true } });
   if (!udharType) {
-    return fail("No loan-type account configured for this shop — mark an account type as a loan in Settings.");
+    udharType = await db.accountType.create({ data: { shopId, name: "Udhaar", code: "UDHAAR", isLoan: true } });
   }
 
   let account = await db.customerAccount.findFirst({
@@ -602,9 +607,11 @@ export async function createShopBorrowedLoan(input: CreateShopBorrowedLoanInput)
   const shopId = await getCurrentShopId();
   const data = createShopBorrowedLoanSchema.parse(input);
 
-  const udharType = await db.accountType.findFirst({ where: { shopId, isLoan: true } });
+  // Find-or-create, same self-healing pattern importLegacyUdhaar/
+  // createLongTermLoan follow.
+  let udharType = await db.accountType.findFirst({ where: { shopId, isLoan: true } });
   if (!udharType) {
-    return fail("No loan-type account configured for this shop — mark an account type as a loan in Settings.");
+    udharType = await db.accountType.create({ data: { shopId, name: "Udhaar", code: "UDHAAR", isLoan: true } });
   }
 
   const customer = await db.customer.findFirst({ where: { id: data.customerId, shopId } });
