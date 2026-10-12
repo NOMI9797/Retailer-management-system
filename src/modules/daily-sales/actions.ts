@@ -720,9 +720,17 @@ export async function getCustomerPurchaseHistory(customerId: string) {
       include: { items: { include: { product: true } }, payments: true },
       orderBy: { saleDate: "desc" },
     }),
+    // Excludes isShopBorrowed (shown on the Udhaar to Shop tab
+    // instead) and linkedProductId (a payGrainDebt repayment — shop
+    // paying the CUSTOMER back for grain, the opposite direction from
+    // a customer clearing their OWN Udhaar — shown on the Grain tab
+    // instead), so neither leaks into this customer-owes-shop
+    // clearance feed.
     db.accountTransaction.findMany({
       where: {
         direction: "IN",
+        isShopBorrowed: false,
+        linkedProductId: null,
         customerAccount: { customerId, customer: { shopId } },
       },
       orderBy: { transactionDate: "desc" },
@@ -790,6 +798,9 @@ export async function getCustomerPurchaseHistory(customerId: string) {
     saleDate: txn.transactionDate,
     amount: Number(txn.amount),
     paymentMethod: txn.paymentMethod,
+    bankAccountId: txn.bankAccountId,
+    dueDate: txn.dueDate,
+    notes: txn.notes,
   }));
 
   const udhaarGivenEntries = udhaarGiven.map((txn) => ({
@@ -798,6 +809,8 @@ export async function getCustomerPurchaseHistory(customerId: string) {
     saleDate: txn.transactionDate,
     amount: Number(txn.amount),
     paymentMethod: txn.paymentMethod,
+    bankAccountId: txn.bankAccountId,
+    dueDate: txn.dueDate,
     notes: txn.notes,
   }));
 
@@ -862,6 +875,7 @@ export async function getCustomerGrainCreditPurchases(customerId?: string, produ
       // assertion documents that guarantee rather than re-deriving it.
       return {
         dailySaleItemId: item.id,
+        dailySaleId: item.dailySaleId,
         customerId: item.dailySale.customerId!,
         customerName: item.dailySale.customer!.name,
         productId: item.productId,

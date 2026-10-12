@@ -61,6 +61,30 @@ export const recordAccountTransactionSchema = z
   });
 export type RecordAccountTransactionInput = z.infer<typeof recordAccountTransactionSchema>;
 
+// Editing an already-recorded Regular/Long-term Udhaar entry (a loan
+// given or a repayment, including an imported legacy balance — see
+// ImportUdhaarModal) or a Shop Borrowed entry — amount, payment
+// method/bank account, due date, and notes only. direction/isLongTerm/
+// isShopBorrowed are deliberately NOT editable here — changing which
+// bucket or direction a record belongs to isn't "fixing a typo," it's
+// a different kind of record entirely, so that needs a delete + a
+// fresh entry of the right kind instead (same as every other part of
+// this app treats cross-bucket moves).
+export const updateAccountTransactionSchema = z
+  .object({
+    id: z.string().uuid(),
+    amount: z.number().positive("Amount must be positive"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
+    bankAccountId: z.string().uuid().optional(),
+    dueDate: z.string().optional(),
+    notes: z.string().optional(),
+  })
+  .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
+    message: "Select which bank account this was paid through",
+    path: ["bankAccountId"],
+  });
+export type UpdateAccountTransactionInput = z.infer<typeof updateAccountTransactionSchema>;
+
 // Long-term Udhaar's own creation form: amount plus a duration picked
 // from a fixed set of choices (days/months), rather than a free date
 // picker — the return date is always DERIVED (today + duration), never
@@ -136,19 +160,26 @@ export type PayShopBorrowedLoanInput = z.infer<typeof payShopBorrowedLoanSchema>
 // register, entered once while moving to this software — not a new
 // loan given today, just an existing debt being recorded here for the
 // first time. Always posts as CREDIT (no real cash/bank movement
-// happens from entering old data — see importLegacyUdhaar's comment)
-// and always to the shop's own loan-type account (same as
-// createLongTermLoan — a legacy balance is real Udhaar, not a plain
-// Regular running tab, but also not a deliberate NEW long-term loan
-// with its own chosen duration, even though it can still carry an
-// optional recovery date). sourceKind is purely a label on the
-// resulting transaction's notes for the shopkeeper's own bookkeeping
-// clarity — it never feeds the real per-batch Stock Udhaar system
-// (that requires an actual GrainBatch, which an import has none of).
+// happens from entering old data — see importLegacyUdhaar's comment).
+// sourceKind is purely a label on the resulting transaction's notes
+// for the shopkeeper's own bookkeeping clarity — it never feeds the
+// real per-batch Stock Udhaar system (that requires an actual
+// GrainBatch, which an import has none of).
+//
+// owedBy picks which direction this balance runs — CUSTOMER (the
+// default, existing behavior: the customer owes the shop, posted to
+// the shop's own loan-type account, same as createLongTermLoan) or
+// SHOP (the new case: the shop owes the customer money — e.g. an
+// old, never-settled grain deposit or purchase from before this
+// software was in use — posted with isShopBorrowed: true instead,
+// the same bucket createShopBorrowedLoan/payShopBorrowedLoan already
+// use, so it shows up on the exact same "Borrowed from Customers"
+// subtab and totals a real one does).
 export const importLegacyUdhaarSchema = z.object({
   customerId: z.string().uuid(),
   amount: z.number().positive("Amount must be positive"),
   sourceKind: z.enum(["PRODUCT", "GRAIN"]),
+  owedBy: z.enum(["CUSTOMER", "SHOP"]).default("CUSTOMER"),
   recoveryDate: z.string().optional(),
   notes: z.string().optional(),
 });

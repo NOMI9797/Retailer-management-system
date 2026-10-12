@@ -89,3 +89,16 @@ export const grainBatchSchema = z.object({
   rate: z.number().positive("Rate must be positive").optional(),
 });
 export type GrainBatchInput = z.infer<typeof grainBatchSchema>;
+
+// Editing a still-unsettled customer deposit — quantity only, since
+// nothing else about a rate-less "store for later" deposit exists yet
+// to edit (no rate, no payment, no account — see createGrainBatch's
+// comment on why a customer deposit posts nothing at creation time).
+// Once any of it has been settled or sold, it's no longer a plain
+// deposit — editing it goes through updateGrainSettlement instead
+// (see that action's comment), not this one.
+export const updateGrainBatchSchema = z.object({
+  id: z.string().uuid(),
+  quantityIn: z.number().positive("Quantity received must be positive"),
+});
+export type UpdateGrainBatchInput = z.infer<typeof updateGrainBatchSchema>;

@@ -17,11 +17,21 @@ import { formatMoney } from "@/lib/utils";
 // settable). The Product/Grain choice is a label for the
 // shopkeeper's own clarity on what the balance was originally for,
 // folded into the saved transaction's notes.
+//
+// owedBy picks which direction: the customer owing the shop (the
+// original, default case) or the SHOP owing the customer — e.g. an
+// old grain deposit/purchase from before this software was in use
+// that was never paid out. The shop-owes-customer case posts to the
+// exact same "Borrowed from Customers" bucket a live
+// createShopBorrowedLoan entry would, so it shows up there and in its
+// totals identically, same "same flow, just a different entry point"
+// requirement every import direction follows.
 export function ImportUdhaarModal({ customerId }: { customerId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [sourceKind, setSourceKind] = useState<"PRODUCT" | "GRAIN">("PRODUCT");
+  const [owedBy, setOwedBy] = useState<"CUSTOMER" | "SHOP">("CUSTOMER");
   const [recoveryDate, setRecoveryDate] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +40,7 @@ export function ImportUdhaarModal({ customerId }: { customerId: string }) {
   function reset() {
     setAmount("");
     setSourceKind("PRODUCT");
+    setOwedBy("CUSTOMER");
     setRecoveryDate("");
     setNotes("");
     setError(null);
@@ -49,6 +60,7 @@ export function ImportUdhaarModal({ customerId }: { customerId: string }) {
         customerId,
         amount: Number(amount),
         sourceKind,
+        owedBy,
         recoveryDate: recoveryDate || undefined,
         notes: notes || undefined,
       });
@@ -56,7 +68,11 @@ export function ImportUdhaarModal({ customerId }: { customerId: string }) {
         setError(result.error);
         return;
       }
-      showToast(`Udhaar imported — ${formatMoney(Number(amount))}`);
+      showToast(
+        owedBy === "SHOP"
+          ? `Udhaar imported — shop owes ${formatMoney(Number(amount))}`
+          : `Udhaar imported — ${formatMoney(Number(amount))}`
+      );
       close();
       router.refresh();
     } finally {
@@ -86,7 +102,27 @@ export function ImportUdhaarModal({ customerId }: { customerId: string }) {
               {error && <p className="form-banner error">{error}</p>}
 
               <div className="field">
-                <label>Amount owed</label>
+                <label>Who owes this</label>
+                <div className="stock-toggle">
+                  <button
+                    type="button"
+                    className={owedBy === "CUSTOMER" ? "active" : ""}
+                    onClick={() => setOwedBy("CUSTOMER")}
+                  >
+                    Customer owes shop
+                  </button>
+                  <button
+                    type="button"
+                    className={owedBy === "SHOP" ? "active" : ""}
+                    onClick={() => setOwedBy("SHOP")}
+                  >
+                    Shop owes customer
+                  </button>
+                </div>
+              </div>
+
+              <div className="field">
+                <label>{owedBy === "SHOP" ? "Amount the shop owes" : "Amount owed"}</label>
                 <input
                   type="number"
                   step="any"

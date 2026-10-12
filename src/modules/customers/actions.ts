@@ -8,6 +8,7 @@ import {
   customerSchema,
   updateCustomerSchema,
   recordAccountTransactionSchema,
+  updateAccountTransactionSchema,
   createLongTermLoanSchema,
   createShopBorrowedLoanSchema,
   payShopBorrowedLoanSchema,
@@ -15,12 +16,15 @@ import {
   type CustomerInput,
   type UpdateCustomerInput,
   type RecordAccountTransactionInput,
+  type UpdateAccountTransactionInput,
   type CreateLongTermLoanInput,
   type CreateShopBorrowedLoanInput,
   type PayShopBorrowedLoanInput,
   type ImportLegacyUdhaarInput,
 } from "./schema";
 import { ok, fail, type ActionResult } from "@/lib/actionResult";
+import { getCustomerUdhaarSummary } from "@/modules/debts/actions";
+import { getShopOwedForGrainByProduct } from "@/modules/stock/actions";
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -429,11 +433,7 @@ export async function deleteAccountTransaction(id: string): Promise<ActionResult
   // A real grain settlement (linkedGrainBatchId set — payCustomerForGrain's
   // OUT posting) touches a batch/pooled-stock, which this generic
   // reversal doesn't handle — see deleteGrainSettlement
-  // (stock/actions.ts) for that one specifically. A "Grain debt
-  // repayment" (payGrainDebt's IN posting, quantity: 0 as a pure
-  // marker, linkedProductId set instead) is a plain balance+bank
-  // move with nothing else attached, so it's handled by the normal
-  // path below same as any other Regular-bucket transaction.
+  // (stock/actions.ts) for that one specifically.
   if (txn.linkedGrainBatchId) {
     return fail("This is a grain settlement — delete it from the Grain page instead.");
   }
@@ -442,6 +442,17 @@ export async function deleteAccountTransaction(id: string): Promise<ActionResult
   }
 
   const amount = Number(txn.amount);
+  // A "Grain debt repayment" (payGrainDebt's IN posting — quantity: 0
+  // as a pure marker, linkedProductId set, no linkedGrainBatchId)
+  // uses the INVERTED convention payGrainDebt itself uses (IN
+  // increments currentBalance, ACCOUNT posts -amount) — the opposite
+  // of every other Regular-bucket transaction (where IN means a
+  // repayment, decrementing balance and posting +amount). Reversing
+  // it with the normal-direction math below would double its effect
+  // instead of undoing it, so it needs its own branch here, matching
+  // payGrainDebt's own sign choices exactly (see that function's
+  // comment on why IN/decrement is inverted for this one case).
+  const isGrainDebtRepayment = txn.linkedProductId !== null && Number(txn.quantity) === 0;
 
   await db.$transaction(async (tx) => {
     if (txn.isShopBorrowed) {
@@ -452,6 +463,14 @@ export async function deleteAccountTransaction(id: string): Promise<ActionResult
       // back OUT; IN = shop repaid, so reversing brings it back IN).
       if (txn.paymentMethod === "ACCOUNT" && txn.bankAccountId) {
         await postToBankAccount(tx, txn.bankAccountId, txn.direction === "OUT" ? -amount : amount);
+      }
+    } else if (isGrainDebtRepayment) {
+      await tx.customerAccount.update({
+        where: { id: txn.customerAccountId },
+        data: { currentBalance: { decrement: amount } },
+      });
+      if (txn.paymentMethod === "ACCOUNT" && txn.bankAccountId) {
+        await postToBankAccount(tx, txn.bankAccountId, amount);
       }
     } else {
       // Normal Regular/Long-term Udhaar convention — reverse the
@@ -472,6 +491,122 @@ export async function deleteAccountTransaction(id: string): Promise<ActionResult
   });
 
   return ok(null);
+}
+
+// Edits an already-recorded Regular/Long-term Udhaar or Shop Borrowed
+// entry — amount, payment method/bank account, due date, notes.
+// Reverse-then-reapply, same pattern updateDailySale uses for a sale:
+// undo the old amount's effect on balance/bank with the OLD
+// paymentMethod, then apply the NEW amount's effect with the NEW
+// paymentMethod, all inside one transaction so a mid-edit failure
+// (e.g. the new Account payment would overdraw the bank) leaves
+// nothing half-applied. Same scope restriction as
+// deleteAccountTransaction — refuses a grain settlement or a sale's
+// own Udhaar charge, since both need their own dedicated edit path
+// (grain settlement: delete and re-settle via the Grain tab; sale
+// charge: edit the sale itself), not this generic one.
+export async function updateAccountTransaction(
+  input: UpdateAccountTransactionInput
+): Promise<ActionResult<{ amount: number; quantity: number | null } & Record<string, unknown>>> {
+  const shopId = await getCurrentShopId();
+  const data = updateAccountTransactionSchema.parse(input);
+
+  const txn = await db.accountTransaction.findFirst({
+    where: { id: data.id, customerAccount: { customer: { shopId } } },
+  });
+  if (!txn) return fail("Transaction not found");
+  if (txn.linkedGrainBatchId) {
+    return fail("This is a grain settlement — edit it from the Grain page instead.");
+  }
+  if (txn.linkedSaleId) {
+    return fail("This is a sale's own Udhaar charge — edit the sale itself instead.");
+  }
+
+  const oldAmount = Number(txn.amount);
+  const isGrainDebtRepayment = txn.linkedProductId !== null && Number(txn.quantity) === 0;
+
+  try {
+    const updated = await db.$transaction(async (tx) => {
+      // Step 1 — reverse the OLD amount's effect, exactly matching
+      // deleteAccountTransaction's own three-way branch (shop
+      // borrowed / grain debt repayment / normal), since an edit is
+      // just "delete the old effect, then apply the new one" without
+      // actually removing the row.
+      if (txn.isShopBorrowed) {
+        if (txn.paymentMethod === "ACCOUNT" && txn.bankAccountId) {
+          await postToBankAccount(tx, txn.bankAccountId, txn.direction === "OUT" ? -oldAmount : oldAmount);
+        }
+      } else if (isGrainDebtRepayment) {
+        await tx.customerAccount.update({
+          where: { id: txn.customerAccountId },
+          data: { currentBalance: { decrement: oldAmount } },
+        });
+        if (txn.paymentMethod === "ACCOUNT" && txn.bankAccountId) {
+          await postToBankAccount(tx, txn.bankAccountId, oldAmount);
+        }
+      } else {
+        await tx.customerAccount.update({
+          where: { id: txn.customerAccountId },
+          data: {
+            currentBalance: txn.direction === "OUT" ? { decrement: oldAmount } : { increment: oldAmount },
+          },
+        });
+        if (txn.paymentMethod === "ACCOUNT" && txn.bankAccountId) {
+          await postToBankAccount(tx, txn.bankAccountId, txn.direction === "OUT" ? oldAmount : -oldAmount);
+        }
+      }
+
+      // Step 2 — apply the NEW amount's effect with the NEW payment
+      // method, same sign conventions as recordAccountTransaction/
+      // payGrainDebt's own original writes.
+      if (txn.isShopBorrowed) {
+        if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+          await postToBankAccount(tx, data.bankAccountId, txn.direction === "OUT" ? data.amount : -data.amount);
+        }
+      } else if (isGrainDebtRepayment) {
+        await tx.customerAccount.update({
+          where: { id: txn.customerAccountId },
+          data: { currentBalance: { increment: data.amount } },
+        });
+        if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+          await postToBankAccount(tx, data.bankAccountId, -data.amount);
+        }
+      } else {
+        await tx.customerAccount.update({
+          where: { id: txn.customerAccountId },
+          data: {
+            currentBalance: txn.direction === "OUT" ? { increment: data.amount } : { decrement: data.amount },
+          },
+        });
+        if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+          await postToBankAccount(tx, data.bankAccountId, txn.direction === "OUT" ? -data.amount : data.amount);
+        }
+      }
+
+      return tx.accountTransaction.update({
+        where: { id: data.id },
+        data: {
+          amount: data.amount,
+          paymentMethod: data.paymentMethod,
+          bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
+          dueDate: txn.direction === "OUT" && data.dueDate ? parseLocalDateStart(data.dueDate) : null,
+          notes: data.notes || null,
+        },
+      });
+    });
+
+    return ok({
+      ...updated,
+      amount: Number(updated.amount),
+      quantity: updated.quantity ? Number(updated.quantity) : null,
+    });
+  } catch (err) {
+    // Same reasoning as deleteDailySale/updateDailySale's own catch —
+    // the new payment method's postToBankAccount call can throw the
+    // overdraft guard, which must surface as a real message, not
+    // Next.js's production-redacted digest box.
+    return fail(err instanceof Error ? err.message : "Failed to update transaction");
+  }
 }
 
 // A deliberate cash loan with a chosen term (e.g. "3 months"), as
@@ -560,6 +695,10 @@ export async function importLegacyUdhaar(
   // account type configured yet, and Import is often one of the very
   // FIRST things a shopkeeper does while migrating off paper, so it
   // must never block on a Settings step they haven't gotten to yet.
+  // Both directions (CUSTOMER owes shop, SHOP owes customer) share
+  // this same account — isShopBorrowed is what actually isolates the
+  // two buckets from each other (see its schema comment), not a
+  // separate account.
   let udharType = await db.accountType.findFirst({ where: { shopId, isLoan: true } });
   if (!udharType) {
     udharType = await db.accountType.create({ data: { shopId, name: "Udhaar", code: "UDHAAR", isLoan: true } });
@@ -576,6 +715,36 @@ export async function importLegacyUdhaar(
 
   const sourceLabel = data.sourceKind === "GRAIN" ? "Grain" : "Product";
   const notes = `Imported from register (${sourceLabel})${data.notes ? ` — ${data.notes}` : ""}`;
+
+  if (data.owedBy === "SHOP") {
+    // The shop owes THIS customer — the mirror direction, same bucket
+    // createShopBorrowedLoan/payShopBorrowedLoan use (isShopBorrowed:
+    // true, OUT = the shop's debt grows). Posted directly to
+    // AccountTransaction, not through recordAccountTransaction, for
+    // the same reason createShopBorrowedLoan does: this bucket's OUT/
+    // IN meaning is inverted from the normal Udhaar convention (see
+    // AccountTransaction.isShopBorrowed's schema comment), and
+    // recordAccountTransaction only ever implements the normal one.
+    // Always CREDIT and never touches a bank account — same "this is
+    // history being recorded, not a cash event happening now" rule
+    // the CUSTOMER-owes-shop direction above already follows.
+    const txn = await db.accountTransaction.create({
+      data: {
+        customerAccountId: account.id,
+        direction: "OUT",
+        amount: data.amount,
+        paymentMethod: "CREDIT",
+        dueDate: data.recoveryDate ? parseLocalDateStart(data.recoveryDate) : null,
+        notes,
+        isShopBorrowed: true,
+      },
+    });
+    return ok({
+      ...txn,
+      amount: Number(txn.amount),
+      quantity: txn.quantity ? Number(txn.quantity) : null,
+    });
+  }
 
   return recordAccountTransaction({
     customerAccountId: account.id,
@@ -772,10 +941,73 @@ export async function getCustomerShopBorrowedHistory(customerId: string) {
       direction: t.direction,
       amount: Number(t.amount),
       paymentMethod: t.paymentMethod,
+      bankAccountId: t.bankAccountId,
       transactionDate: t.transactionDate,
       dueDate: t.dueDate,
       notes: t.notes,
     })),
+  };
+}
+
+// One combined "where do we stand" figure for a customer, spanning
+// every bucket that can owe money in either direction — shown as the
+// stat cards on both the Purchase History and Grain tabs (see
+// CustomerDetailPage), so either tab reflects the customer's whole
+// relationship with the shop, not just that tab's own activity, and
+// both tabs always agree since there's exactly one implementation.
+// Recomputed live from the ledger on every call — never cached — so a
+// payment, return, or repayment is reflected immediately.
+//
+// Buckets, and which direction each one counts:
+//   - Regular Udhaar (getCustomerUdhaarSummary, REGULAR) — customer
+//     owes shop. This is the loan-type account Credit sales and
+//     imported/manual Udhaar entries post to.
+//   - Long-term Udhaar (getCustomerUdhaarSummary, LONG_TERM) —
+//     customer owes shop. Same account as Regular, isolated bucket.
+//   - Shop Borrowed (getCustomerShopBorrowedHistory) — shop owes
+//     customer (cash the shop borrowed FROM them).
+//   - Grain money (getShopOwedForGrainByProduct) — shop owes customer
+//     for settled-but-unpaid grain deposits, summed across products.
+// Deliberately excludes grain Credit purchases (customer buying grain
+// FROM the shop on Udhaar) from this total — that money already flows
+// through the Regular Udhaar bucket above via the same Credit-sale
+// posting every other product uses (see applyPaymentSplit), so
+// counting it again here from DailySaleItem.creditAmount as well
+// would double it.
+export async function getCustomerRelationshipSummary(customerId: string) {
+  const [regular, longTerm, shopBorrowed, grainOwedByProduct] = await Promise.all([
+    getCustomerUdhaarSummary(customerId, "REGULAR"),
+    getCustomerUdhaarSummary(customerId, "LONG_TERM"),
+    getCustomerShopBorrowedHistory(customerId),
+    getShopOwedForGrainByProduct(customerId),
+  ]);
+
+  const customerOwesShop = Math.max(0, (regular?.balance ?? 0) + (longTerm?.balance ?? 0));
+  const shopOwedForGrain = Array.from(grainOwedByProduct.values()).reduce(
+    (sum, v) => sum + Math.max(0, v.owed),
+    0
+  );
+  const shopOwesCustomer = Math.max(0, shopBorrowed.balance) + shopOwedForGrain;
+
+  // The two totals netted against each other into one final figure —
+  // e.g. customer owes 138,000 and shop owes 38,000 nets to "customer
+  // owes 100,000" — plus which party that net belongs to, so the UI
+  // can show one bottom-line card instead of making the reader do the
+  // subtraction themselves.
+  const net = customerOwesShop - shopOwesCustomer;
+  const netOwedBy: "CUSTOMER" | "SHOP" | "SETTLED" = net > 0.01 ? "CUSTOMER" : net < -0.01 ? "SHOP" : "SETTLED";
+
+  return {
+    customerOwesShop,
+    shopOwesCustomer,
+    netAmount: Math.abs(net),
+    netOwedBy,
+    breakdown: {
+      regularUdhaar: Math.max(0, regular?.balance ?? 0),
+      longTermUdhaar: Math.max(0, longTerm?.balance ?? 0),
+      shopBorrowed: Math.max(0, shopBorrowed.balance),
+      grain: shopOwedForGrain,
+    },
   };
 }
 

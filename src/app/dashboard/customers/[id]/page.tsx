@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { getCustomer, getCustomerShopBorrowedHistory } from "@/modules/customers/actions";
+import { getCustomer, getCustomerShopBorrowedHistory, getCustomerRelationshipSummary } from "@/modules/customers/actions";
 import { getCustomerPurchaseHistory, getCustomerGrainCreditPurchases } from "@/modules/daily-sales/actions";
 import { listCategories, listUnits, listProducts } from "@/modules/products/actions";
 import { getCustomerGrainDeposits, getShopOwedForGrainByProduct } from "@/modules/stock/actions";
@@ -9,6 +9,7 @@ import { listAreas } from "@/modules/settings/areas.actions";
 import { CustomerGrainSection } from "@/modules/stock/components/CustomerGrainSection";
 import { PageLoader } from "@/components/shared/PageLoader";
 import { PurchaseHistoryList } from "./PurchaseHistoryList";
+import { CustomerRelationshipStats } from "./CustomerRelationshipStats";
 import { ShopBorrowedHistoryPanel } from "./ShopBorrowedHistoryPanel";
 import { EditCustomerModal } from "@/modules/customers/components/EditCustomerModal";
 import { ImportUdhaarModal } from "@/modules/customers/components/ImportUdhaarModal";
@@ -131,7 +132,7 @@ async function CustomerDetail({ id }: { id: string }) {
 // explicit "two distinct panels that must not be collapsed into one"
 // requirement.
 async function PurchaseHistorySection({ customerId }: { customerId: string }) {
-  const [sales, categories, units, simpleProducts, grainProducts, bankAccounts] = await Promise.all([
+  const [sales, categories, units, simpleProducts, grainProducts, bankAccounts, summary] = await Promise.all([
     getCustomerPurchaseHistory(customerId),
     listCategories(),
     listUnits(),
@@ -141,14 +142,18 @@ async function PurchaseHistorySection({ customerId }: { customerId: string }) {
     listProducts({ stockKind: "SIMPLE", pageSize: 500, includeInactive: true }),
     listProducts({ stockKind: "GRAIN", pageSize: 500, includeInactive: true }),
     listBankAccounts(),
+    getCustomerRelationshipSummary(customerId),
   ]);
 
   return (
-    <PurchaseHistoryList
-      sales={sales}
-      products={[...simpleProducts.products, ...grainProducts.products]}
-      bankAccounts={bankAccounts}
-    />
+    <>
+      <CustomerRelationshipStats summary={summary} />
+      <PurchaseHistoryList
+        sales={sales}
+        products={[...simpleProducts.products, ...grainProducts.products]}
+        bankAccounts={bankAccounts}
+      />
+    </>
   );
 }
 
@@ -166,11 +171,16 @@ async function PurchaseHistorySection({ customerId }: { customerId: string }) {
 // Stock Udhaar (a quantity obligation, shown shop-wide on the Grain
 // page instead — see this file's header comment).
 async function GrainSectionLoader({ customerId }: { customerId: string }) {
-  const [customer, deposits, moneyOwedByProduct, creditPurchases] = await Promise.all([
+  const [customer, deposits, moneyOwedByProduct, creditPurchases, bankAccounts, grainProducts] = await Promise.all([
     getCustomer(customerId),
     getCustomerGrainDeposits(customerId),
     getShopOwedForGrainByProduct(customerId),
     getCustomerGrainCreditPurchases(customerId),
+    listBankAccounts(),
+    // includeInactive — EditSaleModal must still resolve a
+    // deactivated product an old grain sale already used, same
+    // reasoning as PurchaseHistorySection's identical fetch.
+    listProducts({ stockKind: "GRAIN", pageSize: 500, includeInactive: true }),
   ]);
   return (
     <CustomerGrainSection
@@ -179,6 +189,8 @@ async function GrainSectionLoader({ customerId }: { customerId: string }) {
       creditPurchases={creditPurchases}
       customerId={customerId}
       customerName={customer.name}
+      bankAccounts={bankAccounts}
+      products={grainProducts.products}
     />
   );
 }
@@ -189,9 +201,10 @@ async function GrainSectionLoader({ customerId }: { customerId: string }) {
 // Accounts ledger above (which only ever covers money the customer
 // owes the shop).
 async function ShopBorrowedSectionLoader({ customerId }: { customerId: string }) {
-  const [customer, history] = await Promise.all([
+  const [customer, history, bankAccounts] = await Promise.all([
     getCustomer(customerId),
     getCustomerShopBorrowedHistory(customerId),
+    listBankAccounts(),
   ]);
-  return <ShopBorrowedHistoryPanel customerName={customer.name} history={history} />;
+  return <ShopBorrowedHistoryPanel customerName={customer.name} history={history} bankAccounts={bankAccounts} />;
 }

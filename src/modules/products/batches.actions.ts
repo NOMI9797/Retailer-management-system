@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { serializeDecimals } from "@/lib/serialize";
-import { grainBatchSchema, type GrainBatchInput } from "./schema";
+import { grainBatchSchema, updateGrainBatchSchema, type GrainBatchInput, type UpdateGrainBatchInput } from "./schema";
 import { postToPooledGrainStock } from "@/modules/stock/actions";
 import { ok, fail, type ActionResult } from "@/lib/actionResult";
 
@@ -66,6 +66,54 @@ export async function createGrainBatch(
     return batch;
   });
   return ok(serializeDecimals(batch));
+}
+
+// Edits a still-unsettled customer deposit's quantity — the Grain
+// tab's "unsettled" row (see CustomerGrainSection). Refuses once any
+// of it has been priced (rate set — a shop-owned batch, or a customer
+// batch a settlement has touched) or physically moved at all
+// (quantitySold/quantityTransferred > 0, e.g. a Stock Udhaar sale
+// already drew from it) — at that point it's no longer a plain
+// unsettled deposit, and the quantity can't be changed without
+// unwinding whatever already happened first.
+export async function updateGrainBatch(input: UpdateGrainBatchInput): Promise<ActionResult<ReturnType<typeof serializeDecimals>>> {
+  const shopId = await getCurrentShopId();
+  const data = updateGrainBatchSchema.parse(input);
+
+  const batch = await db.grainBatch.findFirst({ where: { id: data.id, product: { shopId } } });
+  if (!batch) return fail("Deposit not found");
+  if (!batch.ownerCustomerId) return fail("This is a shop-owned batch — edit it from the Grain stock page instead.");
+  if (batch.rate !== null) return fail("This deposit has already been priced — edit the settlement instead.");
+  if (Number(batch.quantitySold) > 0 || Number(batch.quantityTransferred) > 0) {
+    return fail("Some of this deposit has already been settled or sold — it can't be edited until that's resolved.");
+  }
+
+  const updated = await db.grainBatch.update({
+    where: { id: data.id },
+    data: { quantityIn: data.quantityIn },
+  });
+  return ok(serializeDecimals(updated));
+}
+
+// Deletes a still-unsettled customer deposit outright — same scope
+// restriction as updateGrainBatch above (no rate, nothing sold or
+// transferred yet). A plain delete is safe here specifically because
+// a rate-less deposit posts NOTHING on creation (see createGrainBatch's
+// comment) — no pooled stock, no account/bank entry, no Stock Udhaar —
+// so there is nothing to reverse, unlike deleteGrainSettlement.
+export async function deleteGrainBatch(id: string): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+
+  const batch = await db.grainBatch.findFirst({ where: { id, product: { shopId } } });
+  if (!batch) return fail("Deposit not found");
+  if (!batch.ownerCustomerId) return fail("This is a shop-owned batch — delete it from the Grain stock page instead.");
+  if (batch.rate !== null) return fail("This deposit has already been priced — delete the settlement instead.");
+  if (Number(batch.quantitySold) > 0 || Number(batch.quantityTransferred) > 0) {
+    return fail("Some of this deposit has already been settled or sold — it can't be deleted until that's resolved.");
+  }
+
+  await db.grainBatch.delete({ where: { id } });
+  return ok(null);
 }
 
 function summarizeBatches(

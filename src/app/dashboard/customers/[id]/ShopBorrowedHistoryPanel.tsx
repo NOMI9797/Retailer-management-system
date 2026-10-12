@@ -1,8 +1,14 @@
+"use client";
+
+import { useState } from "react";
 import { formatMoney, formatDate } from "@/lib/utils";
 import { PayShopBorrowedLoanModal } from "@/modules/customers/components/PayShopBorrowedLoanModal";
+import { EditAccountTransactionModal } from "@/modules/customers/components/EditAccountTransactionModal";
+import { DeleteAccountTransactionButton } from "@/modules/customers/components/DeleteAccountTransactionButton";
 import type { getCustomerShopBorrowedHistory } from "@/modules/customers/actions";
 
 type History = Awaited<ReturnType<typeof getCustomerShopBorrowedHistory>>;
+type Txn = History["transactions"][number];
 
 // The customer detail page's "Udhaar to Shop" tab — every loan this
 // customer has given the shop and every repayment made against it, in
@@ -12,7 +18,17 @@ type History = Awaited<ReturnType<typeof getCustomerShopBorrowedHistory>>;
 // shopkeeper giving this customer their FIRST Shop Borrowed loan just
 // makes this tab go from empty to populated, nothing about the tab
 // itself needs to spring into existence.
-export function ShopBorrowedHistoryPanel({ customerName, history }: { customerName: string; history: History }) {
+export function ShopBorrowedHistoryPanel({
+  customerName,
+  history,
+  bankAccounts = [],
+}: {
+  customerName: string;
+  history: History;
+  bankAccounts?: { id: string; name: string }[];
+}) {
+  const [editingTxn, setEditingTxn] = useState<Txn | null>(null);
+
   if (history.transactions.length === 0) {
     return (
       <div className="panel">
@@ -69,19 +85,41 @@ export function ShopBorrowedHistoryPanel({ customerName, history }: { customerNa
                 <td>{txn.paymentMethod === "ACCOUNT" ? "Account" : "Cash"}</td>
                 <td>{txn.dueDate ? formatDate(txn.dueDate) : <span className="dash">—</span>}</td>
                 <td style={{ textAlign: "right" }}>
-                  {txn.direction === "OUT" && history.balance > 0.01 && history.customerAccountId && (
-                    <PayShopBorrowedLoanModal
-                      customerAccountId={history.customerAccountId}
-                      customerName={customerName}
-                      balance={history.balance}
-                    />
-                  )}
+                  <div className="row-actions" style={{ justifyContent: "flex-end" }}>
+                    {txn.direction === "OUT" && history.balance > 0.01 && history.customerAccountId && (
+                      <PayShopBorrowedLoanModal
+                        customerAccountId={history.customerAccountId}
+                        customerName={customerName}
+                        balance={history.balance}
+                      />
+                    )}
+                    <button className="icon-btn" onClick={() => setEditingTxn(txn)} title="Edit">
+                      <svg className="icon" viewBox="0 0 24 24">
+                        <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />
+                      </svg>
+                    </button>
+                    <DeleteAccountTransactionButton transactionId={txn.id} />
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {editingTxn && (
+        <EditAccountTransactionModal
+          transactionId={editingTxn.id}
+          direction={editingTxn.direction}
+          initialAmount={editingTxn.amount}
+          initialPaymentMethod={editingTxn.paymentMethod}
+          initialBankAccountId={editingTxn.bankAccountId}
+          initialDueDate={editingTxn.dueDate}
+          initialNotes={editingTxn.notes}
+          bankAccounts={bankAccounts}
+          onClose={() => setEditingTxn(null)}
+        />
+      )}
     </>
   );
 }

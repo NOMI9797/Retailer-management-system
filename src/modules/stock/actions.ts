@@ -8,9 +8,11 @@ import { postToBankAccount } from "@/modules/settings/bankAccounts.actions";
 import {
   transferPurchaseSchema,
   depositWithSettlementSchema,
+  updateGrainSettlementSchema,
   payGrainDebtSchema,
   type TransferPurchaseInput,
   type DepositWithSettlementInput,
+  type UpdateGrainSettlementInput,
   type PayGrainDebtInput,
 } from "./schema";
 
@@ -498,6 +500,157 @@ export async function deleteGrainSettlement(accountTransactionId: string): Promi
   return { success: true, data: null };
 }
 
+// Edits an already-recorded grain settlement, including its quantity
+// — implemented as "fully undo, then fully redo with the new numbers"
+// rather than patching fields in place, since quantity/rate changes
+// ripple into pooled stock, any Stock Udhaar shortfall this
+// settlement cleared, and (for a transfer-purchase) the source
+// batch's claim — the same effects deleteGrainSettlement already
+// knows how to reverse exactly, and createTransferPurchase/
+// createDepositWithSettlement already know how to (re)apply exactly.
+// Reusing both rather than writing a third copy of this math is the
+// whole point: there is still only one implementation of each
+// direction, just composed here instead of duplicated.
+//
+// Same guards as deleteGrainSettlement — refuses if any of the
+// settlement's stock has already been sold onward, or a later
+// settlement depends on this one — checked BEFORE either half runs,
+// so a doomed edit never partially reverses before failing.
+export async function updateGrainSettlement(
+  input: UpdateGrainSettlementInput
+): Promise<{ success: false; error: string } | { success: true; data: Record<string, unknown> }> {
+  const shopId = await getCurrentShopId();
+  const data = updateGrainSettlementSchema.parse(input);
+
+  const txn = await db.accountTransaction.findFirst({
+    where: { id: data.accountTransactionId, customerAccount: { customer: { shopId } } },
+    include: { linkedGrainBatch: { include: { product: true } }, customerAccount: true },
+  });
+  if (!txn || !txn.linkedGrainBatch) return { success: false, error: "Settlement not found" };
+
+  const newShopBatch = txn.linkedGrainBatch;
+  const customerId = txn.customerAccount.customerId;
+  const productName = newShopBatch.product.name;
+  if (Number(newShopBatch.quantitySold) > 0) {
+    return {
+      success: false,
+      error: "Some of this settlement's stock has already been sold — it can't be edited until that's resolved.",
+    };
+  }
+  const laterSettlement = await db.stockUdhaarEntry.findFirst({
+    where: { linkedTransferBatchId: newShopBatch.id, createdAt: { gt: txn.transactionDate } },
+  });
+  if (laterSettlement) {
+    return {
+      success: false,
+      error: "A later settlement depends on this one having happened — it can't be edited out of order.",
+    };
+  }
+
+  // sourceBatchId distinguishes a transfer-purchase (a customer batch
+  // existed already, and its claim must shrink again by the new
+  // quantity) from a settle-now deposit (no customer batch, nothing
+  // to re-claim against) — same distinction createTransferPurchase
+  // vs. createDepositWithSettlement encode as two separate entry
+  // points; re-derived here from whichever one originally created
+  // this settlement, since editing doesn't change which kind it was.
+  const sourceBatchId = newShopBatch.sourceBatchId;
+  if (sourceBatchId) {
+    const sourceBatch = await db.grainBatch.findFirst({ where: { id: sourceBatchId } });
+    if (sourceBatch) {
+      const remainingClaim =
+        Number(sourceBatch.quantityIn) - Number(sourceBatch.quantityTransferred) + Number(newShopBatch.quantityIn);
+      if (data.quantity > remainingClaim) {
+        return {
+          success: false,
+          error: `Only ${remainingClaim} remains as this customer's claim on the original deposit (requested ${data.quantity}).`,
+        };
+      }
+    }
+  }
+
+  const oldAmount = Number(txn.amount);
+  const oldQuantity = Number(txn.quantity ?? newShopBatch.quantityIn);
+  const oldRate = Number(newShopBatch.rate);
+
+  try {
+    return await db.$transaction(async (tx) => {
+      // Undo half — exactly deleteGrainSettlement's own steps, minus
+      // the final two deletes (the row/batch are about to be reused,
+      // not removed).
+      await postToPooledGrainStock(tx, newShopBatch.productId, -oldQuantity, -(oldQuantity * oldRate));
+      if (txn.paymentMethod === "CREDIT") {
+        await tx.customerAccount.update({
+          where: { id: txn.customerAccountId },
+          data: { currentBalance: { increment: oldAmount } },
+        });
+      }
+      if (txn.paymentMethod === "ACCOUNT" && txn.bankAccountId) {
+        await postToBankAccount(tx, txn.bankAccountId, oldAmount);
+      }
+      const settlementEntries = await tx.stockUdhaarEntry.findMany({
+        where: { linkedTransferBatchId: newShopBatch.id },
+      });
+      for (const entry of settlementEntries) {
+        await tx.stockUdhaarEntry.create({
+          data: {
+            customerId: entry.customerId,
+            productId: entry.productId,
+            grainBatchId: entry.grainBatchId,
+            quantity: -Number(entry.quantity),
+            notes: "Reversed — settlement edited",
+          },
+        });
+      }
+      if (sourceBatchId) {
+        await tx.grainBatch.update({
+          where: { id: sourceBatchId },
+          data: { quantityTransferred: { decrement: oldQuantity } },
+        });
+      }
+      await tx.accountTransaction.delete({ where: { id: data.accountTransactionId } });
+
+      // Redo half — exactly createTransferPurchase's/
+      // createDepositWithSettlement's own steps, reusing the SAME
+      // shop batch row (updated in place) rather than creating a new
+      // one, so its id stays stable across the edit.
+      if (sourceBatchId) {
+        await tx.grainBatch.update({
+          where: { id: sourceBatchId },
+          data: { quantityTransferred: { increment: data.quantity } },
+        });
+      }
+      await tx.grainBatch.update({
+        where: { id: newShopBatch.id },
+        data: { quantityIn: data.quantity, rate: data.rate },
+      });
+
+      const payment = await payCustomerForGrain(tx, shopId, {
+        customerId,
+        productId: newShopBatch.productId,
+        productName,
+        quantity: data.quantity,
+        rate: data.rate,
+        paymentMethod: data.paymentMethod,
+        bankAccountId: data.bankAccountId,
+        notes: data.notes,
+        newShopBatchId: newShopBatch.id,
+      });
+
+      await postToPooledGrainStock(tx, newShopBatch.productId, data.quantity, data.quantity * data.rate);
+
+      const updatedBatch = await tx.grainBatch.findUniqueOrThrow({ where: { id: newShopBatch.id } });
+
+      return {
+        success: true,
+        data: { batch: serializeDecimals(updatedBatch), payment },
+      };
+    });
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed to update settlement" };
+  }
+}
+
 // A customer batch's settlement breakdown: every purchase the
 // shopkeeper has made against it so far, each as its own entry — NOT
 // averaged into one blended rate, since two settlements against the
@@ -525,6 +678,13 @@ export async function deleteGrainSettlement(accountTransactionId: string): Promi
 // requirement.
 type SettlementEntry = {
   batchId: string;
+  // The AccountTransaction id this settlement's payment posted as —
+  // null only for a batch whose payment row somehow doesn't exist
+  // (shouldn't happen in practice, since payCustomerForGrain always
+  // creates one in the same transaction as the batch) — needed to
+  // call deleteGrainSettlement/updateAccountTransaction for this
+  // specific settlement, distinct from the batch's own id.
+  transactionId: string | null;
   quantity: number;
   rate: number;
   receivedAt: Date;
@@ -537,13 +697,14 @@ function summarizeSettlements(
     quantityIn: Prisma.Decimal;
     rate: Prisma.Decimal | null;
     receivedAt: Date;
-    paymentTransactions: { paymentMethod: "CASH" | "ACCOUNT" | "CREDIT" }[];
+    paymentTransactions: { id: string; paymentMethod: "CASH" | "ACCOUNT" | "CREDIT" }[];
   }[]
 ) {
   const settlements: SettlementEntry[] = transferredBatches
     .filter((b) => b.rate !== null)
     .map((b) => ({
       batchId: b.id,
+      transactionId: b.paymentTransactions[0]?.id ?? null,
       quantity: Number(b.quantityIn),
       rate: Number(b.rate),
       receivedAt: b.receivedAt,
@@ -1092,6 +1253,7 @@ export async function getCustomerGrainDeposits(customerId: string) {
             settlements: [
               {
                 batchId: b.id,
+                transactionId: txn.id,
                 quantity,
                 rate,
                 receivedAt: b.receivedAt,

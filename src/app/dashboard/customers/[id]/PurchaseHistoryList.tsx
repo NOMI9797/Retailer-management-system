@@ -4,6 +4,8 @@ import { Fragment, useState } from "react";
 import { formatMoney, formatDate } from "@/lib/utils";
 import { EditSaleModal } from "@/modules/daily-sales/components/EditSaleModal";
 import { DeleteSaleButton } from "@/modules/daily-sales/components/DeleteSaleButton";
+import { EditAccountTransactionModal } from "@/modules/customers/components/EditAccountTransactionModal";
+import { DeleteAccountTransactionButton } from "@/modules/customers/components/DeleteAccountTransactionButton";
 import type { getCustomerPurchaseHistory } from "@/modules/daily-sales/actions";
 import type { listProducts } from "@/modules/products/actions";
 
@@ -30,14 +32,19 @@ function paymentLabel(method: string) {
 // same date-sorted feed, each tagged distinctly, same "every kind of
 // activity in one history" shape as the shop-wide Sales History
 // table. Edit/delete on a past sale lives here, per the milestone —
-// reversing and reapplying stock/batch/ledger effects correctly, not
-// just overwriting the row (clearances/loans-given have no edit/
-// delete here; that's the Debts page's job). Flat table, same shape
-// as the Expenses table — one date-header row per day, then one row
-// per item; Edit/Delete act on the whole visit (not a single item),
+// reversing and reapplying stock/batch/ledger effects correctly.
+// Clearances/loans-given also get Edit/Delete here now (see
+// EditAccountTransactionModal/DeleteAccountTransactionButton), both
+// pointed at the plain AccountTransaction reversal — editing
+// direction/bucket isn't supported (delete + re-add instead), same
+// restriction updateAccountTransaction's own schema comment explains.
+// Flat table, same shape as the Expenses table — one date-header row
+// per day, then one row per item; Edit/Delete act on the whole visit
+// (not a single item),
 // so they only appear once, on that visit's last item row.
 export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sales: Sale[]; products: Product[]; bankAccounts?: { id: string; name: string }[] }) {
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
+  const [editingTxn, setEditingTxn] = useState<Extract<Sale, { kind: "UDHAAR_CLEARANCE" | "UDHAAR_GIVEN" }> | null>(null);
 
   if (sales.length === 0) {
     return (
@@ -78,7 +85,16 @@ export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sa
                     <td className="num" style={{ textAlign: "right", fontWeight: 600, color: "var(--primary-600)" }}>
                       +{formatMoney(entry.amount)}
                     </td>
-                    <td></td>
+                    <td>
+                      <div className="row-actions">
+                        <button className="icon-btn" onClick={() => setEditingTxn(entry)} title="Edit">
+                          <svg className="icon" viewBox="0 0 24 24">
+                            <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />
+                          </svg>
+                        </button>
+                        <DeleteAccountTransactionButton transactionId={entry.id} />
+                      </div>
+                    </td>
                   </tr>
                 ) : entry.kind === "UDHAAR_GIVEN" ? (
                   <tr>
@@ -94,7 +110,16 @@ export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sa
                     <td className="num" style={{ textAlign: "right", fontWeight: 600, color: "var(--consigned-600)" }}>
                       {formatMoney(entry.amount)}
                     </td>
-                    <td></td>
+                    <td>
+                      <div className="row-actions">
+                        <button className="icon-btn" onClick={() => setEditingTxn(entry)} title="Edit">
+                          <svg className="icon" viewBox="0 0 24 24">
+                            <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />
+                          </svg>
+                        </button>
+                        <DeleteAccountTransactionButton transactionId={entry.id} />
+                      </div>
+                    </td>
                   </tr>
                 ) : (
                   entry.visits.map((visit, visitIndex) =>
@@ -154,6 +179,19 @@ export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sa
 
       {editingSaleId && (
         <EditSaleModal saleId={editingSaleId} products={products} bankAccounts={bankAccounts} onClose={() => setEditingSaleId(null)} />
+      )}
+      {editingTxn && (
+        <EditAccountTransactionModal
+          transactionId={editingTxn.id}
+          direction={editingTxn.kind === "UDHAAR_CLEARANCE" ? "IN" : "OUT"}
+          initialAmount={editingTxn.amount}
+          initialPaymentMethod={editingTxn.paymentMethod}
+          initialBankAccountId={editingTxn.bankAccountId}
+          initialDueDate={editingTxn.kind === "UDHAAR_GIVEN" ? editingTxn.dueDate : null}
+          initialNotes={editingTxn.notes}
+          bankAccounts={bankAccounts}
+          onClose={() => setEditingTxn(null)}
+        />
       )}
     </>
   );

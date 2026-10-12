@@ -55,6 +55,30 @@ export const depositWithSettlementSchema = z
   });
 export type DepositWithSettlementInput = z.infer<typeof depositWithSettlementSchema>;
 
+// Editing an already-recorded grain settlement (a "Buy from customer"
+// transfer-purchase or a settle-now deposit) — identified by its own
+// AccountTransaction id (see updateGrainSettlement), not a batch id,
+// since the new shop-owned batch and its payment transaction are
+// recreated from scratch under the hood rather than patched in place
+// (see that function's comment for why: quantity/rate changes ripple
+// into pooled stock, Stock Udhaar settlement, and the source batch's
+// claim, so "undo fully, then redo with the new numbers" is the only
+// way to keep all of those consistent).
+export const updateGrainSettlementSchema = z
+  .object({
+    accountTransactionId: z.string().uuid(),
+    quantity: z.number().positive("Quantity must be positive"),
+    rate: z.number().positive("Rate must be positive"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
+    bankAccountId: z.string().uuid().optional(),
+    notes: z.string().optional(),
+  })
+  .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
+    message: "Select which bank account this was paid through",
+    path: ["bankAccountId"],
+  });
+export type UpdateGrainSettlementInput = z.infer<typeof updateGrainSettlementSchema>;
+
 // Paying down money the shop owes a customer for grain it bought on
 // Credit (see getShopOwedForGrain) — the opposite direction from
 // recordAccountTransaction's debt convention (that one is for a
