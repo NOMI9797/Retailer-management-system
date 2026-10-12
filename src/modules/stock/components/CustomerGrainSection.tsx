@@ -61,6 +61,12 @@ type Row =
       productName: string;
       unitName: string;
       quantity: number;
+      // Whether any of this batch has already been drawn via Stock
+      // Udhaar (sold before being purchased from the customer) —
+      // updateGrainBatch/deleteGrainBatch both refuse once this is
+      // true (see their own comments), so Edit/Delete are hidden here
+      // rather than shown and then bouncing off a confusing error.
+      hasBeenSold: boolean;
     }
   | {
       kind: "credit-purchase";
@@ -208,6 +214,7 @@ export function CustomerGrainSection({
         productName: batch.product.name,
         unitName: batch.product.unitName,
         quantity: batch.unsettledQuantity,
+        hasBeenSold: batch.quantitySold > 0,
       });
     }
   }
@@ -398,14 +405,16 @@ export function CustomerGrainSection({
                             </div>
                           </td>
                           <td>
-                            <div className="row-actions">
-                              <button className="icon-btn" onClick={() => setEditingDeposit(row)} title="Edit">
-                                <svg className="icon" viewBox="0 0 24 24">
-                                  <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />
-                                </svg>
-                              </button>
-                              <DeleteGrainDepositButton batchId={row.batchId} />
-                            </div>
+                            {!row.hasBeenSold && (
+                              <div className="row-actions">
+                                <button className="icon-btn" onClick={() => setEditingDeposit(row)} title="Edit">
+                                  <svg className="icon" viewBox="0 0 24 24">
+                                    <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />
+                                  </svg>
+                                </button>
+                                <DeleteGrainDepositButton batchId={row.batchId} />
+                              </div>
+                            )}
                           </td>
                         </>
                       ) : (
