@@ -5,6 +5,7 @@ import Link from "next/link";
 import { formatMoney, formatDate, formatTime } from "@/lib/utils";
 import { EditReceiptModal } from "@/modules/daily-sales/components/EditReceiptModal";
 import { DeleteReceiptButton } from "@/modules/daily-sales/components/DeleteReceiptButton";
+import { PrintReceiptButton } from "@/modules/printing/components/PrintReceiptButton";
 import { getReceiptDetail } from "@/modules/daily-sales/actions";
 import type { listReceiptsForDate } from "@/modules/daily-sales/actions";
 import type { listProducts } from "@/modules/products/actions";
@@ -117,6 +118,7 @@ export function ReceiptsList({
                     <td style={{ textAlign: "right", fontWeight: 600 }}>{formatMoney(row.total)}</td>
                     <td>
                       <div className="row-actions" style={{ justifyContent: "flex-end" }}>
+                        <PrintReceiptButton dailySaleId={row.dailySaleId} visitAt={row.visitAt} />
                         <button
                           className="icon-btn"
                           onClick={() => openEdit(row.dailySaleId, row.visitAt)}

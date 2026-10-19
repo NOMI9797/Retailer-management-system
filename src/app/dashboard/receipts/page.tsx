@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { PageLoader } from "@/components/shared/PageLoader";
 import { ReceiptsDatePicker } from "./ReceiptsDatePicker";
 import { ReceiptsListSection } from "./ReceiptsListSection";
+import { PrinterPicker } from "@/modules/printing/components/PrinterPicker";
 import { todayDateString, type ReceiptsSearchParams } from "./searchParamsHref";
 
 // One day's receipts (Daily Sales only, v1) — every visit that
@@ -25,8 +26,9 @@ export default async function ReceiptsPage({
         </div>
       </div>
 
-      <div className="filter-bar">
+      <div className="filter-bar" style={{ justifyContent: "space-between" }}>
         <ReceiptsDatePicker activeDate={date} />
+        <PrinterPicker />
       </div>
 
       <Suspense key={date} fallback={<PageLoader label="Loading receipts…" />}>

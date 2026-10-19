@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getReceiptDetail } from "@/modules/daily-sales/actions";
 import { formatMoney, formatDate, formatTime } from "@/lib/utils";
+import { PrintReceiptButton } from "@/modules/printing/components/PrintReceiptButton";
 
 const PAYMENT_LABEL: Record<string, string> = {
   CASH: "Cash",
@@ -65,6 +66,9 @@ export default async function ReceiptDetailPage({
                 {" · "}
                 {formatDate(receipt.visitAt)} at {formatTime(receipt.visitAt)}
               </p>
+            </div>
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <PrintReceiptButton receipt={receipt} variant="button" />
             </div>
           </div>
 
