@@ -42,7 +42,15 @@ type CustomerSummary = {
 // type (never a new payment mechanism), so a payment recorded here
 // shows up identically wherever else that section is also displayed
 // (Debts page, Grain page, customer's own profile).
-export function UdhaarClearanceForm({ areas, accountTypes }: { areas: Area[]; accountTypes: AccountType[] }) {
+export function UdhaarClearanceForm({
+  areas,
+  accountTypes,
+  bankAccounts = [],
+}: {
+  areas: Area[];
+  accountTypes: AccountType[];
+  bankAccounts?: { id: string; name: string }[];
+}) {
   const [mainTab, setMainTab] = useState<"customer" | "shop">("customer");
   const [shopType, setShopType] = useState<"borrowed" | "grain" | "expenses" | null>(null);
 
@@ -69,7 +77,7 @@ export function UdhaarClearanceForm({ areas, accountTypes }: { areas: Area[]; ac
       </div>
 
       {mainTab === "customer" ? (
-        <CustomerUdhaarPanel areas={areas} accountTypes={accountTypes} />
+        <CustomerUdhaarPanel areas={areas} accountTypes={accountTypes} bankAccounts={bankAccounts} />
       ) : shopType === null ? (
         <div style={{ display: "flex", gap: 12 }}>
           <button type="button" className="btn btn-primary" onClick={() => setShopType("borrowed")}>
@@ -83,13 +91,14 @@ export function UdhaarClearanceForm({ areas, accountTypes }: { areas: Area[]; ac
           </button>
         </div>
       ) : shopType === "expenses" ? (
-        <ExpenseUdhaarPanel onBack={() => setShopType(null)} />
+        <ExpenseUdhaarPanel onBack={() => setShopType(null)} bankAccounts={bankAccounts} />
       ) : (
         <ShopUdhaarPanel
           areas={areas}
           accountTypes={accountTypes}
           shopType={shopType}
           onBack={() => setShopType(null)}
+          bankAccounts={bankAccounts}
         />
       )}
     </div>
@@ -215,7 +224,15 @@ function CustomerHeader({ customer, onBack }: { customer: ExistingCustomer; onBa
 // "Customer Udhaar" tab's content — search a customer, then show
 // every section where the CUSTOMER owes the shop: Regular Udhaar,
 // Long-term Udhaar, and Customer Udhaar for Grain.
-function CustomerUdhaarPanel({ areas, accountTypes }: { areas: Area[]; accountTypes: AccountType[] }) {
+function CustomerUdhaarPanel({
+  areas,
+  accountTypes,
+  bankAccounts,
+}: {
+  areas: Area[];
+  accountTypes: AccountType[];
+  bankAccounts: { id: string; name: string }[];
+}) {
   const [selected, setSelected] = useState<ExistingCustomer | null>(null);
   const [summary, setSummary] = useState<CustomerSummary | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
@@ -274,6 +291,7 @@ function CustomerUdhaarPanel({ areas, accountTypes }: { areas: Area[]; accountTy
               subtitle="Owed to the shop — no fixed term."
               row={summary.regular}
               onRecorded={refreshSummary}
+              bankAccounts={bankAccounts}
             />
           )}
           {summary.longTerm && summary.longTerm.balance > 0 && (
@@ -283,10 +301,16 @@ function CustomerUdhaarPanel({ areas, accountTypes }: { areas: Area[]; accountTy
               row={summary.longTerm}
               onRecorded={refreshSummary}
               lockBucket
+              bankAccounts={bankAccounts}
             />
           )}
           {summary.grainCredit.length > 0 && (
-            <GrainCreditSection customerName={selected.name} rows={summary.grainCredit} onRecorded={refreshSummary} />
+            <GrainCreditSection
+              customerName={selected.name}
+              rows={summary.grainCredit}
+              onRecorded={refreshSummary}
+              bankAccounts={bankAccounts}
+            />
           )}
         </div>
       )}
@@ -303,11 +327,13 @@ function ShopUdhaarPanel({
   accountTypes,
   shopType,
   onBack,
+  bankAccounts,
 }: {
   areas: Area[];
   accountTypes: AccountType[];
   shopType: "borrowed" | "grain";
   onBack: () => void;
+  bankAccounts: { id: string; name: string }[];
 }) {
   const [selected, setSelected] = useState<ExistingCustomer | null>(null);
   const [grainOwed, setGrainOwed] = useState<GrainOwed | null>(null);
@@ -376,6 +402,7 @@ function ShopUdhaarPanel({
             customerName={selected.name}
             grainOwed={grainOwed!}
             onRecorded={refreshSummary}
+            bankAccounts={bankAccounts}
           />
         )
       ) : !hasBorrowedActivity ? (
@@ -385,7 +412,12 @@ function ShopUdhaarPanel({
           </p>
         </div>
       ) : (
-        <ShopBorrowedSection customerName={selected.name} history={shopBorrowed!} onRecorded={refreshSummary} />
+        <ShopBorrowedSection
+          customerName={selected.name}
+          history={shopBorrowed!}
+          onRecorded={refreshSummary}
+          bankAccounts={bankAccounts}
+        />
       )}
     </div>
   );
@@ -398,7 +430,13 @@ function ShopUdhaarPanel({
 // Debts page's own "Daily/Monthly Udhaar" subtab already uses
 // (listShopExpenseUdhaar/payExpenseDebt), just reachable from this
 // one combined screen too.
-function ExpenseUdhaarPanel({ onBack }: { onBack: () => void }) {
+function ExpenseUdhaarPanel({
+  onBack,
+  bankAccounts,
+}: {
+  onBack: () => void;
+  bankAccounts: { id: string; name: string }[];
+}) {
   const [rows, setRows] = useState<ExpenseUdhaarRows | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -465,7 +503,13 @@ function ExpenseUdhaarPanel({ onBack }: { onBack: () => void }) {
                   </span>{" "}
                   — <strong>{formatMoney(row.remaining)}</strong> remaining · {formatDate(row.expenseDate)}
                 </span>
-                <PayExpenseDebtModal expenseId={row.id} description={row.description} remaining={row.remaining} onDone={load} />
+                <PayExpenseDebtModal
+                  expenseId={row.id}
+                  description={row.description}
+                  remaining={row.remaining}
+                  onDone={load}
+                  bankAccounts={bankAccounts}
+                />
               </div>
             ))}
           </div>
@@ -485,12 +529,14 @@ function DebtRowSection({
   row,
   onRecorded,
   lockBucket,
+  bankAccounts,
 }: {
   title: string;
   subtitle: string;
   row: DebtRow;
   onRecorded: () => void;
   lockBucket?: boolean;
+  bankAccounts: { id: string; name: string }[];
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -526,6 +572,7 @@ function DebtRowSection({
           customerAccountId={row.customerAccountId}
           defaultDirection="IN"
           lockBucket={lockBucket}
+          bankAccounts={bankAccounts}
           onClose={() => {
             setOpen(false);
             onRecorded();
@@ -546,11 +593,13 @@ function GrainOwedSection({
   customerName,
   grainOwed,
   onRecorded,
+  bankAccounts,
 }: {
   customerId: string;
   customerName: string;
   grainOwed: GrainOwed;
   onRecorded: () => void;
+  bankAccounts: { id: string; name: string }[];
 }) {
   const rows = Array.from(grainOwed.entries()).filter(([, v]) => v.owed > 0.01);
   if (rows.length === 0) return null;
@@ -592,6 +641,7 @@ function GrainOwedSection({
               customerName={customerName}
               amountOwed={v.owed}
               onDone={onRecorded}
+              bankAccounts={bankAccounts}
             />
           </div>
         ))}
@@ -609,10 +659,12 @@ function GrainCreditSection({
   customerName,
   rows,
   onRecorded,
+  bankAccounts,
 }: {
   customerName: string;
   rows: GrainCreditRows;
   onRecorded: () => void;
+  bankAccounts: { id: string; name: string }[];
 }) {
   const totalRemaining = rows.reduce((sum, r) => sum + r.remaining, 0);
   return (
@@ -657,6 +709,7 @@ function GrainCreditSection({
               customerName={customerName}
               remaining={row.remaining}
               onDone={onRecorded}
+              bankAccounts={bankAccounts}
             />
           </div>
         ))}
@@ -672,10 +725,12 @@ function ShopBorrowedSection({
   customerName,
   history,
   onRecorded,
+  bankAccounts,
 }: {
   customerName: string;
   history: ShopBorrowedHistory;
   onRecorded: () => void;
+  bankAccounts: { id: string; name: string }[];
 }) {
   if (!history.customerAccountId) return null;
   return (
@@ -705,6 +760,7 @@ function ShopBorrowedSection({
         customerName={customerName}
         balance={history.balance}
         onDone={onRecorded}
+        bankAccounts={bankAccounts}
       />
     </section>
   );

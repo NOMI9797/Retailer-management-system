@@ -93,7 +93,7 @@ export default async function NewSalePage({
             bankAccounts={bankAccounts}
           />
         ) : tab === "udhaar-clearance" ? (
-          <UdhaarClearanceForm areas={areas} accountTypes={accountTypes} />
+          <UdhaarClearanceForm areas={areas} accountTypes={accountTypes} bankAccounts={bankAccounts} />
         ) : (
           <StockFromCustomerForm areas={areas} grainProducts={grainProducts.products} />
         )}

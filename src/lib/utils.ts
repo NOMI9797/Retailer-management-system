@@ -32,6 +32,19 @@ export function formatDate(date: Date | string) {
   }).format(d);
 }
 
+// Same pinned-locale/timezone reasoning as formatDate — a receipt's
+// visit time (e.g. "2:45 PM") needs the same hydration-safe,
+// shop-timezone-correct rendering a date already gets.
+export function formatTime(date: Date | string) {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return new Intl.DateTimeFormat("en-PK", {
+    timeZone: "Asia/Karachi",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(d);
+}
+
 // Parses a "YYYY-MM-DD" string (from a <input type="date">, a search
 // param, etc.) as LOCAL calendar midnight for that day — the START of
 // day/END of day pair every date-range filter in the app needs.

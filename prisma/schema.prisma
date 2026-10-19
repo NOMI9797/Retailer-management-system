@@ -35,6 +35,7 @@ model Shop {
   cashRegisters       DailyCashRegister[]
   bankAccounts        BankAccount[]
   userShops           UserShop[]
+  receipts            Receipt[]
 }
 
 // A login — email + hashed password, nothing more. Deliberately has
@@ -256,6 +257,14 @@ model DealerTransaction {
   bankAccountId   String?
   bankAccount     BankAccount?    @relation(fields: [bankAccountId], references: [id])
   notes           String?
+  // Same purpose as AccountTransaction.visitAt — set only on the row
+  // a Daily Sale to this dealer posts (isDealerSale: true), matching
+  // that visit's DailySaleItem/DailySalePayment visitAt, so a single
+  // receipt can be edited/deleted without touching another same-day
+  // visit's own Credit posting to this dealer. Null for a real
+  // purchase FROM this dealer (nothing to do with a Daily Sales
+  // visit) and for every row created before this column existed.
+  visitAt         DateTime?
 }
 
 // One bulk purchase of Simple (non-grain) stock from a PRODUCTS-type
@@ -463,6 +472,19 @@ model AccountTransaction {
   bankAccountId     String?
   bankAccount       BankAccount?    @relation(fields: [bankAccountId], references: [id])
   notes             String?
+  // Set only on the Credit-charge row a Daily Sale posts
+  // (applyPaymentSplit's linkedSaleId branch) — the same visitAt
+  // stamped on that visit's DailySaleItem/DailySalePayment rows, so a
+  // customer with two separate same-day visits (each possibly paid
+  // partly via Udhaar) has each visit's own charge unambiguously
+  // identifiable, not just "some Credit charge on this sale." Null
+  // for every other kind of posting this table holds (a manually
+  // recorded loan, a grain settlement, etc. — none of those are tied
+  // to a Daily Sales visit) and for every row created before this
+  // column existed. Exists specifically so a single receipt (one
+  // visit) can be edited/deleted without touching another same-day
+  // receipt's own Udhaar charge — see reverseVisitContents.
+  visitAt           DateTime?
 }
 
 // ── Products & stock ─────────────────────────────────────
@@ -677,6 +699,14 @@ model StockUdhaarEntry {
   linkedTransferBatchId String?
   createdAt             DateTime   @default(now())
   notes                 String?
+  // Same purpose as AccountTransaction.visitAt — set only on a growth
+  // entry applySaleItems writes (linkedSaleId set, quantity > 0),
+  // matching that visit's DailySaleItem.visitAt, so a single receipt
+  // can be edited/deleted without reversing a Stock Udhaar shortfall
+  // another same-day visit created. Null on a settlement leg (that's
+  // a Grain-page action, not a Daily Sales visit) and on every row
+  // created before this column existed.
+  visitAt               DateTime?
 }
 
 // ── Daily sales ──────────────────────────────────────────
@@ -706,6 +736,38 @@ model DailySale {
   accountTxns        AccountTransaction[]
   dealerTransactions DealerTransaction[]
   stockUdhaars       StockUdhaarEntry[]
+  receipts           Receipt[]
+}
+
+// One receipt = one visit (one checkout event) within a DailySale —
+// a thin pointer row, not a replacement for DailySale/DailySaleItem/
+// DailySalePayment, which stay the real source of truth for what was
+// bought and how it was paid. Exists for two things DailySale alone
+// can't give a visit: a human-readable, shop-scoped sequential number
+// (receiptNumber — what a printed receipt shows), and a stable id to
+// edit/delete exactly ONE visit by, since a visit itself is only ever
+// an implicit `visitAt` timestamp shared across several item/payment
+// rows, not its own addressable row. See reverseVisitContents
+// (daily-sales/actions.ts) for how a receipt is edited/deleted
+// without touching another same-day visit on the same DailySale.
+//
+// An edit keeps the SAME receiptNumber (editing a receipt is fixing
+// it, not creating a new one) but gets a new visitAt, since the
+// edited items/payments are rewritten as a fresh visit — same
+// "edit writes a fresh visit" precedent updateDailySale already
+// follows for a whole day's sale, just scoped to one receipt here.
+model Receipt {
+  id            String    @id @default(uuid())
+  shopId        String
+  shop          Shop      @relation(fields: [shopId], references: [id])
+  receiptNumber Int
+  dailySaleId   String
+  dailySale     DailySale @relation(fields: [dailySaleId], references: [id])
+  visitAt       DateTime
+  createdAt     DateTime  @default(now())
+
+  @@unique([shopId, receiptNumber])
+  @@unique([dailySaleId, visitAt])
 }
 
 model DailySaleItem {

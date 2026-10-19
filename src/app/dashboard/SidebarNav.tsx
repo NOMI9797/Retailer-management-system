@@ -28,6 +28,16 @@ const navItems = [
     ),
   },
   {
+    href: "/dashboard/receipts",
+    label: "Receipts",
+    icon: (
+      <>
+        <path d="M6 2h12v19l-3-2-3 2-3-2-3 2V2z" />
+        <path d="M9 7h6M9 11h6M9 15h3" />
+      </>
+    ),
+  },
+  {
     href: "/dashboard/products",
     label: "Products",
     icon: (

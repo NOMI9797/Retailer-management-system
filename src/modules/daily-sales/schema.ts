@@ -110,6 +110,21 @@ export const updateDailySaleSchema = z.object({
 });
 export type UpdateDailySaleInput = z.infer<typeof updateDailySaleSchema>;
 
+// Editing ONE receipt (one visit) rather than a whole day's sale —
+// see reverseVisitContents' comment on why this needs its own narrow
+// reverse-then-reapply path instead of reusing updateDailySaleSchema/
+// updateDailySale, which operate on the entire DailySale regardless
+// of how many visits it holds. visitAt identifies exactly which visit
+// is being edited, alongside dailySaleId (a receipt's real identity
+// is the pair, not either alone — see Receipt's schema comment).
+export const updateReceiptSchema = z.object({
+  dailySaleId: z.string().uuid(),
+  visitAt: z.coerce.date(),
+  items: z.array(dailySaleItemSchema).min(1, "At least one item is required"),
+  payments: paymentSplitSchema,
+});
+export type UpdateReceiptInput = z.infer<typeof updateReceiptSchema>;
+
 // Paying down a customer's Credit purchase of a specific grain sale
 // item — the "Customer Udhaar" tab's own repayment path (see
 // stock/actions.ts: getCustomerGrainCreditPurchases), deliberately

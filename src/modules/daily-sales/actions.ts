@@ -9,9 +9,11 @@ import { postToPooledGrainStock } from "@/modules/stock/actions";
 import {
   createDailySaleSchema,
   updateDailySaleSchema,
+  updateReceiptSchema,
   payGrainSaleItemCreditSchema,
   type CreateDailySaleInput,
   type UpdateDailySaleInput,
+  type UpdateReceiptInput,
   type DailySaleItemInput,
   type PaymentSplitInput,
   type PayGrainSaleItemCreditInput,
@@ -156,6 +158,7 @@ async function applySaleItems(
               grainBatchId: batch.id,
               quantity: takeFromBatch,
               linkedSaleId: saleId,
+              visitAt,
               notes: `Sold from ${product.name} deposit before settlement`,
             },
           });
@@ -298,6 +301,7 @@ async function applyPaymentSplit(
             direction: "OUT",
             amount: payments.credit,
             linkedSaleId: saleId,
+            visitAt,
             paymentMethod: "CREDIT",
             notes: "Credit sale — auto-posted to Udhaar",
           },
@@ -323,6 +327,7 @@ async function applyPaymentSplit(
           direction: "IN",
           amount: payments.credit,
           linkedSaleId: saleId,
+          visitAt,
           isDealerSale: true,
           paymentMethod: "CREDIT",
           notes: "Credit sale to dealer",
@@ -492,7 +497,189 @@ async function reverseSaleContents(
   await tx.dailySaleItemBatch.deleteMany({ where: { dailySaleItemId: { in: itemIds } } });
   await tx.dailySaleItem.deleteMany({ where: { dailySaleId: saleId } });
 
+  // Whole-sale edit/delete collapses or removes every visit this
+  // DailySale had — see updateDailySale's comment on why it always
+  // writes ONE fresh visit regardless of how many existed before.
+  // Every Receipt row pointing at this sale's (now-gone) visits is
+  // therefore strictly dangling; updateDailySale/deleteDailySale each
+  // create at most one fresh Receipt afterward in its own right (or
+  // none, for delete), never by resurrecting one of these.
+  await tx.receipt.deleteMany({ where: { dailySaleId: saleId } });
+
   return { success: true, data: { customerId: sale.customerId, dealerId: sale.dealerId, season: sale.season } };
+}
+
+// Visit-scoped sibling of reverseSaleContents above — undoes exactly
+// ONE visit's effects (one receipt), leaving every OTHER same-day
+// visit on the same DailySale completely untouched. This exists
+// specifically because reverseSaleContents operates on the whole
+// DailySale (every query filters by linkedSaleId/dailySaleId alone,
+// with no visit awareness) — reusing it for a single receipt's edit/
+// delete would silently destroy or merge any other receipt that
+// customer/dealer has from the same day. See Receipt's schema comment
+// and AccountTransaction.visitAt's comment for the column additions
+// that make this precise rather than a guess.
+//
+// Refuses outright if any row this visit needs to reverse has
+// visitAt: null — a sale recorded before this column existed has no
+// reliable way to tell which of its rows belong to which visit, so
+// guessing would risk reversing another visit's data; the shopkeeper
+// is told to use the whole-day edit/delete from Daily Sales instead
+// for those older sales.
+async function reverseVisitContents(
+  tx: Prisma.TransactionClient,
+  shopId: string,
+  dailySaleId: string,
+  visitAt: Date,
+  // deleteReceipt passes true (nothing will be written back, so an
+  // emptied DailySale should disappear, mirroring deleteDailySale's
+  // own final step). updateReceipt passes false — it's about to
+  // reapply fresh items/payments into this SAME dailySaleId right
+  // after calling this, so deleting the row here would break that
+  // very next write.
+  deleteEmptySale: boolean
+): Promise<Result<{ customerId: string | null; dealerId: string | null; itemIds: string[] }>> {
+  const sale = await tx.dailySale.findFirst({
+    where: { id: dailySaleId, shopId },
+  });
+  if (!sale) return { success: false, error: "Sale not found" };
+
+  const items = await tx.dailySaleItem.findMany({
+    where: { dailySaleId, visitAt },
+    include: { batchAllocations: true },
+  });
+  if (items.length === 0) {
+    return { success: false, error: "Receipt not found" };
+  }
+
+  // Pre-migration rows (visitAt: null) anywhere this visit touched
+  // can't be safely attributed — refuse rather than guess. Items
+  // themselves are always matched exactly above (visitAt is NOT
+  // NULL on DailySaleItem), so this only needs to check the three
+  // newly-added nullable columns.
+  const [ambiguousAccountTxn, ambiguousDealerTxn, ambiguousStockUdhaar] = await Promise.all([
+    tx.accountTransaction.findFirst({ where: { linkedSaleId: dailySaleId, visitAt: null } }),
+    tx.dealerTransaction.findFirst({ where: { linkedSaleId: dailySaleId, visitAt: null } }),
+    tx.stockUdhaarEntry.findFirst({ where: { linkedSaleId: dailySaleId, visitAt: null, quantity: { gt: 0 } } }),
+  ]);
+  if (ambiguousAccountTxn || ambiguousDealerTxn || ambiguousStockUdhaar) {
+    return {
+      success: false,
+      error:
+        "This sale has activity recorded before per-receipt tracking existed — it can't be edited or deleted as a single receipt. Edit or delete the whole day's sale from Daily Sales instead.",
+    };
+  }
+
+  for (const item of items) {
+    const product = await tx.product.findFirst({ where: { id: item.productId } });
+    if (!product) continue; // product may have been deleted since; nothing to restore it to
+
+    if (product.stockKind === "SIMPLE") {
+      await tx.product.update({
+        where: { id: product.id },
+        data: { quantity: { increment: item.quantity } },
+      });
+    } else {
+      for (const allocation of item.batchAllocations) {
+        await tx.grainBatch.update({
+          where: { id: allocation.grainBatchId },
+          data: { quantitySold: { decrement: allocation.quantity } },
+        });
+      }
+      await postToPooledGrainStock(
+        tx,
+        product.id,
+        Number(item.quantity),
+        Number(item.actualPrice) * Number(item.quantity)
+      );
+    }
+  }
+
+  const transactions = await tx.accountTransaction.findMany({
+    where: { linkedSaleId: dailySaleId, visitAt },
+  });
+  for (const txn of transactions) {
+    const amount = Number(txn.amount);
+    const originalEffectWasIncrement = txn.direction === "OUT";
+    await tx.customerAccount.update({
+      where: { id: txn.customerAccountId },
+      data: {
+        currentBalance: originalEffectWasIncrement ? { decrement: amount } : { increment: amount },
+      },
+    });
+  }
+  await tx.accountTransaction.deleteMany({ where: { linkedSaleId: dailySaleId, visitAt } });
+
+  const dealerTransactions = await tx.dealerTransaction.findMany({
+    where: { linkedSaleId: dailySaleId, visitAt },
+  });
+  for (const txn of dealerTransactions) {
+    const amount = Number(txn.amount);
+    const originalEffectWasDecrement = txn.direction === "IN";
+    await tx.dealerAccount.update({
+      where: { id: txn.dealerAccountId },
+      data: {
+        currentBalance: originalEffectWasDecrement ? { increment: amount } : { decrement: amount },
+      },
+    });
+  }
+  await tx.dealerTransaction.deleteMany({ where: { linkedSaleId: dailySaleId, visitAt } });
+
+  const accountPayments = await tx.dailySalePayment.findMany({
+    where: { dailySaleId, visitAt, paymentMethod: "ACCOUNT", bankAccountId: { not: null } },
+  });
+  for (const payment of accountPayments) {
+    await postToBankAccount(tx, payment.bankAccountId!, -Number(payment.amount));
+  }
+  await tx.dailySalePayment.deleteMany({ where: { dailySaleId, visitAt } });
+
+  const stockUdhaarGrowthEntries = await tx.stockUdhaarEntry.findMany({
+    where: { linkedSaleId: dailySaleId, visitAt, quantity: { gt: 0 } },
+  });
+  for (const entry of stockUdhaarGrowthEntries) {
+    await tx.stockUdhaarEntry.create({
+      data: {
+        customerId: entry.customerId,
+        productId: entry.productId,
+        grainBatchId: entry.grainBatchId,
+        quantity: -Number(entry.quantity),
+        linkedSaleId: dailySaleId,
+        visitAt,
+        notes: "Reversed — receipt edited/deleted",
+      },
+    });
+  }
+
+  const itemIds = items.map((i) => i.id);
+
+  const existingPayment = await tx.grainSaleCreditPayment.findFirst({
+    where: { dailySaleItemId: { in: itemIds } },
+  });
+  if (existingPayment) {
+    return {
+      success: false,
+      error: "This receipt has a recorded Udhaar repayment against one of its grain items — it can't be edited or deleted while that payment history exists.",
+    };
+  }
+
+  await tx.dailySaleItemBatch.deleteMany({ where: { dailySaleItemId: { in: itemIds } } });
+  await tx.dailySaleItem.deleteMany({ where: { dailySaleId, visitAt } });
+  await tx.receipt.deleteMany({ where: { dailySaleId, visitAt } });
+
+  // If this was the sale's only visit, remove the now-empty DailySale
+  // row too — mirrors deleteDailySale's own final step, so a
+  // single-visit sale's receipt-delete leaves nothing behind, same as
+  // deleting it from Daily Sales would. Skipped when the caller is
+  // about to reapply into this same row (see deleteEmptySale's
+  // comment above).
+  if (deleteEmptySale) {
+    const remainingItems = await tx.dailySaleItem.count({ where: { dailySaleId } });
+    if (remainingItems === 0) {
+      await tx.dailySale.delete({ where: { id: dailySaleId } });
+    }
+  }
+
+  return { success: true, data: { customerId: sale.customerId, dealerId: sale.dealerId, itemIds } };
 }
 
 // A customer buying again later the same day joins their existing
@@ -590,6 +777,28 @@ export async function createDailySale(input: CreateDailySaleInput) {
     const paymentResult = await applyPaymentSplit(tx, shopId, buyer, sale.id, itemTotal, data.payments, visitAt, grainItems);
     if (!paymentResult.success) return paymentResult;
 
+    // One Receipt row per visit — see Receipt's schema comment. The
+    // sequential number is a per-shop MAX+1, computed inside this same
+    // transaction so two concurrent sales can't land on the same
+    // number (Postgres serializes the two transactions' writes to the
+    // same shopId row range; a genuine race just makes the loser's
+    // transaction retry at the Prisma/driver level like any other
+    // write conflict, never produces a duplicate number, since
+    // @@unique([shopId, receiptNumber]) would reject it outright if
+    // that somehow happened).
+    const lastReceipt = await tx.receipt.findFirst({
+      where: { shopId },
+      orderBy: { receiptNumber: "desc" },
+    });
+    const receipt = await tx.receipt.create({
+      data: {
+        shopId,
+        receiptNumber: (lastReceipt?.receiptNumber ?? 0) + 1,
+        dailySaleId: sale.id,
+        visitAt,
+      },
+    });
+
     const created = await tx.dailySale.findUniqueOrThrow({
       where: { id: sale.id },
       include: { items: true },
@@ -603,6 +812,7 @@ export async function createDailySale(input: CreateDailySaleInput) {
       data: {
         ...created,
         items: created.items.map(serializeDecimals),
+        receiptNumber: receipt.receiptNumber,
       },
     };
   });
@@ -644,6 +854,25 @@ export async function updateDailySale(input: UpdateDailySaleInput) {
 
       const paymentResult = await applyPaymentSplit(tx, shopId, buyer, data.saleId, itemTotal, data.payments, visitAt, grainItems);
       if (!paymentResult.success) return paymentResult;
+
+      // This collapses whatever receipts the day had (possibly more
+      // than one) into a single edited visit — there's no principled
+      // "same number" to preserve across a many-to-one collapse like
+      // there is for updateReceipt's true single-visit edit, so this
+      // always gets a fresh number, same MAX+1 pattern createDailySale
+      // uses.
+      const lastReceipt = await tx.receipt.findFirst({
+        where: { shopId },
+        orderBy: { receiptNumber: "desc" },
+      });
+      await tx.receipt.create({
+        data: {
+          shopId,
+          receiptNumber: (lastReceipt?.receiptNumber ?? 0) + 1,
+          dailySaleId: data.saleId,
+          visitAt,
+        },
+      });
 
       const updated = await tx.dailySale.findUniqueOrThrow({
         where: { id: data.saleId },
@@ -692,6 +921,115 @@ export async function deleteDailySale(saleId: string) {
     // own try/catch (stock/actions.ts): this must surface as a real
     // message, not Next.js's production-redacted digest box.
     return { success: false, error: err instanceof Error ? err.message : "Failed to delete sale" };
+  }
+}
+
+// Edits ONE receipt (one visit) — reverse-then-reapply, same
+// correctness-over-surgical-delta approach updateDailySale uses, just
+// scoped to a single visit via reverseVisitContents instead of the
+// whole day's sale. The edited items/payments are written as a FRESH
+// visit (new visitAt), same "edit writes a new visit" precedent
+// updateDailySale follows — but the Receipt row keeps its ORIGINAL
+// receiptNumber (editing fixes a receipt, it doesn't create a new
+// one), only its visitAt moves to match the fresh visit.
+export async function updateReceipt(
+  input: UpdateReceiptInput
+): Promise<
+  | { success: true; data: Record<string, unknown> & { receiptNumber: number; visitAt: Date } }
+  | { success: false; error: string }
+> {
+  const shopId = await getCurrentShopId();
+  const data = updateReceiptSchema.parse(input);
+
+  try {
+    return await db.$transaction(async (tx) => {
+      const existingReceipt = await tx.receipt.findFirst({
+        where: { dailySaleId: data.dailySaleId, visitAt: data.visitAt, shopId },
+      });
+      if (!existingReceipt) return { success: false, error: "Receipt not found" };
+
+      const existingSale = await tx.dailySale.findFirstOrThrow({ where: { id: data.dailySaleId, shopId } });
+      const reverseResult = await reverseVisitContents(tx, shopId, data.dailySaleId, data.visitAt, false);
+      if (!reverseResult.success) return reverseResult;
+
+      const visitAt = new Date();
+      const buyer = existingSale.customerId
+        ? { customerId: existingSale.customerId }
+        : { dealerId: existingSale.dealerId! };
+      const itemsResult = await applySaleItems(tx, shopId, data.dailySaleId, data.items, visitAt);
+      if (!itemsResult.success) return itemsResult;
+      const { itemTotal, grainItems } = itemsResult.data;
+
+      const paymentResult = await applyPaymentSplit(
+        tx,
+        shopId,
+        buyer,
+        data.dailySaleId,
+        itemTotal,
+        data.payments,
+        visitAt,
+        grainItems
+      );
+      if (!paymentResult.success) return paymentResult;
+
+      // reverseVisitContents already deleted the old Receipt row (it
+      // cleans up every row belonging to the visit it just reversed,
+      // same as it does for deleteReceipt) — a fresh one is created
+      // here instead of updated, reusing the SAME receiptNumber (see
+      // this function's own comment on why editing keeps its number)
+      // but pointing at the new visitAt the reapply step just wrote.
+      await tx.receipt.create({
+        data: {
+          shopId,
+          receiptNumber: existingReceipt.receiptNumber,
+          dailySaleId: data.dailySaleId,
+          visitAt,
+        },
+      });
+
+      const updated = await tx.dailySale.findUniqueOrThrow({
+        where: { id: data.dailySaleId },
+        include: { items: { where: { visitAt } } },
+      });
+
+      return {
+        success: true,
+        data: {
+          ...updated,
+          items: updated.items.map(serializeDecimals),
+          receiptNumber: existingReceipt.receiptNumber,
+          visitAt,
+        },
+      };
+    });
+  } catch (err) {
+    // Same reasoning as updateDailySale/deleteDailySale's own catch —
+    // the reverse step's bank-reversal or the reapply step's new
+    // payment can throw postToBankAccount's overdraft guard, which
+    // must surface as a real message, not the production-redacted
+    // digest box.
+    return { success: false, error: err instanceof Error ? err.message : "Failed to update receipt" };
+  }
+}
+
+// Deletes ONE receipt (one visit) — any other same-day visit on the
+// same DailySale is left completely untouched. If this was the only
+// visit, the DailySale row itself is removed too (see
+// reverseVisitContents' deleteEmptySale parameter).
+export async function deleteReceipt(
+  dailySaleId: string,
+  visitAt: Date
+): Promise<{ success: true; data: undefined } | { success: false; error: string }> {
+  const shopId = await getCurrentShopId();
+
+  try {
+    return await db.$transaction(async (tx) => {
+      const reverseResult = await reverseVisitContents(tx, shopId, dailySaleId, visitAt, true);
+      if (!reverseResult.success) return reverseResult;
+      return { success: true, data: undefined };
+    });
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed to delete receipt" };
   }
 }
 
@@ -1227,5 +1565,119 @@ export async function getTodaysSalesStats() {
     cash,
     account,
     credit,
+  };
+}
+
+function paymentSummaryFor(payments: { paymentMethod: "CASH" | "ACCOUNT" | "CREDIT" }[]): "CASH" | "ACCOUNT" | "CREDIT" | "MIXED" | null {
+  const methods = new Set(payments.map((p) => p.paymentMethod));
+  if (methods.size === 0) return null;
+  if (methods.size > 1) return "MIXED";
+  return payments[0].paymentMethod;
+}
+
+// The Receipts page's day list — one row per receipt (one visit),
+// brief enough for a scannable table: who, how many items, total,
+// how it was paid. Reads Receipt directly (not listDailySales, which
+// is whole-DailySale-scoped and has no visit awareness — see
+// Receipt's schema comment) so this is exact even on a day where a
+// customer made two separate visits.
+export async function listReceiptsForDate(dateStr: string) {
+  const shopId = await getCurrentShopId();
+  const start = parseLocalDateStart(dateStr);
+  const end = parseLocalDateEnd(dateStr);
+
+  const receipts = await db.receipt.findMany({
+    where: { shopId, visitAt: { gte: start, lte: end } },
+    include: {
+      dailySale: {
+        include: { customer: true, dealer: true },
+      },
+    },
+    orderBy: { visitAt: "desc" },
+  });
+
+  // One extra round trip for items/payments, scoped to exactly the
+  // visits this page needs (not every visit the underlying DailySale
+  // rows ever had) — same reasoning listDailySales' comment gives for
+  // why it doesn't eagerly load every relation.
+  const results = await Promise.all(
+    receipts.map(async (receipt) => {
+      const [items, payments] = await Promise.all([
+        db.dailySaleItem.count({ where: { dailySaleId: receipt.dailySaleId, visitAt: receipt.visitAt } }),
+        db.dailySalePayment.findMany({
+          where: { dailySaleId: receipt.dailySaleId, visitAt: receipt.visitAt },
+        }),
+      ]);
+      const total = payments.reduce((sum, p) => sum + Number(p.amount), 0);
+
+      return {
+        receiptNumber: receipt.receiptNumber,
+        dailySaleId: receipt.dailySaleId,
+        visitAt: receipt.visitAt,
+        buyerKind: receipt.dailySale.customerId ? ("CUSTOMER" as const) : ("DEALER" as const),
+        buyerId: receipt.dailySale.customerId ?? receipt.dailySale.dealerId!,
+        buyerName: receipt.dailySale.customer?.name ?? receipt.dailySale.dealer?.name ?? "Unknown",
+        itemCount: items,
+        total,
+        paymentSummary: paymentSummaryFor(payments),
+      };
+    })
+  );
+
+  return results;
+}
+
+// Full detail for ONE receipt — every item, the full payment split,
+// buyer info, receipt number, and date/time. Scoped by the
+// (dailySaleId, visitAt) pair, since that's a receipt's real
+// identity (see Receipt's schema comment) — a bare dailySaleId alone
+// could match more than one visit.
+export async function getReceiptDetail(dailySaleId: string, visitAt: Date) {
+  const shopId = await getCurrentShopId();
+
+  const receipt = await db.receipt.findFirst({
+    where: { dailySaleId, visitAt, shopId },
+    include: {
+      dailySale: {
+        include: { customer: true, dealer: true },
+      },
+    },
+  });
+  if (!receipt) return null;
+
+  const [items, payments] = await Promise.all([
+    db.dailySaleItem.findMany({
+      where: { dailySaleId, visitAt },
+      include: { product: true },
+    }),
+    db.dailySalePayment.findMany({
+      where: { dailySaleId, visitAt },
+      include: { bankAccount: true },
+    }),
+  ]);
+
+  return {
+    receiptNumber: receipt.receiptNumber,
+    dailySaleId,
+    visitAt,
+    buyerKind: receipt.dailySale.customerId ? ("CUSTOMER" as const) : ("DEALER" as const),
+    buyerId: receipt.dailySale.customerId ?? receipt.dailySale.dealerId!,
+    buyerName: receipt.dailySale.customer?.name ?? receipt.dailySale.dealer?.name ?? "Unknown",
+    season: receipt.dailySale.season,
+    items: items.map((item) => ({
+      id: item.id,
+      productId: item.productId,
+      productName: item.product.name,
+      quantity: Number(item.quantity),
+      actualPrice: Number(item.actualPrice),
+      creditAmount: item.creditAmount ? Number(item.creditAmount) : null,
+    })),
+    payments: payments.map((p) => ({
+      paymentMethod: p.paymentMethod,
+      amount: Number(p.amount),
+      bankAccountId: p.bankAccountId,
+      bankAccountName: p.bankAccount?.name ?? null,
+    })),
+    total: items.reduce((sum, i) => sum + Number(i.quantity) * Number(i.actualPrice), 0),
   };
 }
