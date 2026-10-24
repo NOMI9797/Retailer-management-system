@@ -554,19 +554,49 @@ export async function updateGrainSettlement(
   // points; re-derived here from whichever one originally created
   // this settlement, since editing doesn't change which kind it was.
   const sourceBatchId = newShopBatch.sourceBatchId;
+  // The deposit's total after this edit — changed only when a new
+  // depositQuantity is given (transfer-purchases only).
+  let newDepositQuantity: number | null = null;
   if (sourceBatchId) {
     const sourceBatch = await db.grainBatch.findFirst({ where: { id: sourceBatchId } });
     if (sourceBatch) {
-      const remainingClaim =
-        Number(sourceBatch.quantityIn) - Number(sourceBatch.quantityTransferred) + Number(newShopBatch.quantityIn);
+      const depositQuantity = data.depositQuantity ?? Number(sourceBatch.quantityIn);
+      // Bought from this deposit by OTHER settlements, and sold from it
+      // before it was bought (Stock Udhaar) — neither can be undone by
+      // shrinking the deposit.
+      const otherSettled = Number(sourceBatch.quantityTransferred) - Number(newShopBatch.quantityIn);
+      const soldFromDeposit = Number(sourceBatch.quantitySold);
+      const remainingClaim = depositQuantity - otherSettled;
       if (data.quantity > remainingClaim) {
         return {
           success: false,
-          error: `Only ${remainingClaim} remains as this customer's claim on the original deposit (requested ${data.quantity}).`,
+          error: `Only ${remainingClaim} of this ${depositQuantity} deposit is left to buy (requested ${data.quantity}).`,
         };
       }
+      const minDeposit = Math.max(soldFromDeposit, otherSettled + data.quantity);
+      if (depositQuantity < minDeposit) {
+        return {
+          success: false,
+          error: `The deposit can't be less than ${minDeposit} — that much of it is already bought or sold.`,
+        };
+      }
+      if (data.depositQuantity !== undefined && data.depositQuantity !== Number(sourceBatch.quantityIn)) {
+        newDepositQuantity = data.depositQuantity;
+      }
     }
+  } else if (data.depositQuantity !== undefined && data.depositQuantity < data.quantity) {
+    return { success: false, error: "The deposit can't be less than the quantity bought." };
   }
+  // A settle-now entry (deposited and bought at once) given a deposit
+  // larger than what was bought becomes "deposited, then partly
+  // bought": a customer deposit batch is created for the full amount
+  // and this purchase is linked to it, so the rest shows as the
+  // customer's unpriced grain — same shape createTransferPurchase
+  // leaves behind.
+  const splitDeposit =
+    !sourceBatchId && data.depositQuantity !== undefined && data.depositQuantity > data.quantity + 0.0001
+      ? data.depositQuantity
+      : null;
 
   const oldAmount = Number(txn.amount);
   const oldQuantity = Number(txn.quantity ?? newShopBatch.quantityIn);
@@ -613,10 +643,26 @@ export async function updateGrainSettlement(
       // createDepositWithSettlement's own steps, reusing the SAME
       // shop batch row (updated in place) rather than creating a new
       // one, so its id stays stable across the edit.
-      if (sourceBatchId) {
+      let effectiveSourceId = sourceBatchId;
+      if (splitDeposit !== null) {
+        const depositBatch = await tx.grainBatch.create({
+          data: {
+            productId: newShopBatch.productId,
+            ownerCustomerId: customerId,
+            quantityIn: splitDeposit,
+            receivedAt: newShopBatch.receivedAt,
+          },
+        });
+        await tx.grainBatch.update({ where: { id: newShopBatch.id }, data: { sourceBatchId: depositBatch.id } });
+        effectiveSourceId = depositBatch.id;
+      }
+      if (effectiveSourceId) {
         await tx.grainBatch.update({
-          where: { id: sourceBatchId },
-          data: { quantityTransferred: { increment: data.quantity } },
+          where: { id: effectiveSourceId },
+          data: {
+            quantityTransferred: { increment: data.quantity },
+            ...(newDepositQuantity !== null ? { quantityIn: newDepositQuantity } : {}),
+          },
         });
       }
       await tx.grainBatch.update({
@@ -648,6 +694,34 @@ export async function updateGrainSettlement(
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : "Failed to update settlement" };
   }
+}
+
+// Everything the full "Edit settlement" form needs: whether this was
+// bought from an earlier deposit (a transfer-purchase, whose deposit
+// total can also be edited) or deposited-and-bought at once (settle-
+// now), the deposit's total, what other settlements already bought
+// from it, and what was sold from it before being bought — the floor
+// the deposit can't go below.
+export async function getGrainSettlementDetails(accountTransactionId: string) {
+  const shopId = await getCurrentShopId();
+  const txn = await db.accountTransaction.findFirst({
+    where: { id: accountTransactionId, customerAccount: { customer: { shopId } } },
+    include: { linkedGrainBatch: { include: { sourceBatch: true } } },
+  });
+  if (!txn?.linkedGrainBatch) return null;
+  const batch = txn.linkedGrainBatch;
+  const source = batch.sourceBatch;
+  const quantity = Number(batch.quantityIn);
+  return {
+    kind: source ? ("FROM_DEPOSIT" as const) : ("SETTLE_NOW" as const),
+    quantity,
+    rate: batch.rate !== null ? Number(batch.rate) : 0,
+    paymentMethod: txn.paymentMethod,
+    bankAccountId: txn.bankAccountId,
+    depositQuantity: source ? Number(source.quantityIn) : quantity,
+    otherSettled: source ? Number(source.quantityTransferred) - quantity : 0,
+    soldFromDeposit: source ? Number(source.quantitySold) : 0,
+  };
 }
 
 // A customer batch's settlement breakdown: every purchase the
@@ -1134,4 +1208,148 @@ export async function listCustomerBatchesForProduct(productId: string) {
     // needs a final sort, so GrainBatchList's date-header grouping
     // never sees the same date twice, non-consecutively.
   ].sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime());
+}
+
+// One grain product's money history for the Grain page's "Sales &
+// purchases" tabs. Credit = the shop selling this grain (to a customer
+// or a dealer — one row per sale item); Debit = the shop buying it
+// (from a customer, via a settlement, or from a grain dealer). Each
+// row is tagged with who the other party was. Newest first.
+export type GrainLedgerRow = {
+  id: string;
+  date: Date;
+  party: "CUSTOMER" | "DEALER";
+  partyName: string;
+  partyHref: string;
+  quantity: number;
+  rate: number;
+  amount: number;
+  // e.g. "Cash", "Bank", "Udhaar", "Part Udhaar", "Mixed".
+  payment: string;
+  paymentTone: "cash" | "account" | "credit" | "mixed";
+};
+
+const METHOD_LABEL: Record<string, { label: string; tone: GrainLedgerRow["paymentTone"] }> = {
+  CASH: { label: "Cash", tone: "cash" },
+  ACCOUNT: { label: "Bank", tone: "account" },
+  CREDIT: { label: "Udhaar", tone: "credit" },
+};
+
+export async function listGrainLedger(productId: string) {
+  const shopId = await getCurrentShopId();
+
+  const [saleItems, customerPurchases, dealerBatches] = await Promise.all([
+    db.dailySaleItem.findMany({
+      where: { productId, product: { shopId } },
+      include: { dailySale: { include: { customer: true, dealer: true, payments: true } } },
+    }),
+    // The shop buying this grain from a customer — every settlement's
+    // payment row (OUT with a quantity and its new shop batch).
+    db.accountTransaction.findMany({
+      where: {
+        direction: "OUT",
+        quantity: { not: null },
+        linkedGrainBatch: { productId, product: { shopId } },
+      },
+      include: { linkedGrainBatch: true, customerAccount: { include: { customer: true } } },
+    }),
+    db.grainBatch.findMany({
+      where: { productId, dealerId: { not: null }, dealer: { shopId } },
+      include: { dealer: { include: { account: { include: { transactions: true } } } } },
+    }),
+  ]);
+
+  const credit: GrainLedgerRow[] = saleItems.map((item) => {
+    const sale = item.dailySale;
+    const quantity = Number(item.quantity);
+    const rate = Number(item.actualPrice);
+    const amount = quantity * rate;
+    const creditAmount = item.creditAmount !== null ? Number(item.creditAmount) : 0;
+    const visitMethods = [
+      ...new Set(
+        sale.payments.filter((p) => p.visitAt.getTime() === item.visitAt.getTime()).map((p) => p.paymentMethod)
+      ),
+    ];
+    const pay =
+      creditAmount >= amount - 0.01 && creditAmount > 0
+        ? METHOD_LABEL.CREDIT
+        : creditAmount > 0.01
+          ? { label: "Part Udhaar", tone: "credit" as const }
+          : visitMethods.length === 1
+            ? METHOD_LABEL[visitMethods[0]]
+            : { label: "Mixed", tone: "mixed" as const };
+    return {
+      id: item.id,
+      date: item.visitAt,
+      party: sale.dealerId ? "DEALER" : "CUSTOMER",
+      partyName: sale.dealer?.name ?? sale.customer?.name ?? "Walk-in",
+      partyHref: sale.dealerId ? `/dashboard/dealers/${sale.dealerId}` : `/dashboard/customers/${sale.customerId}`,
+      quantity,
+      rate,
+      amount,
+      payment: pay.label,
+      paymentTone: pay.tone,
+    };
+  });
+
+  const debit: GrainLedgerRow[] = [
+    ...customerPurchases.map((txn) => {
+      const quantity = Number(txn.quantity);
+      const rate = txn.linkedGrainBatch?.rate != null ? Number(txn.linkedGrainBatch.rate) : 0;
+      const pay = METHOD_LABEL[txn.paymentMethod];
+      return {
+        id: txn.id,
+        date: txn.transactionDate,
+        party: "CUSTOMER" as const,
+        partyName: txn.customerAccount.customer.name,
+        partyHref: `/dashboard/customers/${txn.customerAccount.customerId}?tab=grain`,
+        quantity,
+        rate,
+        amount: Number(txn.amount),
+        payment: pay.label,
+        paymentTone: pay.tone,
+      };
+    }),
+    ...dealerBatches.map((batch) => {
+      const quantity = Number(batch.quantityIn);
+      const rate = batch.rate !== null ? Number(batch.rate) : 0;
+      const amount = quantity * rate;
+      // createDealerGrainPurchase posts its payment row in the same
+      // transaction as the batch — matched by dealer, amount and time,
+      // since the row carries no batch link.
+      const paymentRow = batch.dealer?.account?.transactions.find(
+        (t) =>
+          t.direction === "OUT" &&
+          Math.abs(Number(t.amount) - amount) < 0.01 &&
+          Math.abs(t.transactionDate.getTime() - batch.receivedAt.getTime()) < 60_000
+      );
+      const pay = paymentRow ? METHOD_LABEL[paymentRow.paymentMethod] : { label: "—", tone: "mixed" as const };
+      return {
+        id: batch.id,
+        date: batch.receivedAt,
+        party: "DEALER" as const,
+        partyName: batch.dealer?.name ?? "Dealer",
+        partyHref: `/dashboard/dealers/${batch.dealerId}`,
+        quantity,
+        rate,
+        amount,
+        payment: pay.label,
+        paymentTone: pay.tone,
+      };
+    }),
+  ];
+
+  const byNewest = (a: GrainLedgerRow, b: GrainLedgerRow) => b.date.getTime() - a.date.getTime();
+  credit.sort(byNewest);
+  debit.sort(byNewest);
+  const sum = (rows: GrainLedgerRow[], key: "amount" | "quantity") => rows.reduce((s, r) => s + r[key], 0);
+
+  return {
+    credit,
+    debit,
+    creditTotal: sum(credit, "amount"),
+    creditQuantity: sum(credit, "quantity"),
+    debitTotal: sum(debit, "amount"),
+    debitQuantity: sum(debit, "quantity"),
+  };
 }

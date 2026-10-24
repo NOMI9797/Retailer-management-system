@@ -1,18 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { updateGrainSettlement } from "../actions";
+import { updateGrainSettlement, getGrainSettlementDetails } from "../actions";
 import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 import { showToast } from "@/components/shared/toastStore";
 
-// Edits a grain settlement's quantity/rate/payment method — same
-// field shape as TransferPurchaseForm, since it's conceptually the
-// same action (a purchase from the customer), just changing an
-// existing one instead of creating a fresh one. See
-// updateGrainSettlement's own comment for how the edit is applied
-// under the hood (fully reversed, then fully redone with the new
-// numbers).
+// Full edit of a grain purchase from a customer: the customer's whole
+// deposit (when it was bought from an earlier deposit), how much of it
+// the shop bought at an agreed rate, the rate, and how it was paid —
+// with a live summary of what's still unpriced and the total amount.
+// Loads the deposit details on open (getGrainSettlementDetails); the
+// initial* props fill the form until they arrive. See
+// updateGrainSettlement for how the edit is applied (fully reversed,
+// then fully redone with the new numbers).
 export function EditGrainSettlementModal({
   accountTransactionId,
   initialQuantity,
@@ -39,10 +40,29 @@ export function EditGrainSettlementModal({
   const [bankAccountId, setBankAccountId] = useState(initialBankAccountId ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [details, setDetails] = useState<Awaited<ReturnType<typeof getGrainSettlementDetails>>>(null);
+  const [deposit, setDeposit] = useState("");
+
+  useEffect(() => {
+    getGrainSettlementDetails(accountTransactionId).then((d) => {
+      setDetails(d);
+      if (d) {
+        setDeposit(String(d.depositQuantity));
+        setQuantity(String(d.quantity));
+        setRate(String(d.rate));
+        if (d.paymentMethod) setPaymentMethod(d.paymentMethod);
+        setBankAccountId(d.bankAccountId ?? "");
+      }
+    });
+  }, [accountTransactionId]);
 
   const parsedQuantity = Number(quantity) || 0;
   const parsedRate = Number(rate) || 0;
   const total = parsedQuantity * parsedRate;
+  const parsedDeposit = Number(deposit) || 0;
+  const otherSettled = details?.otherSettled ?? 0;
+  const stillUnpriced = parsedDeposit - otherSettled - parsedQuantity;
+  const minDeposit = Math.max(details?.soldFromDeposit ?? 0, otherSettled + parsedQuantity);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -50,6 +70,7 @@ export function EditGrainSettlementModal({
     setIsSaving(true);
     const result = await updateGrainSettlement({
       accountTransactionId,
+      depositQuantity: details ? parsedDeposit : undefined,
       quantity: parsedQuantity,
       rate: parsedRate,
       paymentMethod,
@@ -70,14 +91,32 @@ export function EditGrainSettlementModal({
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>Edit settlement</h2>
-        <p className="modal-sub">Edits this purchase&apos;s quantity, rate, and payment method.</p>
 
         <form onSubmit={handleSubmit}>
           {error && <p className="form-banner error">{error}</p>}
 
+          {details && (
+            <div className="field">
+              <label>Total deposited by customer ({unitName})</label>
+              <input
+                type="number"
+                min={minDeposit}
+                step="any"
+                value={deposit}
+                onChange={(e) => setDeposit(e.target.value)}
+                required
+              />
+              {otherSettled > 0 && (
+                <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
+                  {otherSettled} {unitName} of it was bought in other settlements.
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="field-row">
             <div className="field">
-              <label>Quantity</label>
+              <label>Bought by shop — rate settled ({unitName})</label>
               <input
                 type="number"
                 min="0"
@@ -88,7 +127,7 @@ export function EditGrainSettlementModal({
               />
             </div>
             <div className="field">
-              <label>Agreed rate</label>
+              <label>Agreed rate (per {unitName})</label>
               <input type="number" min="0" step="any" value={rate} onChange={(e) => setRate(e.target.value)} required />
             </div>
           </div>
@@ -106,12 +145,36 @@ export function EditGrainSettlementModal({
             <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
           )}
 
-          <div className="modal-actions" style={{ alignItems: "center" }}>
-            {total > 0 && (
-              <p style={{ fontSize: 13, fontWeight: 600, marginRight: "auto" }}>
-                Total: Rs {total.toLocaleString()} ({parsedQuantity} {unitName})
-              </p>
+          <div className="settlement-summary">
+            {details && (
+              <>
+                <div>
+                  <span>Deposited</span>
+                  <strong>
+                    {parsedDeposit} {unitName}
+                  </strong>
+                </div>
+                <div>
+                  <span>Bought</span>
+                  <strong>
+                    {parsedQuantity} {unitName}
+                  </strong>
+                </div>
+                <div>
+                  <span>Rate not settled</span>
+                  <strong style={{ color: stillUnpriced < 0 ? "var(--consigned-600)" : "var(--grain-600)" }}>
+                    {stillUnpriced} {unitName}
+                  </strong>
+                </div>
+              </>
             )}
+            <div>
+              <span>Total amount</span>
+              <strong>Rs {total.toLocaleString()}</strong>
+            </div>
+          </div>
+
+          <div className="modal-actions" style={{ alignItems: "center" }}>
             <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isSaving}>
               Cancel
             </button>

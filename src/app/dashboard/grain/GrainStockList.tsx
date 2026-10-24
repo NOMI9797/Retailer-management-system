@@ -1,76 +1,77 @@
-import Link from "next/link";
-import { listProducts, getGrainStockSummary, listCategories } from "@/modules/products/actions";
-import { getStockOverview, listCustomerBatchesForProduct } from "@/modules/stock/actions";
-import { listAreas } from "@/modules/settings/areas.actions";
-import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
+import { listProducts, getGrainStockSummary } from "@/modules/products/actions";
+import {
+  getStockOverview,
+  listCustomerBatchesForProduct,
+  listGrainLedger,
+} from "@/modules/stock/actions";
 import { GrainBatchList } from "@/modules/products/components/GrainBatchList";
-import { buildGrainHref, type GrainSearchParams } from "./searchParamsHref";
+import Link from "next/link";
+import type { GrainSearchParams } from "./searchParamsHref";
 
-// Async Server Component for the Grain tab: a sub-tab strip of every
-// grain product (Channa / Cotton / Wheat / ...), with only the
-// SELECTED product's summary + batch table rendered below — one
-// product at a time, per the "sub-tabs, not all stacked" decision.
+// Async Server Component for the Grain tab: only the SELECTED grain
+// product (picked in the page header's dropdown, ?product=) is
+// rendered — one product at a time, not all stacked.
 // listProducts (not listGrainProductDetailsForShop) is deliberately
 // used here — it fetches only product name/id/category/unit, not
 // every product's batches, since only the SELECTED product's batches
 // are ever needed on screen at once now.
-export async function GrainStockList({ searchParams }: { searchParams: GrainSearchParams }) {
+export async function GrainStockList({
+  searchParams,
+}: {
+  searchParams: GrainSearchParams;
+}) {
   // Pagination doesn't fit a tab-strip UI (every product needs to be
   // a visible tab, not spread across pages) — fetch a single large
   // page. 500 is already generous for one shop's product catalog; a
   // shop with more than that revisits this if it ever comes up.
-  const { products } = await listProducts({ stockKind: "GRAIN", pageSize: 500, includeInactive: true });
+  const { products } = await listProducts({
+    stockKind: "GRAIN",
+    pageSize: 500,
+    includeInactive: true,
+  });
 
   if (products.length === 0) {
     return (
-      <div className="panel">
-        <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
+      <div
+        className="panel"
+        style={{
+          padding: 16,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <p style={{ margin: 0, color: "var(--ink-muted)", fontSize: 13.5 }}>
           No grain products yet — add one to start tracking batches.
         </p>
+        <Link
+          href="/dashboard/settings?tab=grain-products"
+          className="btn btn-primary"
+        >
+          Add grain product in Settings
+        </Link>
       </div>
     );
   }
 
-  const activeProduct = products.find((p) => p.id === searchParams.product) ?? products[0];
+  const activeProduct =
+    products.find((p) => p.id === searchParams.product) ?? products[0];
 
-  const [summary, overview, customerBatches, areas, bankAccounts, categories] = await Promise.all([
+  const [summary, overview, customerBatches, ledger] = await Promise.all([
     getGrainStockSummary(activeProduct.id),
     getStockOverview(activeProduct.id),
     listCustomerBatchesForProduct(activeProduct.id),
-    listAreas(),
-    listBankAccounts(),
-    listCategories(false, "GRAIN"),
+    listGrainLedger(activeProduct.id),
   ]);
 
   return (
     <>
-      {/* Squared, full-width chips (not the plain underline .tab) so
-          switching products is an obvious UI affordance — flex: 1 on
-          each chip (see .product-chip) stretches them to fill the row.
-          A deactivated product still appears here (includeInactive:
-          true above) so it stays manageable, just visibly dimmed. */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        {products.map((product) => (
-          <Link
-            key={product.id}
-            className={`product-chip${product.id === activeProduct.id ? " active" : ""}`}
-            href={buildGrainHref(searchParams, { product: product.id })}
-            style={product.isActive ? undefined : { opacity: 0.5 }}
-          >
-            {product.name}
-            {!product.isActive && " (Inactive)"}
-          </Link>
-        ))}
-      </div>
-
       <GrainBatchList
         product={activeProduct}
         batchCount={summary.batchCount}
         customerBatches={customerBatches}
         overview={overview}
-        areas={areas}
-        bankAccounts={bankAccounts}
-        categories={categories}
+        ledger={ledger}
       />
     </>
   );

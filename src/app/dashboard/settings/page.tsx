@@ -1,7 +1,8 @@
 import { Suspense } from "react";
 import { listAccountTypes } from "@/modules/settings/accountTypes.actions";
 import { listAreas } from "@/modules/settings/areas.actions";
-import { listCategories, listUnits } from "@/modules/products/actions";
+import { listCategories, listUnits, listProducts } from "@/modules/products/actions";
+import { GrainProductActions } from "@/modules/products/components/GrainProductActions";
 import { listMonthlyExpenseTypes } from "@/modules/expenses/actions";
 import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { listDealers } from "@/modules/dealers/actions";
@@ -24,6 +25,7 @@ const VALID_TABS: SettingsTab[] = [
   "monthly-expense-types",
   "bank-accounts",
   "dealers",
+  "grain-products",
 ];
 
 // Tab-based, same shape as Products/Expenses/Reports — real ?tab=
@@ -39,9 +41,12 @@ export default async function SettingsPage({
     ? (params.tab as SettingsTab)
     : "account-types";
 
+  const [grainCategories, units] =
+    tab === "grain-products" ? await Promise.all([listCategories(false, "GRAIN"), listUnits()]) : [[], []];
+
   return (
     <div>
-      <SettingsHeader tab={tab} searchParams={params} />
+      <SettingsHeader tab={tab} searchParams={params} grainCategories={grainCategories} units={units} />
 
       {tab === "account-types" && (
         <Suspense fallback={<PageLoader label="Loading account types…" />}>
@@ -84,6 +89,12 @@ export default async function SettingsPage({
           <DealersSection />
         </Suspense>
       )}
+
+      {tab === "grain-products" && (
+        <Suspense fallback={<PageLoader label="Loading grain products…" />}>
+          <GrainProductsSection categories={grainCategories} />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -124,4 +135,52 @@ async function BankAccountsSection() {
 async function DealersSection() {
   const dealers = await listDealers({ includeInactive: true });
   return <DealerListManager dealers={dealers} />;
+}
+
+// Every grain product (Cotton, Wheat, ...) with its own Edit /
+// Deactivate (Activate) / Delete — managed here rather than on the
+// Grain page, which only picks one to work with.
+async function GrainProductsSection({ categories }: { categories: Awaited<ReturnType<typeof listCategories>> }) {
+  const { products } = await listProducts({ stockKind: "GRAIN", pageSize: 500, includeInactive: true });
+
+  return (
+    <div className="panel">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Category</th>
+            <th>Unit</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {products.length === 0 ? (
+            <tr className="empty-row">
+              <td colSpan={5}>No grain products yet — add one to start tracking grain.</td>
+            </tr>
+          ) : (
+            products.map((product) => (
+              <tr key={product.id}>
+                <td style={{ fontWeight: 500 }}>{product.name}</td>
+                <td>{product.category.name}</td>
+                <td>{product.unit.name}</td>
+                <td>
+                  <span className={`status-badge ${product.isActive ? "active" : "inactive"}`}>
+                    {product.isActive ? "Active" : "Inactive"}
+                  </span>
+                </td>
+                <td style={{ textAlign: "right" }}>
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <GrainProductActions product={product} categories={categories} />
+                  </div>
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
 }

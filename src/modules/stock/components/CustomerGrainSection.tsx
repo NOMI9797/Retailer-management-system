@@ -303,7 +303,7 @@ export function CustomerGrainSection({
                 </div>
                 {q.unsettled > 0 && (
                   <div className="stat-card">
-                    <p className="stat-label">Not yet priced</p>
+                    <p className="stat-label">Rate not settled</p>
                     <p className="stat-value tone-consigned">
                       {q.unsettled} {q.unitName}
                     </p>
@@ -400,7 +400,7 @@ export function CustomerGrainSection({
                           </td>
                           <td>
                             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                              <span className="pay-badge pay-mixed">Not yet settled</span>
+                              <span className="pay-badge pay-mixed">Rate not settled</span>
                               {onSettle && (
                                 <BuyFromCustomerModal
                                   grainBatchId={row.batchId}

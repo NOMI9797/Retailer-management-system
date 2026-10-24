@@ -67,6 +67,10 @@ export type DepositWithSettlementInput = z.infer<typeof depositWithSettlementSch
 export const updateGrainSettlementSchema = z
   .object({
     accountTransactionId: z.string().uuid(),
+    // The customer's whole deposit this was bought from (transfer-
+    // purchases only; ignored for a settle-now deposit, where the
+    // deposit IS the purchase). Optional — omitted leaves it as is.
+    depositQuantity: z.number().positive("Deposited quantity must be positive").optional(),
     quantity: z.number().positive("Quantity must be positive"),
     rate: z.number().positive("Rate must be positive"),
     paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),

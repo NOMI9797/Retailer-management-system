@@ -1,28 +1,28 @@
 import Link from "next/link";
-import { AddProductModal } from "@/modules/products/components/AddProductModal";
-import type { listCategories, listUnits } from "@/modules/products/actions";
+import { GrainProductSelect } from "./GrainProductSelect";
 import { buildGrainHref, type GrainSearchParams } from "./searchParamsHref";
 
-type Category = Awaited<ReturnType<typeof listCategories>>[number];
-type Unit = Awaited<ReturnType<typeof listUnits>>[number];
-
-// Pure Server Component — title, the Add-grain-product trigger, and
-// the top-level Grain/Stock Udhaar tab switcher. Same real-navigation
+// Pure Server Component — title, the grain product dropdown, and the
+// top-level Grain/Stock Udhaar tab switcher. Same real-navigation
 // ?tab= pattern as Expenses' Daily/Monthly tabs — a plain <Link>, not
 // client-side state, so switching never waits on data underneath it.
-// The Add-product trigger only makes sense on the Grain tab (there's
-// nothing to "add" on Stock Udhaar, which is a pure rollup), so it's
-// hidden on that tab rather than left dangling.
+// The grain dropdown drives both tabs, and switching tabs keeps the
+// grain that's picked.
 export function GrainPageHeader({
   searchParams,
-  categories,
-  units,
+  products,
+  tabAction,
 }: {
   searchParams: GrainSearchParams;
-  categories: Category[];
-  units: Unit[];
+  products: { id: string; name: string; isActive: boolean }[];
+  // Shown at the right end of the Grain / Stock Udhaar tab row (the
+  // Grain tab's Add batch).
+  tabAction?: React.ReactNode;
 }) {
   const tab = searchParams.tab === "udhaar" ? "udhaar" : "grain";
+  const activeId = (
+    products.find((p) => p.id === searchParams.product) ?? products[0]
+  )?.id;
 
   return (
     <>
@@ -30,30 +30,41 @@ export function GrainPageHeader({
         <div>
           <h1>Grain</h1>
         </div>
-        {tab === "grain" && (
-          <AddProductModal
-            categories={categories}
-            units={units}
-            defaultStockKind="GRAIN"
-            lockStockKind
-            label="Add grain product"
-          />
+        {activeId && (
+          <GrainProductSelect products={products} activeId={activeId} />
         )}
       </div>
 
       <div className="tabs">
         <Link
           className={`tab${tab === "grain" ? " active" : ""}`}
-          href={buildGrainHref(searchParams, { tab: "grain", product: undefined, page: undefined })}
+          href={buildGrainHref(searchParams, {
+            tab: "grain",
+            page: undefined,
+          })}
         >
           Grain
         </Link>
         <Link
           className={`tab${tab === "udhaar" ? " active" : ""}`}
-          href={buildGrainHref(searchParams, { tab: "udhaar", product: undefined, page: undefined })}
+          href={buildGrainHref(searchParams, {
+            tab: "udhaar",
+            page: undefined,
+          })}
         >
           Stock Udhaar
         </Link>
+        {tabAction && (
+          <div
+            style={{
+              marginLeft: "auto",
+              alignSelf: "center",
+              paddingBottom: 6,
+            }}
+          >
+            {tabAction}
+          </div>
+        )}
       </div>
     </>
   );

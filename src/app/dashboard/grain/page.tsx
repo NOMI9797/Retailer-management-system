@@ -1,5 +1,8 @@
 import { Suspense } from "react";
-import { listCategories, listUnits } from "@/modules/products/actions";
+import { listProducts } from "@/modules/products/actions";
+import { listAreas } from "@/modules/settings/areas.actions";
+import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
+import { AddBatchModal } from "@/modules/products/components/AddBatchModal";
 import { GrainPageHeader } from "./GrainPageHeader";
 import { GrainStockList } from "./GrainStockList";
 import { GrainUdhaarSection } from "./GrainUdhaarSection";
@@ -16,9 +19,9 @@ import type { GrainSearchParams } from "./searchParamsHref";
 // Udhaar" subtab under Customers (Udhaar), alongside the shop's other
 // Udhaar buckets, rather than duplicated here — see
 // CustomerGrainCreditSection, now rendered from debts/page.tsx.
-// categories/units are fetched once here and passed down —
-// GrainPageHeader's Add-product modal needs them, and only appears on
-// the Grain tab.
+// The grain product list is fetched here for the header's product
+// dropdown; adding/editing grain products lives in Settings → Grain
+// products.
 export default async function GrainPage({
   searchParams,
 }: {
@@ -26,18 +29,53 @@ export default async function GrainPage({
 }) {
   const params = await searchParams;
   const tab = params.tab === "udhaar" ? "udhaar" : "grain";
-  const [categories, units] = await Promise.all([listCategories(false, "GRAIN"), listUnits()]);
+  const grainProducts = await listProducts({
+    stockKind: "GRAIN",
+    pageSize: 500,
+    includeInactive: true,
+  });
+  // Stock Udhaar only covers active grain products (GrainUdhaarSection),
+  // so its dropdown lists just those; the Grain tab lists all.
+  const products = grainProducts.products
+    .filter((p) => tab === "grain" || p.isActive)
+    .map((p) => ({ id: p.id, name: p.name, isActive: p.isActive }));
+  // Add batch sits in the tab row, for the grain picked in the dropdown.
+  const activeProductId =
+    tab === "grain"
+      ? (products.find((p) => p.id === params.product) ?? products[0])?.id
+      : undefined;
+  const [areas, bankAccounts] = activeProductId
+    ? await Promise.all([listAreas(), listBankAccounts()])
+    : [[], []];
 
   return (
     <div>
-      <GrainPageHeader searchParams={params} categories={categories} units={units} />
+      <GrainPageHeader
+        searchParams={params}
+        products={products}
+        tabAction={
+          activeProductId && (
+            <AddBatchModal
+              productId={activeProductId}
+              areas={areas}
+              bankAccounts={bankAccounts}
+            />
+          )
+        }
+      />
 
       {tab === "grain" ? (
-        <Suspense key={JSON.stringify(params)} fallback={<PageLoader label="Loading grain stock…" />}>
+        <Suspense
+          key={JSON.stringify(params)}
+          fallback={<PageLoader label="Loading grain stock…" />}
+        >
           <GrainStockList searchParams={params} />
         </Suspense>
       ) : (
-        <Suspense key={JSON.stringify(params)} fallback={<PageLoader label="Loading Stock Udhaar…" />}>
+        <Suspense
+          key={JSON.stringify(params)}
+          fallback={<PageLoader label="Loading Stock Udhaar…" />}
+        >
           <GrainUdhaarSection searchParams={params} />
         </Suspense>
       )}

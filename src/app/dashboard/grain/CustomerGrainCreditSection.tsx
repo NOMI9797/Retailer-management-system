@@ -1,5 +1,8 @@
 import Link from "next/link";
-import { getCustomerGrainCreditPurchases, getCustomerGrainCreditSummary } from "@/modules/daily-sales/actions";
+import {
+  getCustomerGrainCreditPurchases,
+  getCustomerGrainCreditSummary,
+} from "@/modules/daily-sales/actions";
 import { CustomerUdhaarPaymentModal } from "@/modules/customers/components/CustomerUdhaarPayment";
 import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { formatMoney, formatDate, matchesSearch } from "@/lib/utils";
@@ -14,7 +17,10 @@ import { formatMoney, formatDate, matchesSearch } from "@/lib/utils";
 // one grain product — see the Debts page's GrainProductFilter, which
 // renders the product-chip row above this section. search (the Udhaar
 // page's search box) narrows only the table; the cards stay shop-wide.
-export async function CustomerGrainCreditSection({ productId, search }: { productId?: string; search?: string } = {}) {
+export async function CustomerGrainCreditSection({
+  productId,
+  search,
+}: { productId?: string; search?: string } = {}) {
   const [allRows, summary, bankAccounts] = await Promise.all([
     getCustomerGrainCreditPurchases(undefined, productId),
     getCustomerGrainCreditSummary(undefined, productId),
@@ -28,11 +34,15 @@ export async function CustomerGrainCreditSection({ productId, search }: { produc
         <div className="stat-grid" style={{ marginBottom: 16 }}>
           <div className="stat-card">
             <p className="stat-label">Total owed by customers</p>
-            <p className="stat-value tone-consigned">{formatMoney(summary.totalRemaining)}</p>
+            <p className="stat-value tone-consigned">
+              {formatMoney(summary.totalRemaining)}
+            </p>
           </div>
           <div className="stat-card">
             <p className="stat-label">Total collected so far</p>
-            <p className="stat-value tone-primary">{formatMoney(summary.totalPaid)}</p>
+            <p className="stat-value tone-primary">
+              {formatMoney(summary.totalPaid)}
+            </p>
           </div>
           <div className="stat-card">
             <p className="stat-label">Customers owing</p>
@@ -44,7 +54,9 @@ export async function CustomerGrainCreditSection({ productId, search }: { produc
       {rows.length === 0 ? (
         <div className="panel">
           <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-            {search ? `No matches for "${search}".` : "No outstanding Grain Udhaar right now."}
+            {search
+              ? `No matches for "${search}".`
+              : "No outstanding Grain Udhaar right now."}
           </p>
         </div>
       ) : (
@@ -66,9 +78,15 @@ export async function CustomerGrainCreditSection({ productId, search }: { produc
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.dailySaleItemId} className={row.isOverdue ? "is-open" : undefined}>
+                <tr
+                  key={row.dailySaleItemId}
+                  className={row.isOverdue ? "is-open" : undefined}
+                >
                   <td>
-                    <Link href={`/dashboard/customers/${row.customerId}`} className="name-link">
+                    <Link
+                      href={`/dashboard/customers/${row.customerId}`}
+                      className="name-link"
+                    >
                       {row.customerName}
                     </Link>
                   </td>
@@ -82,17 +100,28 @@ export async function CustomerGrainCreditSection({ productId, search }: { produc
                   <td className="num" style={{ textAlign: "right" }}>
                     {formatMoney(row.borrowed)}
                   </td>
-                  <td className="num" style={{ textAlign: "right", color: "var(--primary-600)" }}>
+                  <td
+                    className="num"
+                    style={{ textAlign: "right", color: "var(--primary-600)" }}
+                  >
                     {formatMoney(row.paid)}
                   </td>
-                  <td className="num" style={{ textAlign: "right", fontWeight: 600 }}>
+                  <td
+                    className="num"
+                    style={{ textAlign: "right", fontWeight: 600 }}
+                  >
                     {formatMoney(row.remaining)}
                   </td>
                   <td>{formatDate(row.purchaseDate)}</td>
                   <td>
                     {row.dueDate ? (
                       row.isOverdue ? (
-                        <span style={{ color: "var(--consigned-600)", fontWeight: 600 }}>
+                        <span
+                          style={{
+                            color: "var(--consigned-600)",
+                            fontWeight: 600,
+                          }}
+                        >
                           {formatDate(row.dueDate)}
                         </span>
                       ) : (

@@ -17,6 +17,7 @@ export function StockSummary({
   customerClaim,
   stockUdhaarOutstanding,
   pooled,
+  searchSlot,
 }: {
   totalRemaining: number;
   unitName: string;
@@ -24,6 +25,9 @@ export function StockSummary({
   customerClaim: number;
   stockUdhaarOutstanding: number;
   pooled: { quantity: number; isProfit: boolean; displayValue: number };
+  // Shown in the grid's free cell under Stock Udhaar (the Grain page's
+  // name search).
+  searchSlot?: React.ReactNode;
 }) {
   return (
     <div className="stat-grid" style={{ marginBottom: 22 }}>
@@ -63,6 +67,7 @@ export function StockSummary({
           Rs {pooled.displayValue.toLocaleString()}
         </p>
       </div>
+      {searchSlot && <div className="grain-search-cell">{searchSlot}</div>}
     </div>
   );
 }
