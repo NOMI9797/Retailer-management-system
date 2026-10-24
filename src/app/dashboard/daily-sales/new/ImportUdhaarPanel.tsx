@@ -6,8 +6,16 @@ import { ImportUdhaarForm } from "@/modules/customers/components/ImportUdhaarMod
 
 // Pick an existing customer, then the same ImportUdhaarForm the
 // customer page's "Import data" button uses.
-export function ImportUdhaarPanel({ onSaved, onCancel }: { onSaved: () => void; onCancel: () => void }) {
-  const [customer, setCustomer] = useState<PickedCustomer | null>(null);
+export function ImportUdhaarPanel({
+  onSaved,
+  onCancel,
+  initialCustomer,
+}: {
+  onSaved: () => void;
+  onCancel: () => void;
+  initialCustomer?: PickedCustomer;
+}) {
+  const [customer, setCustomer] = useState<PickedCustomer | null>(initialCustomer ?? null);
 
   return (
     <>

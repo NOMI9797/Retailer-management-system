@@ -32,11 +32,14 @@ type SelectedCustomer = { id: string; name: string; phone?: string };
 export function StockFromCustomerForm({
   areas,
   grainProducts,
+  initialCustomer,
 }: {
   areas: Area[];
   grainProducts: GrainProduct[];
+  // Opens with this customer already picked (New entry's person-first flow).
+  initialCustomer?: { id: string; name: string };
 }) {
-  const [selected, setSelected] = useState<SelectedCustomer | null>(null);
+  const [selected, setSelected] = useState<SelectedCustomer | null>(initialCustomer ?? null);
   const [isResolving, setIsResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

@@ -69,6 +69,25 @@ export function GrainLoanModal(props: GrainLoanModalProps) {
   );
 }
 
+// The same form on the page itself rather than in a pop-up — the New
+// entry screen's Grain loan tile. onSaved runs after a save (ready for
+// the next one); onCancel leaves.
+export function GrainLoanForm(
+  props: Omit<GrainLoanModalProps, "loan" | "trigger"> & {
+    onSaved: () => void;
+    onCancel: () => void;
+  },
+) {
+  return (
+    <GrainLoanDialog
+      {...props}
+      inline
+      onClose={props.onSaved}
+      onCancel={props.onCancel}
+    />
+  );
+}
+
 function GrainLoanDialog({
   loan,
   productId,
@@ -78,7 +97,13 @@ function GrainLoanDialog({
   dealers = [],
   unitName,
   onClose,
-}: GrainLoanModalProps & { onClose: () => void }) {
+  inline = false,
+  onCancel,
+}: GrainLoanModalProps & {
+  onClose: () => void;
+  inline?: boolean;
+  onCancel?: () => void;
+}) {
   const router = useRouter();
   const editing = !!loan;
 
@@ -183,6 +208,201 @@ function GrainLoanDialog({
   const close = onClose;
   const unit = unitName ?? loan?.unitName ?? "";
 
+  const content = (
+    <>
+      {!inline && <h2>{editing ? "Edit grain loan" : "Grain loan"}</h2>}
+
+      <div className="tabs" style={{ marginTop: 12, marginBottom: 16 }}>
+        {(["SHOP_LENT", "SHOP_BORROWED"] as const).map((d) => (
+          <button
+            key={d}
+            type="button"
+            className={`tab${direction === d ? " active" : ""}`}
+            onClick={() => !lockGrainAndDirection && setDirection(d)}
+            disabled={lockGrainAndDirection && direction !== d}
+          >
+            {d === "SHOP_LENT" ? "Shop lends grain" : "Shop borrows grain"}
+          </button>
+        ))}
+      </div>
+
+      <form onSubmit={handleSubmit}>
+        {error && <p className="form-banner error">{error}</p>}
+
+        {fixedParty ? (
+          <div className="field">
+            <label>
+              {direction === "SHOP_LENT" ? "Lent to" : "Borrowed from"}
+            </label>
+            <input type="text" value={fixedParty.name} disabled />
+          </div>
+        ) : (
+          <>
+            <div className="field">
+              <div className="stock-toggle">
+                {(["CUSTOMER", "DEALER"] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className={partyKind === k ? "active" : ""}
+                    onClick={() => setPartyKind(k)}
+                  >
+                    {k === "CUSTOMER" ? "Customer" : "Dealer"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {partyKind === "CUSTOMER" ? (
+              editing && loan.party.kind === "CUSTOMER" && !changeCustomer ? (
+                <div className="field">
+                  <label>
+                    {direction === "SHOP_LENT" ? "Lent to" : "Borrowed from"}
+                  </label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input
+                      type="text"
+                      value={loan.party.name}
+                      disabled
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => setChangeCustomer(true)}
+                    >
+                      Change
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <CustomerPicker areas={areas} onChange={setCustomer} />
+              )
+            ) : (
+              <div className="field">
+                <label>Dealer</label>
+                <select
+                  value={dealerId}
+                  onChange={(e) => setDealerId(e.target.value)}
+                  required
+                >
+                  <option value="">Select a dealer…</option>
+                  {dealers.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </>
+        )}
+
+        {products.length > 0 && (
+          <div className="field">
+            <label>Grain</label>
+            <select
+              value={pickedProductId}
+              onChange={(e) => setPickedProductId(e.target.value)}
+              disabled={lockGrainAndDirection}
+              required
+            >
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div className="field-row">
+          <div className="field">
+            <label>Quantity{unit ? ` (${unit})` : ""}</label>
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              required
+            />
+          </div>
+          <div className="field">
+            <label>Agreed rate{unit ? ` (per ${unit})` : ""}</label>
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={rate}
+              onChange={(e) => setRate(e.target.value)}
+              required
+            />
+          </div>
+        </div>
+
+        <div className="field-row">
+          <div className="field">
+            <label>Date</label>
+            <input
+              type="date"
+              value={loanDate}
+              onChange={(e) => setLoanDate(e.target.value)}
+              required
+            />
+          </div>
+          <div className="field">
+            <label>Reference</label>
+            <input
+              type="text"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              required
+            />
+          </div>
+        </div>
+
+        <div className="field">
+          <label>Notes (optional)</label>
+          <input
+            type="text"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </div>
+
+        {total > 0 && (
+          <div className="settlement-summary">
+            <div>
+              <span>Worth at agreed rate</span>
+              <strong>Rs {total.toLocaleString()}</strong>
+            </div>
+          </div>
+        )}
+
+        <div className="modal-actions">
+          <button type="submit" className="btn btn-primary" disabled={isSaving}>
+            {isSaving
+              ? "Saving…"
+              : editing
+                ? "Save changes"
+                : direction === "SHOP_LENT"
+                  ? "Lend grain"
+                  : "Borrow grain"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={onCancel ?? close}
+            disabled={isSaving}
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </>
+  );
+
+  if (inline) return content;
   return (
     <div className="modal-backdrop" onClick={close}>
       <div
@@ -190,199 +410,7 @@ function GrainLoanDialog({
         onClick={(e) => e.stopPropagation()}
         style={{ width: 640 }}
       >
-        <h2>{editing ? "Edit grain loan" : "Grain loan"}</h2>
-
-        <div className="tabs" style={{ marginTop: 12, marginBottom: 16 }}>
-          {(["SHOP_LENT", "SHOP_BORROWED"] as const).map((d) => (
-            <button
-              key={d}
-              type="button"
-              className={`tab${direction === d ? " active" : ""}`}
-              onClick={() => !lockGrainAndDirection && setDirection(d)}
-              disabled={lockGrainAndDirection && direction !== d}
-            >
-              {d === "SHOP_LENT" ? "Shop lends grain" : "Shop borrows grain"}
-            </button>
-          ))}
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          {error && <p className="form-banner error">{error}</p>}
-
-          {fixedParty ? (
-            <div className="field">
-              <label>
-                {direction === "SHOP_LENT" ? "Lent to" : "Borrowed from"}
-              </label>
-              <input type="text" value={fixedParty.name} disabled />
-            </div>
-          ) : (
-            <>
-              <div className="field">
-                <div className="stock-toggle">
-                  {(["CUSTOMER", "DEALER"] as const).map((k) => (
-                    <button
-                      key={k}
-                      type="button"
-                      className={partyKind === k ? "active" : ""}
-                      onClick={() => setPartyKind(k)}
-                    >
-                      {k === "CUSTOMER" ? "Customer" : "Dealer"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {partyKind === "CUSTOMER" ? (
-                editing && loan.party.kind === "CUSTOMER" && !changeCustomer ? (
-                  <div className="field">
-                    <label>
-                      {direction === "SHOP_LENT" ? "Lent to" : "Borrowed from"}
-                    </label>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input
-                        type="text"
-                        value={loan.party.name}
-                        disabled
-                        style={{ flex: 1 }}
-                      />
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        onClick={() => setChangeCustomer(true)}
-                      >
-                        Change
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <CustomerPicker areas={areas} onChange={setCustomer} />
-                )
-              ) : (
-                <div className="field">
-                  <label>Dealer</label>
-                  <select
-                    value={dealerId}
-                    onChange={(e) => setDealerId(e.target.value)}
-                    required
-                  >
-                    <option value="">Select a dealer…</option>
-                    {dealers.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </>
-          )}
-
-          {products.length > 0 && (
-            <div className="field">
-              <label>Grain</label>
-              <select
-                value={pickedProductId}
-                onChange={(e) => setPickedProductId(e.target.value)}
-                disabled={lockGrainAndDirection}
-                required
-              >
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div className="field-row">
-            <div className="field">
-              <label>Quantity{unit ? ` (${unit})` : ""}</label>
-              <input
-                type="number"
-                min="0"
-                step="any"
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                required
-              />
-            </div>
-            <div className="field">
-              <label>Agreed rate{unit ? ` (per ${unit})` : ""}</label>
-              <input
-                type="number"
-                min="0"
-                step="any"
-                value={rate}
-                onChange={(e) => setRate(e.target.value)}
-                required
-              />
-            </div>
-          </div>
-
-          <div className="field-row">
-            <div className="field">
-              <label>Date</label>
-              <input
-                type="date"
-                value={loanDate}
-                onChange={(e) => setLoanDate(e.target.value)}
-                required
-              />
-            </div>
-            <div className="field">
-              <label>Reference</label>
-              <input
-                type="text"
-                value={reference}
-                onChange={(e) => setReference(e.target.value)}
-                required
-              />
-            </div>
-          </div>
-
-          <div className="field">
-            <label>Notes (optional)</label>
-            <input
-              type="text"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-          </div>
-
-          {total > 0 && (
-            <div className="settlement-summary">
-              <div>
-                <span>Worth at agreed rate</span>
-                <strong>Rs {total.toLocaleString()}</strong>
-              </div>
-            </div>
-          )}
-
-          <div className="modal-actions">
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={isSaving}
-            >
-              {isSaving
-                ? "Saving…"
-                : editing
-                  ? "Save changes"
-                  : direction === "SHOP_LENT"
-                    ? "Lend grain"
-                    : "Borrow grain"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={close}
-              disabled={isSaving}
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
+        {content}
       </div>
     </div>
   );

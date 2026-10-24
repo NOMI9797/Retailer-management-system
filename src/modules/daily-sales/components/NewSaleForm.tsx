@@ -29,13 +29,19 @@ export function NewSaleForm({
   dealers = [],
   bankAccounts = [],
   onSaved,
+  initialCustomer,
+  initialDealerId,
 }: {
   areas: Awaited<ReturnType<typeof listAreas>>;
   products: Product[];
   dealers?: Awaited<ReturnType<typeof listDealers>>;
   bankAccounts?: { id: string; name: string }[];
   onSaved?: () => void;
+  // Opens with this buyer already picked (New entry's person-first flow).
+  initialCustomer?: { id: string; name: string };
+  initialDealerId?: string;
 }) {
+  const initialDealer = dealers.find((d) => d.id === initialDealerId);
   const router = useRouter();
   const [saleDate, setSaleDate] = useState(todayDateString());
   // Who the sale is TO — a customer (the existing, default flow) or a
@@ -44,9 +50,11 @@ export function NewSaleForm({
   // split, Credit posting — stays identical either way; only which
   // ledger the Credit amount posts against differs server-side (see
   // applyPaymentSplit).
-  const [buyerKind, setBuyerKind] = useState<BuyerKind>("CUSTOMER");
-  const [customer, setCustomer] = useState<CustomerSelection | null>(null);
-  const [dealerId, setDealerId] = useState("");
+  const [buyerKind, setBuyerKind] = useState<BuyerKind>(initialDealer ? "DEALER" : "CUSTOMER");
+  const [customer, setCustomer] = useState<CustomerSelection | null>(
+    initialCustomer ? { mode: "existing", customerId: initialCustomer.id, name: initialCustomer.name } : null
+  );
+  const [dealerId, setDealerId] = useState(initialDealer?.id ?? "");
   // A sale is either all-Product or all-Grain, never mixed — per the
   // "shopkeeper adds one entry, either a product or a grain" decision.
   // Kept as two separate item lists rather than one shared shape,
@@ -54,7 +62,7 @@ export function NewSaleForm({
   // that only ever make sense for grain; switching kind clears
   // whichever list isn't active, so a stray half-filled row from the
   // other mode never gets silently submitted.
-  const [saleKind, setSaleKind] = useState<SaleKind>("PRODUCT");
+  const [saleKind, setSaleKind] = useState<SaleKind>(initialDealer?.type === "GRAIN" ? "GRAIN" : "PRODUCT");
   const [productItems, setProductItems] = useState<LineItemDraft[]>([
     { productId: "", quantity: "", actualPrice: "" },
   ]);
@@ -237,6 +245,7 @@ export function NewSaleForm({
       {buyerKind === "CUSTOMER" ? (
         <CustomerPicker
           areas={areas}
+          initial={initialCustomer}
           onChange={(next) => {
             // Changing the customer mid-flow invalidates any resolved id
             // from a prior attempt.

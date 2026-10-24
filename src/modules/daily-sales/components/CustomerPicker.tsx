@@ -24,12 +24,17 @@ export type CustomerSelection =
 export function CustomerPicker({
   areas,
   onChange,
+  initial,
 }: {
   areas: Area[];
   onChange: (selection: CustomerSelection | null) => void;
+  // Opens with this customer already picked (the New entry screen's
+  // "pick the person first" flow). Display only — the parent starts its
+  // own selection state from the same customer.
+  initial?: { id: string; name: string };
 }) {
-  const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<ExistingCustomer | null>(null);
+  const [query, setQuery] = useState(initial?.name ?? "");
+  const [selected, setSelected] = useState<{ id: string; name: string } | null>(initial ?? null);
   const [showNewFields, setShowNewFields] = useState(false);
   const [phone, setPhone] = useState("");
   const [areaId, setAreaId] = useState("");

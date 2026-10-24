@@ -28,13 +28,18 @@ export function ShopBorrowedLoanForm({
   bankAccounts = [],
   onSaved,
   onCancel,
+  initialCustomer,
 }: {
   areas: Area[];
   bankAccounts?: { id: string; name: string }[];
   onSaved?: () => void;
   onCancel?: () => void;
+  // Opens with this customer already picked (New entry's person-first flow).
+  initialCustomer?: { id: string; name: string };
 }) {
-  const [selection, setSelection] = useState<CustomerSelection | null>(null);
+  const [selection, setSelection] = useState<CustomerSelection | null>(
+    initialCustomer ? { mode: "existing", customerId: initialCustomer.id, name: initialCustomer.name } : null
+  );
   const [amount, setAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT">("CASH");
   const [bankAccountId, setBankAccountId] = useState("");
@@ -104,7 +109,7 @@ export function ShopBorrowedLoanForm({
     <form onSubmit={handleSubmit}>
       {error && <p className="form-banner error">{error}</p>}
 
-      <CustomerPicker areas={areas} onChange={setSelection} />
+      <CustomerPicker areas={areas} onChange={setSelection} initial={initialCustomer} />
 
       <div className="field-row">
         <div className="field">

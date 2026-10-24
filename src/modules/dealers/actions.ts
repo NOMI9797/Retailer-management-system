@@ -952,6 +952,25 @@ export async function getDealerUdhaarTotals(type?: "PRODUCTS" | "GRAIN") {
   };
 }
 
+// Every active dealer with both Udhaar sides kept apart — what the shop
+// owes them (purchases) and what they owe the shop (sales) — for the
+// New entry screen's Pay a dealer / Receive from dealer pickers and
+// its dealer card.
+export async function listDealerUdhaarSides() {
+  const shopId = await getCurrentShopId();
+  const dealers = await db.dealer.findMany({
+    where: { shopId, isActive: true, isDeleted: false },
+    include: { account: { include: { transactions: true } } },
+    orderBy: { name: "asc" },
+  });
+  return dealers.map((d) => ({
+    id: d.id,
+    name: d.name,
+    type: d.type,
+    ...dealerUdhaarSides(d.account?.transactions ?? []),
+  }));
+}
+
 // Brings a dealer's old balance over from the paper register — either
 // the shop owing the dealer (a purchase-side OUT, like recordDealerDebt)
 // or the dealer owing the shop (a sale-side isDealerSale IN, like an

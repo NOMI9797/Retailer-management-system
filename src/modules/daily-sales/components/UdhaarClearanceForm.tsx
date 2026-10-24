@@ -26,15 +26,18 @@ export function UdhaarClearanceForm({
   accountTypes,
   bankAccounts = [],
   initialTab = "customer",
+  initialCustomer,
 }: {
   areas: Area[];
   accountTypes: AccountType[];
   bankAccounts?: { id: string; name: string }[];
   // The New entry screen opens straight on "shop" from its Debit side.
   initialTab?: "customer" | "shop";
+  // Opens with this customer already picked (New entry's person-first flow).
+  initialCustomer?: { id: string; name: string };
 }) {
   const [mainTab, setMainTab] = useState<"customer" | "shop">(initialTab);
-  const [shopType, setShopType] = useState<"customer" | "expenses" | null>(null);
+  const [shopType, setShopType] = useState<"customer" | "expenses" | null>(initialCustomer ? "customer" : null);
 
   return (
     <div>
@@ -59,7 +62,12 @@ export function UdhaarClearanceForm({
       </div>
 
       {mainTab === "customer" ? (
-        <CustomerUdhaarPanel areas={areas} accountTypes={accountTypes} bankAccounts={bankAccounts} />
+        <CustomerUdhaarPanel
+          areas={areas}
+          accountTypes={accountTypes}
+          bankAccounts={bankAccounts}
+          initialCustomer={initialCustomer}
+        />
       ) : shopType === null ? (
         <div style={{ display: "flex", gap: 12 }}>
           <button type="button" className="btn btn-primary" onClick={() => setShopType("customer")}>
@@ -77,6 +85,7 @@ export function UdhaarClearanceForm({
           accountTypes={accountTypes}
           onBack={() => setShopType(null)}
           bankAccounts={bankAccounts}
+          initialCustomer={initialCustomer}
         />
       )}
     </div>
@@ -179,7 +188,13 @@ function CustomerSearch({
   );
 }
 
-function CustomerHeader({ customer, onBack }: { customer: ExistingCustomer; onBack: () => void }) {
+function CustomerHeader({
+  customer,
+  onBack,
+}: {
+  customer: { name: string; phone?: string | null };
+  onBack: () => void;
+}) {
   return (
     <>
       <button type="button" className="btn btn-ghost" onClick={onBack} style={{ marginBottom: 16 }}>
@@ -206,12 +221,16 @@ function CustomerUdhaarPanel({
   areas,
   accountTypes,
   bankAccounts,
+  initialCustomer,
 }: {
   areas: Area[];
   accountTypes: AccountType[];
   bankAccounts: { id: string; name: string }[];
+  initialCustomer?: { id: string; name: string };
 }) {
-  const [selected, setSelected] = useState<ExistingCustomer | null>(null);
+  const [selected, setSelected] = useState<{ id: string; name: string; phone?: string | null } | null>(
+    initialCustomer ?? null
+  );
 
   if (!selected) {
     return <CustomerSearch areas={areas} accountTypes={accountTypes} onSelect={setSelected} />;
@@ -232,13 +251,17 @@ function ShopUdhaarPanel({
   accountTypes,
   onBack,
   bankAccounts,
+  initialCustomer,
 }: {
   areas: Area[];
   accountTypes: AccountType[];
   onBack: () => void;
   bankAccounts: { id: string; name: string }[];
+  initialCustomer?: { id: string; name: string };
 }) {
-  const [selected, setSelected] = useState<ExistingCustomer | null>(null);
+  const [selected, setSelected] = useState<{ id: string; name: string; phone?: string | null } | null>(
+    initialCustomer ?? null
+  );
 
   if (!selected) {
     return (

@@ -262,7 +262,7 @@ function DealerImportForm({
 }
 
 // The dealer paying the shop back — the mirror of PayDealerDebtForm.
-function ReceiveDealerPaymentForm({
+export function ReceiveDealerPaymentForm({
   dealerId,
   amountOwed,
   bankAccounts,

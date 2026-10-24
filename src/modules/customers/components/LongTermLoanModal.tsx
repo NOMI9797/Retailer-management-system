@@ -19,12 +19,15 @@ export function LongTermLoanForm({
   bankAccounts,
   onSaved,
   onCancel,
+  initialCustomer,
 }: {
   bankAccounts: { id: string; name: string }[];
   onSaved?: () => void;
   onCancel?: () => void;
+  // Opens with this customer already picked (New entry's person-first flow).
+  initialCustomer?: { id: string; name: string };
 }) {
-  const [selectedCustomer, setSelectedCustomer] = useState<PickedCustomer | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<PickedCustomer | null>(initialCustomer ?? null);
   const [amount, setAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT" | "CREDIT">("CASH");
   const [bankAccountId, setBankAccountId] = useState("");
