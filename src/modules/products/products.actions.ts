@@ -41,7 +41,9 @@ export async function createProduct(
       stockKind: "SIMPLE",
       costPrice: data.costPrice,
       sellPrice: data.sellPrice,
-      quantity: data.quantity,
+      quantity: data.quantity ?? 0,
+      // No quantity given → don't track stock (sold count shown instead).
+      tracksStock: data.quantity !== undefined,
     },
   });
   return ok(serializeDecimals(product));
@@ -68,7 +70,11 @@ export async function updateProduct(
     }
   }
 
-  const product = await db.product.update({ where: { id }, data });
+  // Giving a quantity starts tracking stock for an untracked product.
+  const product = await db.product.update({
+    where: { id },
+    data: { ...data, ...(data.quantity !== undefined ? { tracksStock: true } : {}) },
+  });
   return ok(serializeDecimals(product));
 }
 
@@ -199,4 +205,18 @@ export async function createGrainProduct(
     },
   });
   return ok(serializeDecimals(product));
+}
+
+// Total quantity ever sold of each given product (across every sale),
+// for the Products table's "sold" badge — the figure an untracked
+// product (no stock count) shows in place of a quantity.
+export async function getSoldQuantities(productIds: string[]): Promise<Record<string, number>> {
+  const shopId = await getCurrentShopId();
+  if (productIds.length === 0) return {};
+  const rows = await db.dailySaleItem.groupBy({
+    by: ["productId"],
+    where: { productId: { in: productIds }, product: { shopId } },
+    _sum: { quantity: true },
+  });
+  return Object.fromEntries(rows.map((r) => [r.productId, Number(r._sum.quantity ?? 0)]));
 }

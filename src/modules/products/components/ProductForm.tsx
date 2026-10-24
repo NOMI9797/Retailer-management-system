@@ -74,7 +74,8 @@ export function ProductForm({
               name,
               costPrice: Number(costPrice),
               sellPrice: Number(sellPrice),
-              quantity: quantity ? Number(quantity) : 0,
+              // Left blank → stock isn't tracked (see Product.tracksStock).
+              quantity: quantity.trim() ? Number(quantity) : undefined,
             })
           : await createGrainProduct({
               categoryId,
@@ -159,12 +160,12 @@ export function ProductForm({
               </select>
             </div>
             <div className="field">
-              <label>Quantity</label>
+              <label>Quantity (optional)</label>
               <input
                 type="number"
                 min="0"
                 step="any"
-                placeholder="0"
+                placeholder="Leave blank to not track stock"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
               />

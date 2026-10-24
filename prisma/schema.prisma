@@ -571,6 +571,11 @@ model Product {
   sellPrice           Decimal?  @db.Decimal(12, 2)
   baseRate            Decimal?  @db.Decimal(12, 2)
   quantity            Decimal   @default(0) @db.Decimal(14, 3)
+  // false = added without a quantity: stock isn't tracked, sales never
+  // touch quantity and it's always sellable (the Products page shows
+  // how many have been sold instead). Turns true once stock is given
+  // (an edit with a quantity, or a dealer purchase).
+  tracksStock         Boolean   @default(true)
   // GRAIN only — a second, deliberately simpler money tracker
   // alongside the per-batch rate/FIFO system above (GrainBatch.rate,
   // quantitySold, etc. — untouched by this, still the source of truth
@@ -790,6 +795,11 @@ model DailySaleItem {
   productId       String
   product         Product   @relation(fields: [productId], references: [id])
   quantity        Decimal   @db.Decimal(14, 3)
+  // How much of this line actually came out of the product's stock
+  // (SIMPLE only) — less than quantity when the sale went past what was
+  // in stock, 0 for an untracked product. Editing/deleting the sale puts
+  // back exactly this. Null on rows from before it existed (= quantity).
+  stockDeducted   Decimal?  @db.Decimal(14, 3)
   actualPrice     Decimal   @db.Decimal(12, 2)
   // Snapshot of Product.costPrice at the moment this sale happened —
   // only ever set for SIMPLE stock items (null for GRAIN). Without

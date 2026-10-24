@@ -1,4 +1,4 @@
-import { listProducts, type listCategories, type listUnits } from "@/modules/products/actions";
+import { listProducts, getSoldQuantities, type listCategories, type listUnits } from "@/modules/products/actions";
 import { formatMoney } from "@/lib/utils";
 import { Pagination } from "@/modules/products/components/Pagination";
 import { EditProductButton } from "@/modules/products/components/EditProductButton";
@@ -34,6 +34,7 @@ export async function SimpleStockTable({
     page,
     includeInactive: true,
   });
+  const sold = await getSoldQuantities(result.products.map((p) => p.id));
 
   return (
     <>
@@ -68,8 +69,32 @@ export async function SimpleStockTable({
                     <td>{product.unit.name}</td>
                     <td>{formatMoney(Number(product.costPrice))}</td>
                     <td>{formatMoney(Number(product.sellPrice))}</td>
-                    <td className={quantity <= LOW_STOCK_THRESHOLD ? "qty-low" : undefined}>
-                      {quantity}
+                    {/* Tracked: the stock in hand (low-stock colour only
+                        when there's a little left, never for 0). Untracked
+                        (added without a quantity): how many were sold. Both
+                        carry a small "sold" badge once anything has sold. */}
+                    <td
+                      className={
+                        product.tracksStock && quantity > 0 && quantity <= LOW_STOCK_THRESHOLD ? "qty-low" : undefined
+                      }
+                    >
+                      {product.tracksStock ? (
+                        <>
+                          {quantity}
+                          {(sold[product.id] ?? 0) > 0 && (
+                            <span className="pay-badge pay-mixed" style={{ marginLeft: 8 }}>
+                              {sold[product.id]} sold
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {sold[product.id] ?? 0}
+                          <span className="pay-badge pay-account" style={{ marginLeft: 8 }}>
+                            sold
+                          </span>
+                        </>
+                      )}
                     </td>
                     <td>
                       <span className={`status-badge${product.isActive ? "" : " inactive"}`}>

@@ -368,7 +368,9 @@ export async function createDealerProductPurchase(input: DealerProductPurchaseIn
 
     await tx.product.update({
       where: { id: product.id },
-      data: { quantity: { increment: data.quantity }, costPrice: data.costPrice },
+      // A purchase gives the product real stock, so an untracked one
+      // starts tracking from here.
+      data: { quantity: { increment: data.quantity }, costPrice: data.costPrice, tracksStock: true },
     });
 
     if (data.paymentMethod === "CREDIT") {
@@ -440,9 +442,11 @@ export async function deleteDealerProductPurchase(id: string): Promise<Result<nu
   const amount = Number(purchase.quantity) * Number(purchase.costPrice);
 
   await db.$transaction(async (tx) => {
+    // Never below 0 — part of this purchase may already have been sold.
+    const current = await tx.product.findUniqueOrThrow({ where: { id: purchase.productId } });
     await tx.product.update({
       where: { id: purchase.productId },
-      data: { quantity: { decrement: Number(purchase.quantity) } },
+      data: { quantity: { decrement: Math.min(Number(purchase.quantity), Math.max(Number(current.quantity), 0)) } },
     });
 
     if (purchase.paymentMethod === "ACCOUNT" && purchase.bankAccountId) {

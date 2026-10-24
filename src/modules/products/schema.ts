@@ -43,7 +43,9 @@ export const productSchema = z.object({
   name: z.string().min(1, "Name is required"),
   costPrice: z.number().positive("Cost price must be positive"),
   sellPrice: z.number().positive("Sell price must be positive"),
-  quantity: z.number().nonnegative("Quantity can't be negative").default(0),
+  // Optional — left out, the product's stock isn't tracked (see
+  // Product.tracksStock).
+  quantity: z.number().nonnegative("Quantity can't be negative").optional(),
 });
 export type ProductInput = z.infer<typeof productSchema>;
 

@@ -45,11 +45,24 @@ async function applySaleItems(
     const product = await tx.product.findFirst({ where: { id: item.productId, shopId } });
     if (!product) return { success: false, error: "Product not found" };
 
+    // SIMPLE stock: a sale is never blocked by stock. It takes what's
+    // in hand (stock stops at 0 — anything beyond just counts as sold),
+    // and an untracked product (added without a quantity) takes
+    // nothing. stockDeducted records exactly what was taken, so an
+    // edit/delete puts back exactly that.
+    const stockDeducted =
+      product.stockKind === "SIMPLE"
+        ? product.tracksStock
+          ? Math.min(Math.max(Number(product.quantity), 0), item.quantity)
+          : 0
+        : null;
+
     const saleItem = await tx.dailySaleItem.create({
       data: {
         dailySaleId: saleId,
         productId: item.productId,
         quantity: item.quantity,
+        stockDeducted,
         actualPrice: item.actualPrice,
         // Snapshot cost at sale time — only meaningful for SIMPLE
         // stock (grain COGS is derived later from batch rate ×
@@ -73,13 +86,12 @@ async function applySaleItems(
     }
 
     if (product.stockKind === "SIMPLE") {
-      if (Number(product.quantity) < item.quantity) {
-        return { success: false, error: `Not enough stock for ${product.name} (have ${product.quantity}, need ${item.quantity})` };
+      if (stockDeducted) {
+        await tx.product.update({
+          where: { id: product.id },
+          data: { quantity: { decrement: stockDeducted } },
+        });
       }
-      await tx.product.update({
-        where: { id: product.id },
-        data: { quantity: { decrement: item.quantity } },
-      });
     } else {
       // Grain: deplete oldest-first across as many batches as
       // needed. Manual batch selection is out of scope this
@@ -373,10 +385,14 @@ async function reverseSaleContents(
     if (!product) continue; // product may have been deleted since; nothing to restore it to
 
     if (product.stockKind === "SIMPLE") {
-      await tx.product.update({
-        where: { id: product.id },
-        data: { quantity: { increment: item.quantity } },
-      });
+      // Put back only what this line actually took (see applySaleItems).
+      const restore = item.stockDeducted !== null ? Number(item.stockDeducted) : Number(item.quantity);
+      if (restore > 0) {
+        await tx.product.update({
+          where: { id: product.id },
+          data: { quantity: { increment: restore } },
+        });
+      }
     } else {
       for (const allocation of item.batchAllocations) {
         await tx.grainBatch.update({
@@ -573,10 +589,14 @@ async function reverseVisitContents(
     if (!product) continue; // product may have been deleted since; nothing to restore it to
 
     if (product.stockKind === "SIMPLE") {
-      await tx.product.update({
-        where: { id: product.id },
-        data: { quantity: { increment: item.quantity } },
-      });
+      // Put back only what this line actually took (see applySaleItems).
+      const restore = item.stockDeducted !== null ? Number(item.stockDeducted) : Number(item.quantity);
+      if (restore > 0) {
+        await tx.product.update({
+          where: { id: product.id },
+          data: { quantity: { increment: restore } },
+        });
+      }
     } else {
       for (const allocation of item.batchAllocations) {
         await tx.grainBatch.update({

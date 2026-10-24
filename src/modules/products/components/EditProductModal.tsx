@@ -35,7 +35,9 @@ export function EditProductModal({
   const [name, setName] = useState(product.name);
   const [costPrice, setCostPrice] = useState(String(product.costPrice ?? ""));
   const [sellPrice, setSellPrice] = useState(String(product.sellPrice ?? ""));
-  const [quantity, setQuantity] = useState(String(product.quantity));
+  // An untracked product opens with an empty Quantity; typing one in
+  // starts tracking its stock (see updateProduct).
+  const [quantity, setQuantity] = useState(product.tracksStock ? String(product.quantity) : "");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -59,7 +61,7 @@ export function EditProductModal({
         name,
         costPrice: Number(costPrice),
         sellPrice: Number(sellPrice),
-        quantity: Number(quantity),
+        quantity: quantity.trim() ? Number(quantity) : undefined,
       });
       if (!result.success) {
         setError(result.error);
@@ -111,14 +113,15 @@ export function EditProductModal({
               </select>
             </div>
             <div className="field">
-              <label>Quantity</label>
+              <label>Quantity{product.tracksStock ? "" : " (optional)"}</label>
               <input
                 type="number"
                 min="0"
                 step="any"
                 value={quantity}
+                placeholder={product.tracksStock ? undefined : "Not tracked — leave blank"}
                 onChange={(e) => setQuantity(e.target.value)}
-                required
+                required={product.tracksStock}
               />
             </div>
           </div>

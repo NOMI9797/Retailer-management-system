@@ -22,6 +22,7 @@ export {
   listProducts,
   createGrainProduct,
   getProductStats,
+  getSoldQuantities,
 } from "./products.actions";
 
 export {
