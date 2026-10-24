@@ -133,8 +133,8 @@ async function BankAccountsSection() {
 }
 
 async function DealersSection() {
-  const dealers = await listDealers({ includeInactive: true });
-  return <DealerListManager dealers={dealers} />;
+  const [dealers, areas] = await Promise.all([listDealers({ includeInactive: true }), listAreas()]);
+  return <DealerListManager dealers={dealers} areas={areas} />;
 }
 
 // Every grain product (Cotton, Wheat, ...) with its own Edit /

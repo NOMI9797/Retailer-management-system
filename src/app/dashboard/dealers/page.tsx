@@ -17,39 +17,65 @@ export default async function DealersPage({
   searchParams: Promise<DealersSearchParams>;
 }) {
   const params = await searchParams;
-  const tab = params.tab === "grain" ? "grain" : params.tab === "accounts" ? "accounts" : "products";
+  const tab =
+    params.tab === "grain"
+      ? "grain"
+      : params.tab === "accounts"
+        ? "accounts"
+        : "products";
 
   return (
     <div>
       <div className="page-head">
         <div>
           <h1>Dealer</h1>
-          <p>Bulk purchases from dealers — what you&apos;ve paid, and what&apos;s still owed.</p>
+          <p>
+            Bulk purchases from dealers — what you&apos;ve paid, and what&apos;s
+            still owed.
+          </p>
         </div>
       </div>
 
       <div className="tabs">
-        <Link className={`tab${tab === "products" ? " active" : ""}`} href={buildDealersHref({ tab: "products" })}>
+        <Link
+          className={`tab${tab === "products" ? " active" : ""}`}
+          href={buildDealersHref({ tab: "products" })}
+        >
           Products
         </Link>
-        <Link className={`tab${tab === "grain" ? " active" : ""}`} href={buildDealersHref({ tab: "grain" })}>
+        <Link
+          className={`tab${tab === "grain" ? " active" : ""}`}
+          href={buildDealersHref({ tab: "grain" })}
+        >
           Grain
         </Link>
-        <Link className={`tab${tab === "accounts" ? " active" : ""}`} href={buildDealersHref({ tab: "accounts" })}>
+        <Link
+          className={`tab${tab === "accounts" ? " active" : ""}`}
+          href={buildDealersHref({ tab: "accounts" })}
+        >
           Accounts
         </Link>
       </div>
 
       {tab === "products" ? (
-        <Suspense key="products" fallback={<PageLoader label="Loading dealer purchases…" />}>
+        <Suspense
+          key="products"
+          fallback={<PageLoader label="Loading dealer purchases…" />}
+        >
           <DealerProductsSection />
         </Suspense>
       ) : tab === "grain" ? (
-        <Suspense key="grain" fallback={<PageLoader label="Loading dealer grain…" />}>
+        <Suspense
+          key="grain"
+          fallback={<PageLoader label="Loading dealer grain…" />}
+        >
           <DealerGrainSection />
         </Suspense>
       ) : (
-        <Suspense key="accounts" fallback={<PageLoader label="Loading dealer accounts…" />}>
+        <Suspense
+          key="accounts"
+          fallback={<PageLoader label="Loading dealer accounts…" />}
+        >
           <DealerAccountsSection />
         </Suspense>
       )}

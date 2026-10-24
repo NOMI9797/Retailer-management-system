@@ -20,6 +20,10 @@ import {
   type DealerGrainPurchaseInput,
   type RecordDealerDebtInput,
   type PayDealerDebtInput,
+  importDealerUdhaarSchema,
+  receiveDealerPaymentSchema,
+  type ImportDealerUdhaarInput,
+  type ReceiveDealerPaymentInput,
 } from "./schema";
 
 type Result<T> = { success: true; data: T } | { success: false; error: string };
@@ -35,6 +39,9 @@ const DEFAULT_PAGE_SIZE = 50;
 export async function createDealer(input: DealerInput) {
   const shopId = await getCurrentShopId();
   const data = dealerSchema.parse(input);
+  if (data.areaId && !(await db.area.findFirst({ where: { id: data.areaId, shopId } }))) {
+    throw new Error("Area not found");
+  }
 
   const dealer = await db.dealer.create({
     data: {
@@ -42,6 +49,7 @@ export async function createDealer(input: DealerInput) {
       name: data.name,
       phone: data.phone,
       type: data.type,
+      areaId: data.areaId ?? null,
       account: { create: {} },
     },
   });
@@ -64,6 +72,7 @@ export const listDealers = cache(async (options?: { type?: "PRODUCTS" | "GRAIN";
       // isDeleted is never shown regardless of includeInactive — see
       // deleteDealer's comment.
       where: { shopId, type, isActive: includeInactive ? undefined : true, isDeleted: false },
+      include: { area: { select: { id: true, name: true } } },
       orderBy: { name: "asc" },
     })
   );
@@ -102,6 +111,9 @@ export async function updateDealer(input: UpdateDealerInput) {
 
   const existing = await db.dealer.findFirst({ where: { id, shopId } });
   if (!existing) return { success: false, error: "Dealer not found" };
+  if (data.areaId && !(await db.area.findFirst({ where: { id: data.areaId, shopId } }))) {
+    return { success: false, error: "Area not found" };
+  }
 
   const dealer = await db.dealer.update({ where: { id }, data });
   invalidateShopCache(ENTITY, shopId);
@@ -155,11 +167,93 @@ export async function getDealer(id: string) {
     where: { id, shopId },
     include: {
       account: { include: { transactions: { orderBy: { transactionDate: "desc" } } } },
-      purchases: { include: { product: true }, orderBy: { purchaseDate: "desc" } },
+      purchases: { include: { product: { include: { unit: true } } }, orderBy: { purchaseDate: "desc" } },
       batches: { include: { product: { include: { unit: true } } }, orderBy: { receivedAt: "desc" } },
+      dailySales: { include: { items: { include: { product: { include: { unit: true } } } }, payments: true } },
     },
   });
   if (!dealer) return { success: false, error: "Dealer not found" };
+
+  // Everything bought and sold with this dealer in one list (the detail
+  // page's Purchases & sales tab): the shop buying from them (product
+  // purchases or grain batches — "SHOP") and the shop selling to them
+  // (sale items — "DEALER"). payments carries the full split, so a sale
+  // paid part in cash and part on Udhaar shows both.
+  type TradePayment = { method: "CASH" | "ACCOUNT" | "CREDIT"; amount: number };
+  const accountTxns = dealer.account?.transactions ?? [];
+  const trades: {
+    id: string;
+    date: Date;
+    by: "SHOP" | "DEALER";
+    productName: string;
+    unitName: string;
+    quantity: number;
+    rate: number;
+    amount: number;
+    payments: TradePayment[];
+  }[] = [
+    ...dealer.purchases.map((p) => {
+      const amount = Number(p.quantity) * Number(p.costPrice);
+      return {
+        id: p.id,
+        date: p.purchaseDate,
+        by: "SHOP" as const,
+        productName: p.product.name,
+        unitName: p.product.unit.name,
+        quantity: Number(p.quantity),
+        rate: Number(p.costPrice),
+        amount,
+        payments: [{ method: p.paymentMethod, amount }],
+      };
+    }),
+    ...dealer.batches.map((b) => {
+      const quantity = Number(b.quantityIn);
+      const rate = b.rate !== null ? Number(b.rate) : 0;
+      const amount = quantity * rate;
+      // createDealerGrainPurchase posts its payment row in the same
+      // transaction as the batch — matched by amount and time.
+      const paymentRow = accountTxns.find(
+        (t) =>
+          t.direction === "OUT" &&
+          !t.isDealerSale &&
+          Math.abs(Number(t.amount) - amount) < 0.01 &&
+          Math.abs(t.transactionDate.getTime() - b.receivedAt.getTime()) < 60_000
+      );
+      return {
+        id: b.id,
+        date: b.receivedAt,
+        by: "SHOP" as const,
+        productName: b.product.name,
+        unitName: b.product.unit.name,
+        quantity,
+        rate,
+        amount,
+        payments: paymentRow ? [{ method: paymentRow.paymentMethod, amount }] : [],
+      };
+    }),
+    // One row per sale visit (a sale's payment split is per visit, not
+    // per item), listing every product in it.
+    ...dealer.dailySales.flatMap((sale) => {
+      const visitTimes = [...new Set(sale.items.map((i) => i.visitAt.getTime()))];
+      return visitTimes.map((time) => {
+        const items = sale.items.filter((i) => i.visitAt.getTime() === time);
+        const amount = items.reduce((sum, i) => sum + Number(i.quantity) * Number(i.actualPrice), 0);
+        return {
+          id: `${sale.id}:${time}`,
+          date: new Date(time),
+          by: "DEALER" as const,
+          productName: items.map((i) => i.product.name).join(", "),
+          unitName: items.length === 1 ? items[0].product.unit.name : "",
+          quantity: items.reduce((sum, i) => sum + Number(i.quantity), 0),
+          rate: items.length === 1 ? Number(items[0].actualPrice) : 0,
+          amount,
+          payments: sale.payments
+            .filter((p) => p.visitAt.getTime() === time)
+            .map((p) => ({ method: p.paymentMethod, amount: Number(p.amount) })),
+        };
+      });
+    }),
+  ].sort((a, b) => b.date.getTime() - a.date.getTime());
 
   // Only one of purchases (PRODUCTS dealer) / batches (GRAIN dealer)
   // is ever non-empty for a given dealer, per Dealer.type's "one or
@@ -179,6 +273,8 @@ export async function getDealer(id: string) {
   // Credit purchase against every later repayment.
   const currentBalance = dealer.account ? Number(dealer.account.currentBalance) : 0;
   const totalPaid = totalPurchased - Math.max(currentBalance, 0);
+  // Udhaar both ways, kept apart (see dealerUdhaarSides).
+  const { shopOwes, dealerOwes } = dealerUdhaarSides(dealer.account?.transactions ?? []);
 
   return {
     success: true,
@@ -191,6 +287,9 @@ export async function getDealer(id: string) {
       currentBalance,
       totalPurchased,
       totalPaid,
+      shopOwes,
+      dealerOwes,
+      trades,
       purchases: dealer.purchases.map((p) => ({
         id: p.id,
         productId: p.productId,
@@ -226,6 +325,7 @@ export async function getDealer(id: string) {
           paymentMethod: t.paymentMethod,
           transactionDate: t.transactionDate,
           isDealerSale: t.isDealerSale,
+          reference: t.reference,
           notes: t.notes,
         })),
     },
@@ -395,7 +495,7 @@ export async function listDealerProductPurchases(options?: {
   const [purchases, totalCount] = await Promise.all([
     db.dealerProductPurchase.findMany({
       where,
-      include: { dealer: true, product: true },
+      include: { dealer: true, product: { include: { unit: true } } },
       orderBy: { purchaseDate: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -410,6 +510,7 @@ export async function listDealerProductPurchases(options?: {
       dealerName: p.dealer.name,
       productId: p.productId,
       productName: p.product.name,
+      unitName: p.product.unit.name,
       quantity: Number(p.quantity),
       costPrice: Number(p.costPrice),
       amount: Number(p.quantity) * Number(p.costPrice),
@@ -541,7 +642,7 @@ export async function listDealerGrainBatches(options?: { dealerId?: string; prod
       productId: options?.productId || undefined,
       dealer: { shopId },
     },
-    include: { dealer: true, product: { include: { unit: true } } },
+    include: { dealer: { include: { account: { include: { transactions: true } } } }, product: { include: { unit: true } } },
     orderBy: { receivedAt: "desc" },
   });
 
@@ -556,6 +657,16 @@ export async function listDealerGrainBatches(options?: { dealerId?: string; prod
     rate: b.rate !== null ? Number(b.rate) : 0,
     amount: Number(b.quantityIn) * (b.rate !== null ? Number(b.rate) : 0),
     receivedAt: b.receivedAt,
+    // createDealerGrainPurchase posts its payment row in the same
+    // transaction as the batch — matched by amount and time, since the
+    // row carries no batch link. Null if it can't be found.
+    paymentMethod:
+      b.dealer?.account?.transactions.find(
+        (t) =>
+          t.direction === "OUT" &&
+          Math.abs(Number(t.amount) - Number(b.quantityIn) * Number(b.rate ?? 0)) < 0.01 &&
+          Math.abs(t.transactionDate.getTime() - b.receivedAt.getTime()) < 60_000
+      )?.paymentMethod ?? null,
   }));
 }
 
@@ -625,10 +736,15 @@ export async function payDealerDebt(input: PayDealerDebtInput) {
   const shopId = await getCurrentShopId();
   const data = payDealerDebtSchema.parse(input);
 
-  const dealer = await db.dealer.findFirst({ where: { id: data.dealerId, shopId }, include: { account: true } });
+  const dealer = await db.dealer.findFirst({
+    where: { id: data.dealerId, shopId },
+    include: { account: { include: { transactions: true } } },
+  });
   if (!dealer || !dealer.account) return { success: false, error: "Dealer not found" };
 
-  const outstanding = Number(dealer.account.currentBalance);
+  // Only what the SHOP owes this dealer — never netted against what
+  // the dealer owes the shop (see dealerUdhaarSides).
+  const outstanding = dealerUdhaarSides(dealer.account.transactions).shopOwes;
   if (data.amount > outstanding + 0.01) {
     return {
       success: false,
@@ -690,4 +806,221 @@ export async function deleteDealerTransaction(id: string): Promise<Result<null>>
   });
 
   return { success: true, data: null };
+}
+
+// One row of the Dealer page's Records tabs — a sale to a dealer
+// (Credit) or a purchase from one (Debit), in one shape.
+export type DealerRecordRow = {
+  id: string;
+  date: Date;
+  dealerId: string;
+  dealerName: string;
+  productName: string;
+  quantity: number;
+  unitName: string;
+  rate: number;
+  amount: number;
+  // e.g. "Cash", "Bank", "Udhaar", "Part Udhaar", "Mixed".
+  payment: string;
+  paymentTone: "cash" | "account" | "credit" | "mixed";
+};
+
+const DEALER_METHOD: Record<string, { label: string; tone: DealerRecordRow["paymentTone"] }> = {
+  CASH: { label: "Cash", tone: "cash" },
+  ACCOUNT: { label: "Bank", tone: "account" },
+  CREDIT: { label: "Udhaar", tone: "credit" },
+};
+
+// Everything the shop SOLD to dealers — the Credit side of the Dealer
+// page's Products (stockKind SIMPLE) or Grain (GRAIN) tab. One row per
+// sale item, newest first. Payment comes from that visit's payment
+// split (a grain item's own Udhaar share when it has one).
+export async function listDealerSales(stockKind: "SIMPLE" | "GRAIN"): Promise<DealerRecordRow[]> {
+  const shopId = await getCurrentShopId();
+
+  const items = await db.dailySaleItem.findMany({
+    where: { product: { shopId, stockKind }, dailySale: { shopId, dealerId: { not: null } } },
+    include: {
+      product: { include: { unit: true } },
+      dailySale: { include: { dealer: true, payments: true } },
+    },
+    orderBy: { visitAt: "desc" },
+  });
+
+  return items.map((item) => {
+    const quantity = Number(item.quantity);
+    const rate = Number(item.actualPrice);
+    const amount = quantity * rate;
+    const creditAmount = item.creditAmount !== null ? Number(item.creditAmount) : 0;
+    const methods = [
+      ...new Set(
+        item.dailySale.payments
+          .filter((p) => p.visitAt.getTime() === item.visitAt.getTime())
+          .map((p) => p.paymentMethod)
+      ),
+    ];
+    const pay =
+      creditAmount > 0 && creditAmount >= amount - 0.01
+        ? DEALER_METHOD.CREDIT
+        : creditAmount > 0.01
+          ? { label: "Part Udhaar", tone: "credit" as const }
+          : methods.length === 1
+            ? DEALER_METHOD[methods[0]]
+            : // A split visit names every method it used, e.g. "Cash +
+              // Udhaar" — flagged as Udhaar whenever part of it was.
+              {
+                label: methods.map((m) => DEALER_METHOD[m].label).join(" + "),
+                tone: methods.includes("CREDIT") ? ("credit" as const) : ("mixed" as const),
+              };
+    return {
+      id: item.id,
+      date: item.visitAt,
+      dealerId: item.dailySale.dealerId!,
+      dealerName: item.dailySale.dealer?.name ?? "Dealer",
+      productName: item.product.name,
+      quantity,
+      unitName: item.product.unit.name,
+      rate,
+      amount,
+      payment: pay.label,
+      paymentTone: pay.tone,
+    };
+  });
+}
+
+// One dealer's Udhaar, both ways and kept apart (never netted): the
+// shop owes the dealer for Udhaar purchases (OUT on Credit — not a
+// settled Cash/Account purchase — and imported "shop owes" balances)
+// minus the shop's payments (IN); the dealer owes the shop for Udhaar
+// sales to them and imported "dealer owes" balances (isDealerSale IN)
+// minus what they've paid back (isDealerSale OUT). Each floored at 0.
+function dealerUdhaarSides(
+  transactions: { direction: "IN" | "OUT"; amount: unknown; isDealerSale: boolean; isSettledPurchase: boolean }[]
+) {
+  let purchaseSide = 0;
+  let saleSide = 0;
+  for (const t of transactions) {
+    const amount = Number(t.amount);
+    if (t.isDealerSale) {
+      saleSide += t.direction === "IN" ? amount : -amount;
+    } else if (t.direction === "OUT" && !t.isSettledPurchase) {
+      purchaseSide += amount;
+    } else if (t.direction === "IN") {
+      purchaseSide -= amount;
+    }
+  }
+  return { shopOwes: Math.max(0, purchaseSide), dealerOwes: Math.max(0, saleSide) };
+}
+
+// Udhaar both ways for one dealer type (the Dealer page's Products or
+// Grain tab), kept apart rather than netted per dealer:
+//   - Shop owes dealers: Udhaar purchases (OUT on Credit, not a
+//     settled Cash/Account purchase) minus the shop's payments (IN),
+//     ignoring dealer-sale rows.
+//   - Dealers owe shop: Udhaar sales TO dealers (isDealerSale IN)
+//     minus any reversals (isDealerSale OUT).
+// Each dealer's side is floored at zero; net = dealers owe − shop owes.
+// Omitting type covers every dealer (the Accounts tab's overall cards).
+export async function getDealerUdhaarTotals(type?: "PRODUCTS" | "GRAIN") {
+  const shopId = await getCurrentShopId();
+  const dealers = await db.dealer.findMany({
+    where: { shopId, type: type || undefined },
+    include: { account: { include: { transactions: true } } },
+  });
+
+  let shopOwes = 0;
+  let dealersOwe = 0;
+  for (const dealer of dealers) {
+    const sides = dealerUdhaarSides(dealer.account?.transactions ?? []);
+    shopOwes += sides.shopOwes;
+    dealersOwe += sides.dealerOwes;
+  }
+
+  const net = dealersOwe - shopOwes;
+  return {
+    shopOwes,
+    dealersOwe,
+    netAmount: Math.abs(net),
+    netOwedBy: (net > 0.01 ? "DEALERS" : net < -0.01 ? "SHOP" : "SETTLED") as "DEALERS" | "SHOP" | "SETTLED",
+  };
+}
+
+// Brings a dealer's old balance over from the paper register — either
+// the shop owing the dealer (a purchase-side OUT, like recordDealerDebt)
+// or the dealer owing the shop (a sale-side isDealerSale IN, like an
+// Udhaar sale to them). Always CREDIT, so no cash or bank money moves.
+// currentBalance moves the same way those postings already move it
+// (positive = shop owes dealer).
+export async function importDealerUdhaar(input: ImportDealerUdhaarInput) {
+  const shopId = await getCurrentShopId();
+  const data = importDealerUdhaarSchema.parse(input);
+
+  const dealer = await db.dealer.findFirst({ where: { id: data.dealerId, shopId }, include: { account: true } });
+  if (!dealer || !dealer.account) return { success: false as const, error: "Dealer not found" };
+
+  const shopOwes = data.owedBy === "SHOP";
+  await db.$transaction(async (tx) => {
+    await tx.dealerTransaction.create({
+      data: {
+        dealerAccountId: dealer.account!.id,
+        direction: shopOwes ? "OUT" : "IN",
+        amount: data.amount,
+        paymentMethod: "CREDIT",
+        isDealerSale: !shopOwes,
+        reference: data.reference,
+        notes: `Imported from register${data.notes ? ` — ${data.notes}` : ""}`,
+      },
+    });
+    await tx.dealerAccount.update({
+      where: { id: dealer.account!.id },
+      data: { currentBalance: shopOwes ? { increment: data.amount } : { decrement: data.amount } },
+    });
+  });
+  return { success: true as const, data: undefined };
+}
+
+// A dealer paying the shop back for what they owe it — the sale-side
+// mirror of payDealerDebt. Capped at what the dealer owes (sale side
+// only). Posts isDealerSale OUT (the dealer's debt shrinks), moves
+// currentBalance back up, and — via Account — money INTO the bank.
+export async function receiveDealerPayment(input: ReceiveDealerPaymentInput) {
+  const shopId = await getCurrentShopId();
+  const data = receiveDealerPaymentSchema.parse(input);
+
+  const dealer = await db.dealer.findFirst({
+    where: { id: data.dealerId, shopId },
+    include: { account: { include: { transactions: true } } },
+  });
+  if (!dealer || !dealer.account) return { success: false as const, error: "Dealer not found" };
+
+  const owed = dealerUdhaarSides(dealer.account.transactions).dealerOwes;
+  if (owed <= 0.01) return { success: false as const, error: `${dealer.name} doesn't owe the shop anything right now.` };
+  if (data.amount > owed + 0.01) {
+    return {
+      success: false as const,
+      error: `This payment (Rs ${data.amount}) is more than ${dealer.name} owes the shop (Rs ${owed}) — a payment can't exceed what's owed.`,
+    };
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.dealerTransaction.create({
+      data: {
+        dealerAccountId: dealer.account!.id,
+        direction: "OUT",
+        amount: data.amount,
+        paymentMethod: data.paymentMethod,
+        bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
+        isDealerSale: true,
+        notes: data.notes || "Received from dealer",
+      },
+    });
+    await tx.dealerAccount.update({
+      where: { id: dealer.account!.id },
+      data: { currentBalance: { increment: data.amount } },
+    });
+    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+      await postToBankAccount(tx, data.bankAccountId, data.amount);
+    }
+  });
+  return { success: true as const, data: undefined };
 }

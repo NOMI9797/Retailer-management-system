@@ -1277,7 +1277,11 @@ export async function listGrainLedger(productId: string) {
           ? { label: "Part Udhaar", tone: "credit" as const }
           : visitMethods.length === 1
             ? METHOD_LABEL[visitMethods[0]]
-            : { label: "Mixed", tone: "mixed" as const };
+            : // A split visit names every method it used, e.g. "Cash + Bank".
+              {
+                label: visitMethods.map((m) => METHOD_LABEL[m].label).join(" + "),
+                tone: visitMethods.includes("CREDIT") ? ("credit" as const) : ("mixed" as const),
+              };
     return {
       id: item.id,
       date: item.visitAt,

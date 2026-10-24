@@ -63,6 +63,10 @@ const REPAYMENT_IN_FILTER = { direction: "IN" as const, isShopBorrowed: false, q
 // isShopBorrowed's schema comment.
 const SHOP_BORROWED_TAKEN_FILTER = { isShopBorrowed: true as const, direction: "OUT" as const };
 const SHOP_BORROWED_REPAID_FILTER = { isShopBorrowed: true as const, direction: "IN" as const };
+// A dealer paying the shop back for Udhaar sold to them (see
+// receiveDealerPayment) — real money IN, despite its OUT direction on
+// the dealer's ledger.
+const DEALER_RECEIPT_FILTER = { isDealerSale: true as const, direction: "OUT" as const };
 
 // Cash in for a day, physical-drawer only:
 //   + Cash-tagged DailySalePayment rows for sales made that day
@@ -79,7 +83,7 @@ const SHOP_BORROWED_REPAID_FILTER = { isShopBorrowed: true as const, direction: 
 // not arriving (see each filter's comment). Only Cash counts here —
 // Account and Credit amounts are not physical cash.
 async function sumCashIn(shopId: string, start: Date, end: Date) {
-  const [salesResult, repaymentsResult, shopBorrowedResult] = await Promise.all([
+  const [salesResult, repaymentsResult, shopBorrowedResult, dealerReceiptResult] = await Promise.all([
     db.dailySalePayment.aggregate({
       where: {
         paymentMethod: "CASH",
@@ -105,11 +109,21 @@ async function sumCashIn(shopId: string, start: Date, end: Date) {
       },
       _sum: { amount: true },
     }),
+    db.dealerTransaction.aggregate({
+      where: {
+        ...DEALER_RECEIPT_FILTER,
+        paymentMethod: "CASH",
+        transactionDate: { gte: start, lte: end },
+        dealerAccount: { dealer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
   ]);
   return (
     Number(salesResult._sum.amount ?? 0) +
     Number(repaymentsResult._sum.amount ?? 0) +
-    Number(shopBorrowedResult._sum.amount ?? 0)
+    Number(shopBorrowedResult._sum.amount ?? 0) +
+    Number(dealerReceiptResult._sum.amount ?? 0)
   );
 }
 
@@ -198,6 +212,9 @@ async function sumCashOut(shopId: string, start: Date, end: Date) {
       where: {
         direction: "OUT",
         paymentMethod: "CASH",
+        // Purchase-side only — a dealer paying the shop back
+        // (isDealerSale OUT) is cash IN (DEALER_RECEIPT_FILTER).
+        isDealerSale: false,
         transactionDate: { gte: start, lte: end },
         dealerAccount: { dealer: { shopId } },
       },
@@ -207,6 +224,9 @@ async function sumCashOut(shopId: string, start: Date, end: Date) {
       where: {
         direction: "IN",
         paymentMethod: "CASH",
+        // Purchase-side only — a dealer paying the shop back
+        // (isDealerSale OUT) is cash IN (DEALER_RECEIPT_FILTER).
+        isDealerSale: false,
         transactionDate: { gte: start, lte: end },
         dealerAccount: { dealer: { shopId } },
       },
@@ -253,7 +273,16 @@ async function sumSalePayments(shopId: string, method: "ACCOUNT" | "CREDIT", sta
     },
     _sum: { amount: true },
   });
-  return salesTotal + Number(repaymentsResult._sum.amount ?? 0);
+  const dealerReceiptsResult = await db.dealerTransaction.aggregate({
+    where: {
+      ...DEALER_RECEIPT_FILTER,
+      paymentMethod: "ACCOUNT",
+      transactionDate: { gte: start, lte: end },
+      dealerAccount: { dealer: { shopId } },
+    },
+    _sum: { amount: true },
+  });
+  return salesTotal + Number(repaymentsResult._sum.amount ?? 0) + Number(dealerReceiptsResult._sum.amount ?? 0);
 }
 
 // Same "fold in the equivalent transfer-purchase payouts" treatment
@@ -334,6 +363,7 @@ async function getCashFlowSourceBreakdown(shopId: string, start: Date, end: Date
     grainDebtCash,
     dealerPurchaseCash,
     dealerDebtRepaidCash,
+    dealerReceiptCash,
   ] = await Promise.all([
     db.dailySalePayment.aggregate({
       where: { paymentMethod: "CASH", dailySale: { shopId, saleDate: { gte: start, lte: end } } },
@@ -410,6 +440,9 @@ async function getCashFlowSourceBreakdown(shopId: string, start: Date, end: Date
       where: {
         direction: "OUT",
         paymentMethod: "CASH",
+        // Purchase-side only — a dealer paying the shop back
+        // (isDealerSale OUT) is cash IN (DEALER_RECEIPT_FILTER).
+        isDealerSale: false,
         transactionDate: { gte: start, lte: end },
         dealerAccount: { dealer: { shopId } },
       },
@@ -418,6 +451,18 @@ async function getCashFlowSourceBreakdown(shopId: string, start: Date, end: Date
     db.dealerTransaction.aggregate({
       where: {
         direction: "IN",
+        paymentMethod: "CASH",
+        // Purchase-side only — a dealer paying the shop back
+        // (isDealerSale OUT) is cash IN (DEALER_RECEIPT_FILTER).
+        isDealerSale: false,
+        transactionDate: { gte: start, lte: end },
+        dealerAccount: { dealer: { shopId } },
+      },
+      _sum: { amount: true },
+    }),
+    db.dealerTransaction.aggregate({
+      where: {
+        ...DEALER_RECEIPT_FILTER,
         paymentMethod: "CASH",
         transactionDate: { gte: start, lte: end },
         dealerAccount: { dealer: { shopId } },
@@ -443,7 +488,8 @@ async function getCashFlowSourceBreakdown(shopId: string, start: Date, end: Date
     out: n(dailyExpenseCash) + n(monthlyExpenseCash) + n(expensePaymentCash),
   };
   const dealers = {
-    in: 0,
+    // A dealer paying the shop back for Udhaar sold to them.
+    in: n(dealerReceiptCash),
     out: n(dealerPurchaseCash) + n(dealerDebtRepaidCash),
   };
   const grain = {

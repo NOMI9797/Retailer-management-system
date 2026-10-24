@@ -7,12 +7,14 @@ import { showToast } from "@/components/shared/toastStore";
 
 // Same trigger+modal shape as AddAccountTypeModal/AddProductModal —
 // owns its own open/close state, calls router.refresh() on save.
-export function AddDealerModal() {
+// areas: the shop's Settings → Areas list (Area is optional).
+export function AddDealerModal({ areas = [] }: { areas?: { id: string; name: string }[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [type, setType] = useState<"PRODUCTS" | "GRAIN">("PRODUCTS");
+  const [areaId, setAreaId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -20,6 +22,7 @@ export function AddDealerModal() {
     setName("");
     setPhone("");
     setType("PRODUCTS");
+    setAreaId("");
     setError(null);
   }
 
@@ -28,7 +31,7 @@ export function AddDealerModal() {
     setError(null);
     setIsSaving(true);
     try {
-      await createDealer({ name, phone: phone || undefined, type });
+      await createDealer({ name, phone: phone || undefined, type, areaId: areaId || undefined });
       showToast(`Dealer added — ${name}`);
       setOpen(false);
       reset();
@@ -67,6 +70,18 @@ export function AddDealerModal() {
               <div className="field">
                 <label>Phone (optional)</label>
                 <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} />
+              </div>
+
+              <div className="field">
+                <label>Area (optional)</label>
+                <select value={areaId} onChange={(e) => setAreaId(e.target.value)}>
+                  <option value="">No area</option>
+                  {areas.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="field">

@@ -13,18 +13,30 @@ type Dealers = Awaited<ReturnType<typeof listDealers>>;
 // shape as SimpleListManager, but a dedicated table since a dealer
 // also carries a type (Products/Grain) that a plain name-only list
 // has no room for.
-export function DealerListManager({ dealers }: { dealers: Dealers }) {
+export function DealerListManager({
+  dealers,
+  areas = [],
+}: {
+  dealers: Dealers;
+  areas?: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [editingPhone, setEditingPhone] = useState("");
+  const [editingAreaId, setEditingAreaId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   async function handleRename(id: string) {
     setError(null);
-    const response = await updateDealer({ id, name: editingName, phone: editingPhone || undefined });
+    const response = await updateDealer({
+      id,
+      name: editingName,
+      phone: editingPhone || undefined,
+      areaId: editingAreaId || null,
+    });
     if (response && 'error' in response && !('data' in response)) {
       setError((response as { error: string }).error);
       return;
@@ -67,7 +79,7 @@ export function DealerListManager({ dealers }: { dealers: Dealers }) {
     <div className="panel">
       <div className="page-head" style={{ padding: "16px 20px 0" }}>
         <div />
-        <AddDealerModal />
+        <AddDealerModal areas={areas} />
       </div>
 
       {error && (
@@ -84,6 +96,7 @@ export function DealerListManager({ dealers }: { dealers: Dealers }) {
             <tr>
               <th>Name</th>
               <th>Phone</th>
+              <th>Area</th>
               <th>Type</th>
               <th>Status</th>
               <th></th>
@@ -105,6 +118,16 @@ export function DealerListManager({ dealers }: { dealers: Dealers }) {
                     <td>
                       <input type="text" value={editingPhone} onChange={(e) => setEditingPhone(e.target.value)} />
                     </td>
+                    <td>
+                      <select value={editingAreaId} onChange={(e) => setEditingAreaId(e.target.value)}>
+                        <option value="">No area</option>
+                        {areas.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
                     <td colSpan={2}>
                       <span className={`pay-badge ${dealer.type === "GRAIN" ? "pay-account" : "pay-mixed"}`}>
                         {dealer.type === "GRAIN" ? "Grain" : "Products"}
@@ -115,6 +138,7 @@ export function DealerListManager({ dealers }: { dealers: Dealers }) {
                   <>
                     <td style={{ opacity: dealer.isActive ? 1 : 0.6 }}>{dealer.name}</td>
                     <td style={{ color: "var(--ink-muted)" }}>{dealer.phone || "—"}</td>
+                    <td style={{ color: "var(--ink-muted)" }}>{dealer.area?.name || "—"}</td>
                     <td>
                       <span className={`pay-badge ${dealer.type === "GRAIN" ? "pay-account" : "pay-mixed"}`}>
                         {dealer.type === "GRAIN" ? "Grain" : "Products"}
@@ -156,6 +180,7 @@ export function DealerListManager({ dealers }: { dealers: Dealers }) {
                             setEditingId(dealer.id);
                             setEditingName(dealer.name);
                             setEditingPhone(dealer.phone ?? "");
+                            setEditingAreaId(dealer.areaId ?? "");
                           }}
                         >
                           Edit

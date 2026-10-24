@@ -9,6 +9,8 @@ export const dealerSchema = z.object({
   name: z.string().min(1, "Name is required"),
   phone: z.string().optional(),
   type: z.enum(["PRODUCTS", "GRAIN"]),
+  // Optional — one of Settings → Areas.
+  areaId: z.string().uuid().optional(),
 });
 export type DealerInput = z.infer<typeof dealerSchema>;
 
@@ -16,6 +18,8 @@ export const updateDealerSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1, "Name is required").optional(),
   phone: z.string().optional(),
+  // null clears it; omitted leaves it as is.
+  areaId: z.string().uuid().nullable().optional(),
   isActive: z.boolean().optional(),
 });
 export type UpdateDealerInput = z.infer<typeof updateDealerSchema>;
@@ -98,3 +102,34 @@ export const payDealerDebtSchema = z
     path: ["bankAccountId"],
   });
 export type PayDealerDebtInput = z.infer<typeof payDealerDebtSchema>;
+
+// An old balance carried over from the paper register for a dealer —
+// either direction: the shop owes the dealer (owedBy SHOP — a purchase-
+// side debt) or the dealer owes the shop (owedBy DEALER — a sale-side
+// debt). Always CREDIT: entering history moves no cash or bank money.
+// reference is required, same as a customer import.
+export const importDealerUdhaarSchema = z.object({
+  dealerId: z.string().uuid(),
+  owedBy: z.enum(["SHOP", "DEALER"]),
+  amount: z.number().positive("Amount must be positive"),
+  reference: z.string().trim().min(1, "Enter a reference"),
+  notes: z.string().optional(),
+});
+export type ImportDealerUdhaarInput = z.infer<typeof importDealerUdhaarSchema>;
+
+// A dealer paying the shop back for what they owe it (Udhaar sales to
+// them, or an imported "dealer owes shop" balance). Real money arrives,
+// so CREDIT isn't offered. Capped at what the dealer owes in the action.
+export const receiveDealerPaymentSchema = z
+  .object({
+    dealerId: z.string().uuid(),
+    amount: z.number().positive("Amount must be positive"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT"]),
+    bankAccountId: z.string().uuid().optional(),
+    notes: z.string().optional(),
+  })
+  .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
+    message: "Select which bank account this was paid through",
+    path: ["bankAccountId"],
+  });
+export type ReceiveDealerPaymentInput = z.infer<typeof receiveDealerPaymentSchema>;

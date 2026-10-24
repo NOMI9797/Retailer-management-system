@@ -437,9 +437,12 @@ export async function listBankAccountTransactions(options?: {
       date: txn.transactionDate,
       bankAccountId: txn.bankAccount.id,
       bankAccountName: txn.bankAccount.name,
-      direction: "OUT",
+      // A dealer paying the shop back (isDealerSale OUT, see
+      // receiveDealerPayment) is the one dealer posting that brings
+      // money IN.
+      direction: txn.isDealerSale ? "IN" : "OUT",
       amount: Number(txn.amount),
-      source: "Dealer Udhaar repayment",
+      source: txn.isDealerSale ? "Received from dealer" : "Dealer Udhaar repayment",
       description: txn.dealerAccount.dealer.name,
       deleteRef: { kind: "DEALER_TRANSACTION", transactionId: txn.id },
     });

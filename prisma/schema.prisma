@@ -125,6 +125,7 @@ model Area {
   subAreas     Area[]  @relation("AreaHierarchy")
 
   customers Customer[]
+  dealers   Dealer[]
 }
 
 // ── Customer ─────────────────────────────────────────────
@@ -164,6 +165,9 @@ model Dealer {
   shop      Shop       @relation(fields: [shopId], references: [id])
   name      String
   phone     String?
+  // Optional — same Areas list customers use (Settings → Areas).
+  areaId    String?
+  area      Area?      @relation(fields: [areaId], references: [id])
   // Which side of the business this dealer supplies — PRODUCTS (bulk
   // Simple-stock merchandise, see DealerProductPurchase) or GRAIN
   // (grain batches, see GrainBatch.dealerId). A dealer is one or the
@@ -257,6 +261,9 @@ model DealerTransaction {
   bankAccountId     String?
   bankAccount       BankAccount?           @relation(fields: [bankAccountId], references: [id])
   notes             String?
+  // Who/what an imported dealer balance came through (see
+  // importDealerUdhaar) — required there, null on every other row.
+  reference         String?
   // Same purpose as AccountTransaction.visitAt — set only on the row
   // a Daily Sale to this dealer posts (isDealerSale: true), matching
   // that visit's DailySaleItem/DailySalePayment visitAt, so a single

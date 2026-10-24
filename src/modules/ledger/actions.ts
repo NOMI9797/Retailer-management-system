@@ -108,7 +108,10 @@ export async function listDailyLedger(options?: {
             where: {
               transactionDate: range,
               linkedPurchaseId: null,
-              isDealerSale: false,
+              // A sale's own dealer Udhaar charge is already the sale
+              // row; dealer-side rows with no sale (a dealer paying the
+              // shop back, an imported "dealer owes shop") are listed.
+              OR: [{ isDealerSale: false }, { isDealerSale: true, linkedSaleId: null }],
               dealerAccount: { dealer: { shopId } },
             },
             include: { dealerAccount: { include: { dealer: true } } },
@@ -266,7 +269,25 @@ export async function listDailyLedger(options?: {
       amount: Number(txn.amount),
       saleId: null,
     };
-    if (txn.direction === "IN") {
+    const refDetail = txn.reference ? `Ref: ${txn.reference}` : null;
+    if (txn.isDealerSale) {
+      rows.push(
+        txn.direction === "OUT"
+          ? {
+              ...base,
+              side: "CREDIT",
+              label: "Received from dealer",
+              detail: null,
+              deleteRef: { kind: "DEALER_TRANSACTION", transactionId: txn.id },
+            }
+          : {
+              ...base,
+              label: "Dealer Udhaar imported",
+              detail: refDetail,
+              deleteRef: { kind: "DEALER_TRANSACTION", transactionId: txn.id },
+            }
+      );
+    } else if (txn.direction === "IN") {
       rows.push({
         ...base,
         label: "Paid dealer",
@@ -282,8 +303,8 @@ export async function listDailyLedger(options?: {
     } else {
       rows.push({
         ...base,
-        label: "Dealer Udhaar recorded",
-        detail: txn.notes,
+        label: txn.notes?.startsWith("Imported from register") ? "Dealer Udhaar imported" : "Dealer Udhaar recorded",
+        detail: refDetail ?? txn.notes,
         deleteRef: { kind: "DEALER_TRANSACTION", transactionId: txn.id },
       });
     }

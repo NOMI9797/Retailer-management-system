@@ -1,5 +1,8 @@
 import Link from "next/link";
-import { getDealerBalances } from "@/modules/dealers/actions";
+import {
+  getDealerBalances,
+  getDealerUdhaarTotals,
+} from "@/modules/dealers/actions";
 import { formatMoney } from "@/lib/utils";
 
 // Dealer → Accounts tab — every dealer's own running balance, both
@@ -11,29 +14,58 @@ import { formatMoney } from "@/lib/utils";
 // shopkeeper recording a payment on a dealer's detail page expects
 // this list to reflect it on the very next load.
 export async function DealerAccountsSection() {
-  const [productsDealers, grainDealers] = await Promise.all([
+  const [productsDealers, grainDealers, udhaar] = await Promise.all([
     getDealerBalances("PRODUCTS"),
     getDealerBalances("GRAIN"),
+    getDealerUdhaarTotals(),
   ]);
 
-  const dealers = [...productsDealers, ...grainDealers].sort((a, b) => a.name.localeCompare(b.name));
-  const totalOwed = dealers.reduce((sum, d) => sum + (d.currentBalance > 0 ? d.currentBalance : 0), 0);
-  const withBalance = dealers.filter((d) => d.currentBalance > 0).length;
+  const dealers = [...productsDealers, ...grainDealers].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
 
   return (
     <>
-      <div className="stat-grid customers-stat-grid" style={{ marginBottom: 22 }}>
+      {/* Udhaar both ways across every dealer, Products and Grain. */}
+      <div
+        className="stat-grid customers-stat-grid"
+        style={{ marginBottom: 22 }}
+      >
         <div className="stat-card">
-          <p className="stat-label">Total dealers</p>
-          <p className="stat-value">{dealers.length}</p>
+          <p className="stat-label">
+            {udhaar.netOwedBy === "SHOP"
+              ? "Net — shop owes dealers"
+              : udhaar.netOwedBy === "DEALERS"
+                ? "Net — dealers owe shop"
+                : "Net — settled"}
+          </p>
+          <p
+            className={`stat-value${
+              udhaar.netOwedBy === "SHOP"
+                ? " tone-consigned"
+                : udhaar.netOwedBy === "DEALERS"
+                  ? " tone-primary"
+                  : ""
+            }`}
+          >
+            {formatMoney(udhaar.netAmount)}
+          </p>
         </div>
         <div className="stat-card">
-          <p className="stat-label">Dealers (Udhaar)</p>
-          <p className="stat-value">{withBalance}</p>
+          <p className="stat-label">Shop owes dealers (total)</p>
+          <p
+            className={`stat-value${udhaar.shopOwes ? " tone-consigned" : ""}`}
+          >
+            {formatMoney(udhaar.shopOwes)}
+          </p>
         </div>
         <div className="stat-card">
-          <p className="stat-label">Total owed to dealers</p>
-          <p className={`stat-value${totalOwed ? " tone-consigned" : ""}`}>{formatMoney(totalOwed)}</p>
+          <p className="stat-label">Dealers owe shop (total)</p>
+          <p
+            className={`stat-value${udhaar.dealersOwe ? " tone-primary" : ""}`}
+          >
+            {formatMoney(udhaar.dealersOwe)}
+          </p>
         </div>
       </div>
 
@@ -67,9 +99,13 @@ export async function DealerAccountsSection() {
                         </span>
                       </div>
                     </td>
-                    <td className={dealer.phone ? undefined : "muted-dash"}>{dealer.phone || "—"}</td>
+                    <td className={dealer.phone ? undefined : "muted-dash"}>
+                      {dealer.phone || "—"}
+                    </td>
                     <td>
-                      <span className={`pay-badge ${dealer.type === "GRAIN" ? "pay-account" : "pay-mixed"}`}>
+                      <span
+                        className={`pay-badge ${dealer.type === "GRAIN" ? "pay-account" : "pay-mixed"}`}
+                      >
                         {dealer.type === "GRAIN" ? "Grain" : "Products"}
                       </span>
                     </td>
@@ -78,14 +114,23 @@ export async function DealerAccountsSection() {
                       style={{
                         textAlign: "right",
                         fontWeight: 600,
-                        color: dealer.currentBalance > 0 ? "var(--consigned-600)" : "var(--ink)",
+                        color:
+                          dealer.currentBalance > 0
+                            ? "var(--consigned-600)"
+                            : "var(--ink)",
                       }}
                     >
                       {formatMoney(dealer.currentBalance)}
                     </td>
                     <td>
-                      <div className="row-actions" style={{ justifyContent: "flex-end" }}>
-                        <Link className="btn btn-ghost" href={`/dashboard/dealers/${dealer.id}`}>
+                      <div
+                        className="row-actions"
+                        style={{ justifyContent: "flex-end" }}
+                      >
+                        <Link
+                          className="btn btn-ghost"
+                          href={`/dashboard/dealers/${dealer.id}`}
+                        >
                           View
                         </Link>
                       </div>
