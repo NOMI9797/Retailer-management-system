@@ -18,8 +18,10 @@ export type LedgerRow = {
   detail: string | null;
   paymentMethod: "CASH" | "ACCOUNT" | "CREDIT" | "MIXED" | null;
   amount: number;
-  // Set on sale rows only — sales keep their own Edit/Delete.
+  // Set on sale rows only — sales keep their own Edit/Delete, for this
+  // one visit (a customer's same-day visits share one DailySale).
   saleId: string | null;
+  visitAt?: Date;
   // Which existing reversal deletes this row (see deleteBankAccountRow).
   // Null where the app has no safe reversal yet (dealer grain purchases).
   deleteRef: BankAccountRowDeleteRef | null;
@@ -66,7 +68,7 @@ export async function listDailyLedger(options?: {
   };
   const none = Promise.resolve([] as never[]);
 
-  const [sales, accountTxns, grainCreditPayments, expenses, expensePayments, dealerPurchases, dealerTxns] =
+  const [sales, accountTxns, grainCreditPayments, expenses, expensePayments, dealerPurchases, dealerTxns, loanReturns] =
     await Promise.all([
       db.dailySale.findMany({
         where: { shopId, saleDate: range, customer: customerScoped ? customerMatch : undefined },
@@ -116,28 +118,51 @@ export async function listDailyLedger(options?: {
             },
             include: { dealerAccount: { include: { dealer: true } } },
           }),
+      // Grain loan returns that paid money for some bags (the grain
+      // itself moves no money and isn't listed).
+      db.grainLoanReturn.findMany({
+        where: {
+          shopId,
+          returnDate: range,
+          amount: { gt: 0 },
+          grainLoan: customerScoped ? { customer: customerMatch } : undefined,
+        },
+        include: { grainLoan: { include: { product: true, customer: true, dealer: true } } },
+      }),
     ]);
 
   const rows: LedgerRow[] = [];
 
   for (const sale of sales) {
-    const methods = Array.from(new Set(sale.payments.map((p) => p.paymentMethod)));
     const buyer = sale.customer
       ? { name: sale.customer.name, href: customerHref(sale.customer.id) }
       : { name: sale.dealer?.name ?? "Unknown buyer", href: sale.dealer ? dealerHref(sale.dealer.id) : "#" };
-    rows.push({
-      id: sale.id,
-      date: sale.saleDate,
-      side: "CREDIT",
-      label: "Sale",
-      counterpartyName: buyer.name,
-      counterpartyHref: buyer.href,
-      detail: `${sale.items.length} item${sale.items.length === 1 ? "" : "s"}`,
-      paymentMethod: methods.length === 0 ? null : methods.length > 1 ? "MIXED" : methods[0],
-      amount: sale.items.reduce((sum, i) => sum + Number(i.actualPrice) * Number(i.quantity), 0),
-      saleId: sale.id,
-      deleteRef: { kind: "SALE", dailySaleId: sale.id },
-    });
+    // One row per visit (receipt): a customer's same-day visits share
+    // one DailySale, but each is its own sale to edit or delete.
+    const visitTimes = Array.from(new Set(sale.items.map((i) => i.visitAt.getTime()))).sort((a, b) => a - b);
+    for (const time of visitTimes) {
+      const items = sale.items.filter((i) => i.visitAt.getTime() === time);
+      // Payments from before per-visit tracking have no visitAt; they
+      // belong to the sale's only visit.
+      const payments = sale.payments.filter((p) =>
+        p.visitAt ? p.visitAt.getTime() === time : visitTimes.length === 1
+      );
+      const methods = Array.from(new Set(payments.map((p) => p.paymentMethod)));
+      rows.push({
+        id: `${sale.id}:${time}`,
+        date: new Date(time),
+        side: "CREDIT",
+        label: "Sale",
+        counterpartyName: buyer.name,
+        counterpartyHref: buyer.href,
+        detail: `${items.length} item${items.length === 1 ? "" : "s"}`,
+        paymentMethod: methods.length === 0 ? null : methods.length > 1 ? "MIXED" : methods[0],
+        amount: items.reduce((sum, i) => sum + Number(i.actualPrice) * Number(i.quantity), 0),
+        saleId: sale.id,
+        visitAt: new Date(time),
+        deleteRef: { kind: "SALE", dailySaleId: sale.id, visitAt: new Date(time) },
+      });
+    }
   }
 
   for (const txn of accountTxns) {
@@ -308,6 +333,25 @@ export async function listDailyLedger(options?: {
         deleteRef: { kind: "DEALER_TRANSACTION", transactionId: txn.id },
       });
     }
+  }
+
+  for (const ret of loanReturns) {
+    const loan = ret.grainLoan;
+    const lent = loan.direction === "SHOP_LENT";
+    rows.push({
+      id: ret.id,
+      date: ret.returnDate,
+      // Paid for lent bags = money in; paying for borrowed bags = out.
+      side: lent ? "CREDIT" : "DEBIT",
+      label: lent ? "Grain loan — paid to shop" : "Grain loan — paid by shop",
+      counterpartyName: loan.customer?.name ?? loan.dealer?.name ?? "Unknown",
+      counterpartyHref: loan.customer ? customerHref(loan.customer.id) : loan.dealer ? dealerHref(loan.dealer.id) : "#",
+      detail: `${Number(ret.quantityPaid)} ${loan.product.name}${ret.reference ? ` · Ref: ${ret.reference}` : ""}`,
+      paymentMethod: ret.paymentMethod,
+      amount: Number(ret.amount),
+      saleId: null,
+      deleteRef: { kind: "GRAIN_LOAN_RETURN", returnId: ret.id },
+    });
   }
 
   const search = options?.search?.trim().toLowerCase();

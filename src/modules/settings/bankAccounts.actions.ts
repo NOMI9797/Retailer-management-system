@@ -13,11 +13,12 @@ import {
   type UpdateBankAccountInput,
 } from "./schema";
 import { ok, fail, type ActionResult } from "@/lib/actionResult";
-import { deleteDailySale, deleteGrainSaleItemCreditPayment } from "@/modules/daily-sales/actions";
+import { deleteSaleVisit, deleteGrainSaleItemCreditPayment } from "@/modules/daily-sales/actions";
 import { deleteExpense, deleteExpensePayment } from "@/modules/expenses/actions";
 import { deleteDealerProductPurchase, deleteDealerTransaction } from "@/modules/dealers/actions";
 import { deleteAccountTransaction } from "@/modules/customers/actions";
 import { deleteGrainSettlement } from "@/modules/stock/actions";
+import { deleteGrainLoanReturn } from "@/modules/grain-loans/actions";
 
 const ENTITY = "bankAccounts";
 
@@ -175,14 +176,16 @@ export async function postToBankAccount(
 // action takes (e.g. deleteDailySale wants the DailySale's own id).
 // One kind per source table this page merges from.
 export type BankAccountRowDeleteRef =
-  | { kind: "SALE"; dailySaleId: string }
+  // One visit of the sale — see deleteSaleVisit.
+  | { kind: "SALE"; dailySaleId: string; visitAt: Date }
   | { kind: "EXPENSE"; expenseId: string }
   | { kind: "DEALER_PURCHASE"; purchaseId: string }
   | { kind: "ACCOUNT_TRANSACTION"; transactionId: string }
   | { kind: "GRAIN_SETTLEMENT"; transactionId: string }
   | { kind: "GRAIN_CREDIT_PAYMENT"; paymentId: string }
   | { kind: "EXPENSE_PAYMENT"; paymentId: string }
-  | { kind: "DEALER_TRANSACTION"; transactionId: string };
+  | { kind: "DEALER_TRANSACTION"; transactionId: string }
+  | { kind: "GRAIN_LOAN_RETURN"; returnId: string };
 
 export type BankAccountTransactionRow = {
   id: string;
@@ -246,6 +249,7 @@ export async function listBankAccountTransactions(options?: {
     expensePayments,
     dealerPurchases,
     dealerTxns,
+    grainLoanReturns,
   ] = await Promise.all([
     db.accountTransaction.findMany({
       where: { ...bankAccountFilter, transactionDate: dateFilter, customerAccount: { customer: { shopId } } },
@@ -291,6 +295,13 @@ export async function listBankAccountTransactions(options?: {
         dealerAccount: { dealer: { shopId } },
       },
       include: { bankAccount: true, dealerAccount: { include: { dealer: true } } },
+    }),
+    db.grainLoanReturn.findMany({
+      where: { ...bankAccountFilter, returnDate: dateFilter, shopId },
+      include: {
+        bankAccount: true,
+        grainLoan: { include: { product: true, customer: true, dealer: true } },
+      },
     }),
   ]);
 
@@ -357,7 +368,7 @@ export async function listBankAccountTransactions(options?: {
       // schema comment) — a sale paid via Account can come from
       // either a customer or a bulk dealer.
       description: payment.dailySale.customer?.name ?? payment.dailySale.dealer?.name ?? "Unknown buyer",
-      deleteRef: { kind: "SALE", dailySaleId: payment.dailySale.id },
+      deleteRef: { kind: "SALE", dailySaleId: payment.dailySale.id, visitAt: payment.visitAt },
     });
   }
 
@@ -448,6 +459,25 @@ export async function listBankAccountTransactions(options?: {
     });
   }
 
+  for (const ret of grainLoanReturns) {
+    if (!ret.bankAccount) continue;
+    const loan = ret.grainLoan;
+    const lent = loan.direction === "SHOP_LENT";
+    rows.push({
+      id: ret.id,
+      date: ret.returnDate,
+      bankAccountId: ret.bankAccount.id,
+      bankAccountName: ret.bankAccount.name,
+      // Bags paid for in money: the party pays the shop for grain it
+      // lent; the shop pays for grain it borrowed.
+      direction: lent ? "IN" : "OUT",
+      amount: Number(ret.amount),
+      source: lent ? "Grain loan — paid to shop" : "Grain loan — paid by shop",
+      description: `${loan.customer?.name ?? loan.dealer?.name ?? ""} — ${Number(ret.quantityPaid)} ${loan.product.name}${ret.reference ? ` · Ref: ${ret.reference}` : ""}`,
+      deleteRef: { kind: "GRAIN_LOAN_RETURN", returnId: ret.id },
+    });
+  }
+
   rows.sort((a, b) => b.date.getTime() - a.date.getTime());
 
   const totalCount = rows.length;
@@ -474,7 +504,7 @@ export async function listBankAccountTransactions(options?: {
 export async function deleteBankAccountRow(ref: BankAccountRowDeleteRef): Promise<ActionResult<null>> {
   switch (ref.kind) {
     case "SALE": {
-      const result = await deleteDailySale(ref.dailySaleId);
+      const result = await deleteSaleVisit(ref.dailySaleId, ref.visitAt);
       if (!result.success) return fail("error" in result ? result.error : "Failed to delete sale");
       return ok(null);
     }
@@ -507,6 +537,11 @@ export async function deleteBankAccountRow(ref: BankAccountRowDeleteRef): Promis
     }
     case "DEALER_TRANSACTION": {
       const result = await deleteDealerTransaction(ref.transactionId);
+      if (!result.success) return fail(result.error);
+      return ok(null);
+    }
+    case "GRAIN_LOAN_RETURN": {
+      const result = await deleteGrainLoanReturn(ref.returnId);
       if (!result.success) return fail(result.error);
       return ok(null);
     }

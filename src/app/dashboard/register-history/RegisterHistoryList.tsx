@@ -53,7 +53,7 @@ function FlagIcon() {
 }
 
 // Client leaf for the Register History table — same split pattern
-// DailyLedgerSection/DailyLedgerColumns follows elsewhere. Every row
+// DailyLedgerSection/DailyLedgerRecords follows elsewhere. Every row
 // still links through to that day's full Cash Flow dashboard, where
 // Edit already lives (EditOpeningBalanceButton/
 // EditClosingBalanceButton) — Delete is the new piece here, removing

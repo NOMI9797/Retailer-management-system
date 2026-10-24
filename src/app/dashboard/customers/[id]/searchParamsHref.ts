@@ -1,4 +1,4 @@
-// Purchase history / Grain / Udhaar to Shop are tabs on the customer
+// Purchase history / Grain / Udhaar to Shop / Grain loans are tabs on the customer
 // detail page — real ?tab= navigation, same pattern as
 // Settings/Expenses/Reports/New Sale. Stock Udhaar deliberately has
 // no tab here — see page.tsx's header comment. Grain has no subtabs

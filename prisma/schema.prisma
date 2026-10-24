@@ -36,6 +36,8 @@ model Shop {
   bankAccounts        BankAccount[]
   userShops           UserShop[]
   receipts            Receipt[]
+  grainLoans          GrainLoan[]
+  grainLoanReturns    GrainLoanReturn[]
 }
 
 // A login — email + hashed password, nothing more. Deliberately has
@@ -104,6 +106,7 @@ model BankAccount {
   expensePayments         ExpensePayment[]
   dealerTransactions      DealerTransaction[]
   dealerProductPurchases  DealerProductPurchase[]
+  grainLoanReturns        GrainLoanReturn[]
 
   @@unique([shopId, name])
 }
@@ -145,6 +148,7 @@ model Customer {
   dailySales   DailySale[]
   ownedBatches GrainBatch[]
   stockUdhaars StockUdhaarEntry[]
+  grainLoans   GrainLoan[]
 }
 
 // ── Dealer ───────────────────────────────────────────────
@@ -191,6 +195,7 @@ model Dealer {
   purchases  DealerProductPurchase[]
   batches    GrainBatch[]
   dailySales DailySale[]
+  grainLoans GrainLoan[]
 
   @@unique([shopId, name])
 }
@@ -619,6 +624,7 @@ model Product {
   stockUdhaars      StockUdhaarEntry[]
   grainDebtPayments AccountTransaction[]
   dealerPurchases   DealerProductPurchase[]
+  grainLoans        GrainLoan[]
 }
 
 // Batches let one product (e.g. "Wheat") hold both shop-owned and
@@ -627,11 +633,11 @@ model Product {
 // safekeeping, not a consignment sale — no money posts when one is
 // created (see Stock Management: createGrainBatch).
 model GrainBatch {
-  id                  String       @id @default(uuid())
+  id                  String           @id @default(uuid())
   productId           String
-  product             Product      @relation(fields: [productId], references: [id])
+  product             Product          @relation(fields: [productId], references: [id])
   ownerCustomerId     String?
-  ownerCustomer       Customer?    @relation(fields: [ownerCustomerId], references: [id])
+  ownerCustomer       Customer?        @relation(fields: [ownerCustomerId], references: [id])
   // A grain batch's source is EITHER a depositing customer
   // (ownerCustomerId, the existing "stored for safekeeping" flow) OR a
   // GRAIN-type dealer bought from in bulk — never both. A dealer batch
@@ -642,9 +648,9 @@ model GrainBatch {
   // exact same FIFO/sale machinery every shop-owned batch already
   // uses, just tagged with where it came from.
   dealerId            String?
-  dealer              Dealer?      @relation(fields: [dealerId], references: [id])
-  quantityIn          Decimal      @db.Decimal(14, 3)
-  quantitySold        Decimal      @default(0) @db.Decimal(14, 3)
+  dealer              Dealer?          @relation(fields: [dealerId], references: [id])
+  quantityIn          Decimal          @db.Decimal(14, 3)
+  quantitySold        Decimal          @default(0) @db.Decimal(14, 3)
   // Only meaningful when ownerCustomerId is set. Tracks how much of
   // this customer batch's OWNERSHIP CLAIM has been settled away via a
   // transfer-purchase (createTransferPurchase) — deliberately separate
@@ -655,7 +661,7 @@ model GrainBatch {
   // claim — see StockUdhaarEntry. The customer's remaining ownership
   // claim is quantityIn - quantityTransferred (never quantityIn -
   // quantitySold). Always 0 for shop-owned batches.
-  quantityTransferred Decimal      @default(0) @db.Decimal(14, 3)
+  quantityTransferred Decimal          @default(0) @db.Decimal(14, 3)
   // Null means "not yet priced" — either a customer's store-for-later
   // deposit awaiting settlement (createGrainBatch with no rate given),
   // or grain sold via Stock Udhaar before its sale-time cost rate was
@@ -664,16 +670,24 @@ model GrainBatch {
   // transfer-purchase, or a settle-now deposit — a shop-owned batch is
   // the shop's actual inventory and must always have a real cost
   // basis. Once set, never reverts to null.
-  rate                Decimal?     @db.Decimal(12, 2)
-  receivedAt          DateTime     @default(now())
+  rate                Decimal?         @db.Decimal(12, 2)
+  receivedAt          DateTime         @default(now())
   // Set only on a shop-owned batch created BY a transfer-purchase,
   // pointing at the customer batch it drew its claim from. Pure
   // audit/traceability — never read for quantity or cost math, since
   // this new batch's own `rate` (the agreed purchase rate) is already
   // its true cost basis for later profit calculation.
   sourceBatchId       String?
-  sourceBatch         GrainBatch?  @relation("BatchTransferSource", fields: [sourceBatchId], references: [id])
-  transferredBatches  GrainBatch[] @relation("BatchTransferSource")
+  sourceBatch         GrainBatch?      @relation("BatchTransferSource", fields: [sourceBatchId], references: [id])
+  transferredBatches  GrainBatch[]     @relation("BatchTransferSource")
+  // Set when a grain loan brought this grain in: a SHOP_BORROWED loan
+  // (grainLoanId) or lent grain given back (grainLoanReturnId). Owned
+  // by that loan event — editing/deleting it edits/removes this batch.
+  grainLoanId         String?          @unique
+  grainLoan           GrainLoan?       @relation(fields: [grainLoanId], references: [id])
+  grainLoanReturnId   String?          @unique
+  grainLoanReturn     GrainLoanReturn? @relation(fields: [grainLoanReturnId], references: [id])
+  grainLoanDraws      GrainLoanDraw[]
 
   saleAllocations     DailySaleItemBatch[]
   stockUdhaars        StockUdhaarEntry[]
@@ -700,23 +714,27 @@ model GrainBatch {
 // different commodities, and a shortfall in one must never net against
 // a surplus in another.
 model StockUdhaarEntry {
-  id                    String     @id @default(uuid())
-  customerId            String
-  customer              Customer   @relation(fields: [customerId], references: [id])
-  productId             String
-  product               Product    @relation(fields: [productId], references: [id])
-  grainBatchId          String
-  grainBatch            GrainBatch @relation(fields: [grainBatchId], references: [id])
-  quantity              Decimal    @db.Decimal(14, 3)
-  linkedSaleId          String?
-  linkedSale            DailySale? @relation(fields: [linkedSaleId], references: [id])
+  id                      String     @id @default(uuid())
+  customerId              String
+  customer                Customer   @relation(fields: [customerId], references: [id])
+  productId               String
+  product                 Product    @relation(fields: [productId], references: [id])
+  grainBatchId            String
+  grainBatch              GrainBatch @relation(fields: [grainBatchId], references: [id])
+  quantity                Decimal    @db.Decimal(14, 3)
+  linkedSaleId            String?
+  linkedSale              DailySale? @relation(fields: [linkedSaleId], references: [id])
   // Set on the settlement leg a transfer-purchase writes when it pays
   // down an outstanding shortfall — points at the new shop-owned batch
   // that purchase created, so a shortfall's resolution is traceable
   // back to the exact purchase that cleared it.
-  linkedTransferBatchId String?
-  createdAt             DateTime   @default(now())
-  notes                 String?
+  linkedTransferBatchId   String?
+  // Same as linkedSaleId, for grain that left through a grain loan
+  // (lent out, or borrowed grain given back) instead of a sale.
+  linkedGrainLoanId       String?
+  linkedGrainLoanReturnId String?
+  createdAt               DateTime   @default(now())
+  notes                   String?
   // Same purpose as AccountTransaction.visitAt — set only on a growth
   // entry applySaleItems writes (linkedSaleId set, quantity > 0),
   // matching that visit's DailySaleItem.visitAt, so a single receipt
@@ -724,7 +742,86 @@ model StockUdhaarEntry {
   // another same-day visit created. Null on a settlement leg (that's
   // a Grain-page action, not a Daily Sales visit) and on every row
   // created before this column existed.
-  visitAt               DateTime?
+  visitAt                 DateTime?
+}
+
+// ── Grain loans ──────────────────────────────────────────
+// Grain lent to / borrowed from a customer or dealer, to be given back
+// as the same grain — not a sale and not money Udhaar, so it never
+// touches P&L or pooled stock VALUE (only quantity). rate is the rate
+// agreed at the time — the cost basis of grain the loan brings into
+// stock; money paid on a return is its own amount, at that day's rate
+// (GrainLoanReturn.amount), never derived from this. What's still
+// owed is derived: quantity − Σ(returned + paid), never stored.
+enum GrainLoanDirection {
+  SHOP_LENT
+  SHOP_BORROWED
+}
+
+model GrainLoan {
+  id         String             @id @default(uuid())
+  shopId     String
+  shop       Shop               @relation(fields: [shopId], references: [id])
+  productId  String
+  product    Product            @relation(fields: [productId], references: [id])
+  // Exactly one party.
+  customerId String?
+  customer   Customer?          @relation(fields: [customerId], references: [id])
+  dealerId   String?
+  dealer     Dealer?            @relation(fields: [dealerId], references: [id])
+  direction  GrainLoanDirection
+  quantity   Decimal            @db.Decimal(14, 3)
+  rate       Decimal            @db.Decimal(12, 2)
+  loanDate   DateTime
+  reference  String
+  notes      String?
+  createdAt  DateTime           @default(now())
+
+  // SHOP_LENT: the batches the grain came out of.
+  draws   GrainLoanDraw[]
+  // SHOP_BORROWED: the batch the grain went into.
+  batch   GrainBatch?
+  returns GrainLoanReturn[]
+}
+
+// One give-back against one loan: some grain returned, some settled in
+// money instead (quantityPaid kg for `amount` Rs, at that day's rate),
+// in any mix.
+model GrainLoanReturn {
+  id               String         @id @default(uuid())
+  shopId           String
+  shop             Shop           @relation(fields: [shopId], references: [id])
+  grainLoanId      String
+  grainLoan        GrainLoan      @relation(fields: [grainLoanId], references: [id])
+  quantityReturned Decimal        @default(0) @db.Decimal(14, 3)
+  quantityPaid     Decimal        @default(0) @db.Decimal(14, 3)
+  amount           Decimal        @default(0) @db.Decimal(14, 2)
+  // CASH or ACCOUNT, set only when amount > 0.
+  paymentMethod    PaymentMethod?
+  bankAccountId    String?
+  bankAccount      BankAccount?   @relation(fields: [bankAccountId], references: [id])
+  returnDate       DateTime
+  // Slip / register reference, like GrainLoan.reference.
+  reference        String?
+  createdAt        DateTime       @default(now())
+
+  // Shop giving borrowed grain back: the batches it came out of.
+  draws GrainLoanDraw[]
+  // Lent grain coming back: the batch it went into.
+  batch GrainBatch?
+}
+
+// Which batch a loan event drew grain from, and how much — the loan
+// version of DailySaleItemBatch, so a reversal puts back exactly that.
+model GrainLoanDraw {
+  id                String           @id @default(uuid())
+  grainBatchId      String
+  grainBatch        GrainBatch       @relation(fields: [grainBatchId], references: [id])
+  quantity          Decimal          @db.Decimal(14, 3)
+  grainLoanId       String?
+  grainLoan         GrainLoan?       @relation(fields: [grainLoanId], references: [id])
+  grainLoanReturnId String?
+  grainLoanReturn   GrainLoanReturn? @relation(fields: [grainLoanReturnId], references: [id])
 }
 
 // ── Daily sales ──────────────────────────────────────────

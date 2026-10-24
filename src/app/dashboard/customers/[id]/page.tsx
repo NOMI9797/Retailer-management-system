@@ -1,24 +1,44 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { getCustomer, getCustomerShopBorrowedHistory, getCustomerRelationshipSummary } from "@/modules/customers/actions";
-import { getCustomerPurchaseHistory, getCustomerGrainCreditPurchases } from "@/modules/daily-sales/actions";
-import { listCategories, listUnits, listProducts } from "@/modules/products/actions";
-import { getCustomerGrainDeposits, getShopOwedForGrainByProduct } from "@/modules/stock/actions";
+import {
+  getCustomer,
+  getCustomerShopBorrowedHistory,
+  getCustomerRelationshipSummary,
+} from "@/modules/customers/actions";
+import {
+  getCustomerPurchaseHistory,
+  getCustomerGrainCreditPurchases,
+} from "@/modules/daily-sales/actions";
+import {
+  listCategories,
+  listUnits,
+  listProducts,
+} from "@/modules/products/actions";
+import {
+  getCustomerGrainDeposits,
+  getShopOwedForGrainByProduct,
+} from "@/modules/stock/actions";
 import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { listAreas } from "@/modules/settings/areas.actions";
 import { CustomerGrainSection } from "@/modules/stock/components/CustomerGrainSection";
+import { GrainLoansPanel } from "@/modules/grain-loans/components/GrainLoansPanel";
+import { listGrainLoans } from "@/modules/grain-loans/actions";
 import { PageLoader } from "@/components/shared/PageLoader";
 import { PurchaseHistoryList } from "./PurchaseHistoryList";
 import { CustomerRelationshipStats } from "./CustomerRelationshipStats";
 import { ShopBorrowedHistoryPanel } from "./ShopBorrowedHistoryPanel";
 import { EditCustomerModal } from "@/modules/customers/components/EditCustomerModal";
 import { ImportUdhaarModal } from "@/modules/customers/components/ImportUdhaarModal";
-import { buildCustomerDetailHref, type CustomerDetailSearchParams } from "./searchParamsHref";
+import {
+  buildCustomerDetailHref,
+  type CustomerDetailSearchParams,
+} from "./searchParamsHref";
 
 const TAB_LABELS = {
   "purchase-history": "Purchase history",
   grain: "Grain",
   "udhaar-to-shop": "Udhaar to Shop",
+  "grain-loans": "Grain loans",
 } as const;
 type Tab = keyof typeof TAB_LABELS;
 
@@ -50,12 +70,17 @@ export default async function CustomerDetailPage({
 }) {
   const { id } = await params;
   const { tab: rawTab } = await searchParams;
-  const tab: Tab = rawTab === "grain" ? "grain" : rawTab === "udhaar-to-shop" ? "udhaar-to-shop" : "purchase-history";
+  const tab: Tab =
+    rawTab && rawTab in TAB_LABELS ? (rawTab as Tab) : "purchase-history";
 
   return (
     <div>
       <Link href="/dashboard/customers" className="back-link">
-        <svg className="icon" viewBox="0 0 24 24" style={{ width: 14, height: 14 }}>
+        <svg
+          className="icon"
+          viewBox="0 0 24 24"
+          style={{ width: 14, height: 14 }}
+        >
           <path d="M19 12H5M12 19l-7-7 7-7" />
         </svg>
         Back to Customers
@@ -87,7 +112,10 @@ export default async function CustomerDetailPage({
       </div>
 
       {tab === "purchase-history" && (
-        <Suspense key="purchase-history" fallback={<PageLoader label="Loading purchase history…" />}>
+        <Suspense
+          key="purchase-history"
+          fallback={<PageLoader label="Loading purchase history…" />}
+        >
           <PurchaseHistorySection customerId={id} />
         </Suspense>
       )}
@@ -97,8 +125,19 @@ export default async function CustomerDetailPage({
         </Suspense>
       )}
       {tab === "udhaar-to-shop" && (
-        <Suspense key="udhaar-to-shop" fallback={<PageLoader label="Loading Udhaar to Shop…" />}>
+        <Suspense
+          key="udhaar-to-shop"
+          fallback={<PageLoader label="Loading Udhaar to Shop…" />}
+        >
           <ShopBorrowedSectionLoader customerId={id} />
+        </Suspense>
+      )}
+      {tab === "grain-loans" && (
+        <Suspense
+          key="grain-loans"
+          fallback={<PageLoader label="Loading grain loans…" />}
+        >
+          <GrainLoansSectionLoader customerId={id} />
         </Suspense>
       )}
     </div>
@@ -106,11 +145,19 @@ export default async function CustomerDetailPage({
 }
 
 async function CustomerOverallStats({ customerId }: { customerId: string }) {
-  return <CustomerRelationshipStats summary={await getCustomerRelationshipSummary(customerId)} />;
+  return (
+    <CustomerRelationshipStats
+      summary={await getCustomerRelationshipSummary(customerId)}
+    />
+  );
 }
 
 async function CustomerDetail({ id }: { id: string }) {
-  const [customer, areas, bankAccounts] = await Promise.all([getCustomer(id), listAreas(), listBankAccounts()]);
+  const [customer, areas, bankAccounts] = await Promise.all([
+    getCustomer(id),
+    listAreas(),
+    listBankAccounts(),
+  ]);
   const initial = customer.name.charAt(0).toUpperCase();
 
   return (
@@ -126,12 +173,18 @@ async function CustomerDetail({ id }: { id: string }) {
               {customer.area?.name || "No area"}
             </p>
             {customer.notes && (
-              <p style={{ marginTop: 4, fontStyle: "italic" }}>{customer.notes}</p>
+              <p style={{ marginTop: 4, fontStyle: "italic" }}>
+                {customer.notes}
+              </p>
             )}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <ImportUdhaarModal customerId={customer.id} customerName={customer.name} bankAccounts={bankAccounts} />
+          <ImportUdhaarModal
+            customerId={customer.id}
+            customerName={customer.name}
+            bankAccounts={bankAccounts}
+          />
           <EditCustomerModal areas={areas} customer={customer} />
         </div>
       </div>
@@ -145,7 +198,14 @@ async function CustomerDetail({ id }: { id: string }) {
 // explicit "two distinct panels that must not be collapsed into one"
 // requirement.
 async function PurchaseHistorySection({ customerId }: { customerId: string }) {
-  const [sales, categories, units, simpleProducts, grainProducts, bankAccounts] = await Promise.all([
+  const [
+    sales,
+    categories,
+    units,
+    simpleProducts,
+    grainProducts,
+    bankAccounts,
+  ] = await Promise.all([
     getCustomerPurchaseHistory(customerId),
     listCategories(),
     listUnits(),
@@ -180,13 +240,22 @@ async function PurchaseHistorySection({ customerId }: { customerId: string }) {
 // Stock Udhaar (a quantity obligation, shown shop-wide on the Grain
 // page instead — see this file's header comment).
 async function GrainSectionLoader({ customerId }: { customerId: string }) {
-  const [customer, deposits, moneyOwedByProduct, creditPurchases, bankAccounts, grainProducts] = await Promise.all([
+  const [
+    customer,
+    deposits,
+    moneyOwedByProduct,
+    creditPurchases,
+    bankAccounts,
+    grainProducts,
+  ] = await Promise.all([
     getCustomer(customerId),
     getCustomerGrainDeposits(customerId),
     getShopOwedForGrainByProduct(customerId),
     // includePaid — the Grain tab keeps a paid-off grain sale listed
     // (as "Paid") instead of dropping it.
-    getCustomerGrainCreditPurchases(customerId, undefined, { includePaid: true }),
+    getCustomerGrainCreditPurchases(customerId, undefined, {
+      includePaid: true,
+    }),
     listBankAccounts(),
     // includeInactive — EditSaleModal must still resolve a
     // deactivated product an old grain sale already used, same
@@ -206,12 +275,35 @@ async function GrainSectionLoader({ customerId }: { customerId: string }) {
   );
 }
 
+// Grain lent to / borrowed from this customer, every grain — its own
+// tab, like Udhaar to Shop.
+async function GrainLoansSectionLoader({ customerId }: { customerId: string }) {
+  const [customer, loans, bankAccounts, grainProducts] = await Promise.all([
+    getCustomer(customerId),
+    listGrainLoans({ customerId }),
+    listBankAccounts(),
+    listProducts({ stockKind: "GRAIN", pageSize: 500 }),
+  ]);
+  return (
+    <GrainLoansPanel
+      party={{ kind: "CUSTOMER", id: customerId, name: customer.name }}
+      loans={loans}
+      products={grainProducts.products.map((p) => ({ id: p.id, name: p.name }))}
+      bankAccounts={bankAccounts}
+    />
+  );
+}
+
 // Cash this customer has given the SHOP (the opposite direction from
 // every other tab on this page) — its own query
 // (AccountTransaction, isShopBorrowed: true), separate from the
 // Accounts ledger above (which only ever covers money the customer
 // owes the shop).
-async function ShopBorrowedSectionLoader({ customerId }: { customerId: string }) {
+async function ShopBorrowedSectionLoader({
+  customerId,
+}: {
+  customerId: string;
+}) {
   const [customer, history, bankAccounts] = await Promise.all([
     getCustomer(customerId),
     getCustomerShopBorrowedHistory(customerId),

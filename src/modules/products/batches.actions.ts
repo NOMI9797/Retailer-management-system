@@ -6,6 +6,7 @@ import { getCurrentShopId } from "@/lib/tenant";
 import { serializeDecimals } from "@/lib/serialize";
 import { grainBatchSchema, updateGrainBatchSchema, type GrainBatchInput, type UpdateGrainBatchInput } from "./schema";
 import { postToPooledGrainStock } from "@/modules/stock/actions";
+import { coverStockUdhaarFromBatch } from "@/modules/stock/grainFifo";
 import { ok, fail, type ActionResult } from "@/lib/actionResult";
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -63,6 +64,8 @@ export async function createGrainBatch(
     if (data.rate !== undefined) {
       await postToPooledGrainStock(tx, data.productId, data.quantityIn, data.quantityIn * data.rate);
     }
+    // New own grain first gives back any Stock Udhaar still owed.
+    if (!data.ownerCustomerId) await coverStockUdhaarFromBatch(tx, data.productId, batch.id);
     return batch;
   });
   return ok(serializeDecimals(batch));
@@ -112,7 +115,19 @@ export async function deleteGrainBatch(id: string): Promise<ActionResult<null>> 
     return fail("Some of this deposit has already been settled or sold — it can't be deleted until that's resolved.");
   }
 
-  await db.grainBatch.delete({ where: { id } });
+  // Stock Udhaar history left by sales that were since reversed (each
+  // growth entry cancelled by its compensating one) still points at
+  // this batch; nothing is owed, so it goes with the deposit.
+  const entries = await db.stockUdhaarEntry.findMany({ where: { grainBatchId: id } });
+  const net = entries.reduce((sum, e) => sum + Number(e.quantity), 0);
+  if (Math.abs(net) > 0.0001) {
+    return fail("This deposit still has Stock Udhaar outstanding — it can't be deleted until that's settled.");
+  }
+
+  await db.$transaction([
+    db.stockUdhaarEntry.deleteMany({ where: { grainBatchId: id } }),
+    db.grainBatch.delete({ where: { id } }),
+  ]);
   return ok(null);
 }
 

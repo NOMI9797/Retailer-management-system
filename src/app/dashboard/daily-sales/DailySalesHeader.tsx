@@ -5,7 +5,7 @@ export function DailySalesHeader() {
     <div className="page-head">
       <div>
         <h1>Daily sales</h1>
-        <p>The day&apos;s money in (credit) and money out (debit), side by side.</p>
+        <p>The day&apos;s money in (credit) and money out (debit).</p>
       </div>
       <Link href="/dashboard/daily-sales/new" className="btn btn-primary">
         <svg className="icon" viewBox="0 0 24 24" strokeWidth={2}>

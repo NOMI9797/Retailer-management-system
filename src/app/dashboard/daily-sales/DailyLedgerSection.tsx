@@ -2,13 +2,13 @@ import { listDailyLedger } from "@/modules/ledger/actions";
 import { listProducts } from "@/modules/products/actions";
 import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { formatMoney } from "@/lib/utils";
-import { DailyLedgerColumns } from "./DailyLedgerColumns";
+import { DailyLedgerRecords } from "./DailyLedgerRecords";
 import type { DailySalesSearchParams } from "./searchParamsHref";
 
 // Server side of the Daily sales page's Credit/Debit view: fetches the
 // picked day's ledger (today by default) plus the product and bank-account
 // lists EditSaleModal needs, shows the day's totals, and hands the rows
-// to DailyLedgerColumns.
+// to DailyLedgerRecords.
 export async function DailyLedgerSection({ searchParams }: { searchParams: DailySalesSearchParams }) {
   const [ledger, simpleProducts, grainProducts, bankAccounts] = await Promise.all([
     listDailyLedger({
@@ -45,11 +45,9 @@ export async function DailyLedgerSection({ searchParams }: { searchParams: Daily
         </div>
       </div>
 
-      <DailyLedgerColumns
+      <DailyLedgerRecords
         credit={ledger.credit}
         debit={ledger.debit}
-        creditTotal={ledger.creditTotal}
-        debitTotal={ledger.debitTotal}
         products={[...simpleProducts.products, ...grainProducts.products]}
         bankAccounts={bankAccounts}
       />

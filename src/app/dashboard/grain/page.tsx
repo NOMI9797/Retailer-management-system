@@ -3,6 +3,8 @@ import { listProducts } from "@/modules/products/actions";
 import { listAreas } from "@/modules/settings/areas.actions";
 import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { AddBatchModal } from "@/modules/products/components/AddBatchModal";
+import { GrainLoanModal } from "@/modules/grain-loans/components/GrainLoanModal";
+import { listDealers } from "@/modules/dealers/actions";
 import { GrainPageHeader } from "./GrainPageHeader";
 import { GrainStockList } from "./GrainStockList";
 import { GrainUdhaarSection } from "./GrainUdhaarSection";
@@ -44,9 +46,12 @@ export default async function GrainPage({
     tab === "grain"
       ? (products.find((p) => p.id === params.product) ?? products[0])?.id
       : undefined;
-  const [areas, bankAccounts] = activeProductId
-    ? await Promise.all([listAreas(), listBankAccounts()])
-    : [[], []];
+  const [areas, bankAccounts, dealers] = activeProductId
+    ? await Promise.all([listAreas(), listBankAccounts(), listDealers({ type: "GRAIN" })])
+    : [[], [], []];
+  const activeUnit = activeProductId
+    ? grainProducts.products.find((p) => p.id === activeProductId)?.unit.name
+    : undefined;
 
   return (
     <div>
@@ -55,11 +60,19 @@ export default async function GrainPage({
         products={products}
         tabAction={
           activeProductId && (
-            <AddBatchModal
-              productId={activeProductId}
-              areas={areas}
-              bankAccounts={bankAccounts}
-            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <GrainLoanModal
+                productId={activeProductId}
+                unitName={activeUnit}
+                areas={areas}
+                dealers={dealers.map((d) => ({ id: d.id, name: d.name }))}
+              />
+              <AddBatchModal
+                productId={activeProductId}
+                areas={areas}
+                bankAccounts={bankAccounts}
+              />
+            </div>
           )
         }
       />

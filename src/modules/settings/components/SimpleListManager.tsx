@@ -50,7 +50,7 @@ export function SimpleListManager<T extends SimpleListItem>({
   const [isSaving, setIsSaving] = useState(false);
   // Which item's Delete button is in the "Confirm?" state — only ever
   // one at a time, same reasoning DeleteExpenseButton/
-  // DeleteSaleButton use a local confirming flag instead of a native
+  // SaleVisitActions use a local confirming flag instead of a native
   // confirm() dialog.
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);

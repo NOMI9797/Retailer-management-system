@@ -6,6 +6,8 @@ import type {
 import { StockSummary } from "./StockSummary";
 import { GrainLedgerTabs } from "./GrainLedgerTabs";
 import { GrainNameSearch } from "./GrainNameSearch";
+import type { GrainLoanRow } from "@/modules/grain-loans/actions";
+import type { LoanOptions } from "./GrainLedgerTabs";
 
 type GrainProduct = {
   id: string;
@@ -35,12 +37,16 @@ export function GrainBatchList({
   customerBatches,
   overview,
   ledger,
+  loans,
+  loanOptions,
 }: {
   product: GrainProduct;
   batchCount: number;
   customerBatches: CustomerBatch[];
   overview: Overview;
   ledger: Awaited<ReturnType<typeof listGrainLedger>>;
+  loans: GrainLoanRow[];
+  loanOptions: LoanOptions;
 }) {
   const unit = product.unit.name;
 
@@ -59,6 +65,9 @@ export function GrainBatchList({
         customerClaim={overview.customerClaim}
         stockUdhaarOutstanding={overview.stockUdhaarOutstanding}
         pooled={overview.pooled}
+        stockValue={overview.ownValue}
+        lentOut={overview.lentOut}
+        borrowed={overview.borrowed}
         searchSlot={<GrainNameSearch />}
       />
 
@@ -66,6 +75,8 @@ export function GrainBatchList({
         ledger={ledger}
         customerBatches={customerBatches}
         unitName={unit}
+        loans={loans}
+        loanOptions={loanOptions}
       />
     </>
   );

@@ -5,6 +5,9 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { formatMoney, formatDate, matchesSearch } from "@/lib/utils";
 import { BuyFromCustomerModal } from "@/modules/stock/components/BuyFromCustomerModal";
+import { GrainLoanRecords } from "@/modules/grain-loans/components/GrainLoanRecords";
+import type { GrainLoanRow } from "@/modules/grain-loans/actions";
+import type { listAreas } from "@/modules/settings/areas.actions";
 import type {
   listGrainLedger,
   listCustomerBatchesForProduct,
@@ -14,6 +17,13 @@ type Ledger = Awaited<ReturnType<typeof listGrainLedger>>;
 type CustomerBatch = Awaited<
   ReturnType<typeof listCustomerBatchesForProduct>
 >[number];
+
+// What the Loans tab's edit / return forms need.
+export type LoanOptions = {
+  areas: Awaited<ReturnType<typeof listAreas>>;
+  dealers: { id: string; name: string }[];
+  bankAccounts: { id: string; name: string }[];
+};
 
 const PAY_CLASS = {
   cash: "pay-cash",
@@ -32,12 +42,16 @@ export function GrainLedgerTabs({
   ledger,
   customerBatches,
   unitName,
+  loans,
+  loanOptions,
 }: {
   ledger: Ledger;
   customerBatches: CustomerBatch[];
   unitName: string;
+  loans: GrainLoanRow[];
+  loanOptions: LoanOptions;
 }) {
-  const [tab, setTab] = useState<"CREDIT" | "DEBIT" | "UNSETTLED">("CREDIT");
+  const [tab, setTab] = useState<"CREDIT" | "DEBIT" | "UNSETTLED" | "LOANS">("CREDIT");
   // Name search across whichever tab is open (customer or dealer) —
   // typed into GrainNameSearch above the tabs, shared via ?name=.
   const search = useSearchParams().get("name") ?? "";
@@ -78,10 +92,25 @@ export function GrainLedgerTabs({
             Rate (not settled) (
             {customerBatches.filter((b) => b.unsettledQuantity > 0).length})
           </button>
+          <button
+            type="button"
+            className={`tab${tab === "LOANS" ? " active" : ""}`}
+            onClick={() => setTab("LOANS")}
+          >
+            Loans ({loans.filter((l) => l.outstanding > 0).length})
+          </button>
         </div>
       </div>
 
-      {tab === "UNSETTLED" ? (
+      {tab === "LOANS" ? (
+        <GrainLoanRecords
+          loans={loans.filter((l) => matchesSearch(search, l.party.name))}
+          areas={loanOptions.areas}
+          dealers={loanOptions.dealers}
+          bankAccounts={loanOptions.bankAccounts}
+          emptyText={search ? `No matches for "${search}".` : "No grain loans of this grain yet."}
+        />
+      ) : tab === "UNSETTLED" ? (
         <>
           <table>
             <thead>

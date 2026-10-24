@@ -7,7 +7,7 @@ import { showToast } from "@/components/shared/toastStore";
 
 // Generic delete for a plain AccountTransaction row (Udhaar Cleared/
 // Given on Purchase History, Shop Borrowed entries on Udhaar to Shop)
-// — same confirm-inline pattern as DeleteSaleButton
+// — same confirm-inline pattern as SaleVisitActions
 // (daily-sales/components), just pointed at deleteAccountTransaction
 // instead of deleteDailySale.
 export function DeleteAccountTransactionButton({ transactionId }: { transactionId: string }) {

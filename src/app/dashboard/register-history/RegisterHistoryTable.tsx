@@ -4,7 +4,7 @@ import type { RegisterHistorySearchParams } from "./searchParamsHref";
 
 // Server Component: does the actual per-navigation fetch and hands it
 // to RegisterHistoryList, the client leaf that owns Delete's confirm
-// state — same split DailyLedgerSection/DailyLedgerColumns follows.
+// state — same split DailyLedgerSection/DailyLedgerRecords follows.
 export async function RegisterHistoryTable({ searchParams }: { searchParams: RegisterHistorySearchParams }) {
   const entries = await listCashRegisterHistory({
     fromDate: searchParams.from,

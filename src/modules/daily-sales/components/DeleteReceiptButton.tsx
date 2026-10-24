@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { deleteReceipt } from "../actions";
 import { showToast } from "@/components/shared/toastStore";
 
-// Same confirm-inline pattern as DeleteSaleButton, pointed at
+// Same confirm-inline pattern as SaleVisitActions, pointed at
 // deleteReceipt (a single visit) instead of deleteDailySale (the
 // whole day) — any other same-day receipt is left untouched.
 export function DeleteReceiptButton({ dailySaleId, visitAt }: { dailySaleId: string; visitAt: Date }) {

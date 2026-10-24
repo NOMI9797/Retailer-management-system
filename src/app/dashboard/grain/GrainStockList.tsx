@@ -5,6 +5,10 @@ import {
   listGrainLedger,
 } from "@/modules/stock/actions";
 import { GrainBatchList } from "@/modules/products/components/GrainBatchList";
+import { listGrainLoans } from "@/modules/grain-loans/actions";
+import { listDealers } from "@/modules/dealers/actions";
+import { listAreas } from "@/modules/settings/areas.actions";
+import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import Link from "next/link";
 import type { GrainSearchParams } from "./searchParamsHref";
 
@@ -57,11 +61,15 @@ export async function GrainStockList({
   const activeProduct =
     products.find((p) => p.id === searchParams.product) ?? products[0];
 
-  const [summary, overview, customerBatches, ledger] = await Promise.all([
+  const [summary, overview, customerBatches, ledger, loans, areas, dealers, bankAccounts] = await Promise.all([
     getGrainStockSummary(activeProduct.id),
     getStockOverview(activeProduct.id),
     listCustomerBatchesForProduct(activeProduct.id),
     listGrainLedger(activeProduct.id),
+    listGrainLoans({ productId: activeProduct.id }),
+    listAreas(),
+    listDealers({ type: "GRAIN" }),
+    listBankAccounts(),
   ]);
 
   return (
@@ -72,6 +80,12 @@ export async function GrainStockList({
         customerBatches={customerBatches}
         overview={overview}
         ledger={ledger}
+        loans={loans}
+        loanOptions={{
+          areas,
+          dealers: dealers.map((d) => ({ id: d.id, name: d.name })),
+          bankAccounts,
+        }}
       />
     </>
   );

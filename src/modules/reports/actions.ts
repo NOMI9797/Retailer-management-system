@@ -88,13 +88,18 @@ export async function getPnlReport(input: ReportPeriodInput): Promise<PnlReport>
       // this exact code path picks up the correct cost automatically
       // on the next report pull, with no separate reconciliation step
       // — nothing about this query is a snapshot.
+      let allocated = 0;
       for (const alloc of item.batchAllocations) {
+        allocated += Number(alloc.quantity);
         if (alloc.grainBatch.rate === null) {
           hasUnknownCost = true;
         } else {
           cogs += Number(alloc.quantity) * Number(alloc.grainBatch.rate);
         }
       }
+      // Sold past stock (grain sales are never blocked) — that part
+      // drew from no batch, so its cost is unknown, not 0.
+      if (quantity - allocated > 0.0001) hasUnknownCost = true;
     }
   }
 

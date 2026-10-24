@@ -7,7 +7,7 @@ import { ReceiptsList } from "./ReceiptsList";
 // day's receipts, plus the product/bank-account lists EditReceiptModal
 // needs on open) and hands everything to ReceiptsList, the client leaf
 // that owns Edit/Delete's local state — same split DailyLedgerSection/
-// DailyLedgerColumns follow.
+// DailyLedgerRecords follow.
 export async function ReceiptsListSection({ date }: { date: string }) {
   const [receipts, simpleProducts, grainProducts, bankAccounts] = await Promise.all([
     listReceiptsForDate(date),

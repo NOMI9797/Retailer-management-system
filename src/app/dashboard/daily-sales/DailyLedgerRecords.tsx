@@ -3,10 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney, formatDate } from "@/lib/utils";
 import { showToast } from "@/components/shared/toastStore";
-import { EditSaleModal } from "@/modules/daily-sales/components/EditSaleModal";
-import { DeleteSaleButton } from "@/modules/daily-sales/components/DeleteSaleButton";
+import { SaleVisitActions } from "@/modules/daily-sales/components/SaleVisitActions";
 import { deleteBankAccountRow } from "@/modules/settings/bankAccounts.actions";
 import type { LedgerRow } from "@/modules/ledger/actions";
 import type { listProducts } from "@/modules/products/actions";
@@ -21,28 +20,26 @@ const PAYMENT_CLASS: Record<string, string> = {
   MIXED: "pay-mixed",
 };
 
-// The Daily sales page's two columns: money in (Credit) and money out
-// (Debit). Sale rows keep their own Edit/Delete; every other row can be
-// deleted through the same reversal the Bank Accounts history uses
-// (deleteBankAccountRow), and its full edit lives on its own page (the
-// name links there).
-export function DailyLedgerColumns({
+// The Daily sales page's Records, same layout as the Grain page's: one
+// panel with two tabs — Credit (money in) and Debit (money out) — each
+// a table of that side's entries. Sale rows keep their own Edit/Delete;
+// every other row can be deleted through the same reversal the Bank
+// Accounts history uses (deleteBankAccountRow), and its full edit lives
+// on its own page (the name links there). The open tab is local UI
+// state; rows come from the page's server fetch.
+export function DailyLedgerRecords({
   credit,
   debit,
-  creditTotal,
-  debitTotal,
   products,
   bankAccounts,
 }: {
   credit: LedgerRow[];
   debit: LedgerRow[];
-  creditTotal: number;
-  debitTotal: number;
   products: Product[];
   bankAccounts: { id: string; name: string }[];
 }) {
   const router = useRouter();
-  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"CREDIT" | "DEBIT">("CREDIT");
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -63,32 +60,62 @@ export function DailyLedgerColumns({
     }
   }
 
-  function column(title: string, rows: LedgerRow[], total: number, side: "CREDIT" | "DEBIT") {
-    const amountColor = side === "CREDIT" ? "var(--primary-600)" : "var(--consigned-600)";
+  const rows = tab === "CREDIT" ? credit : debit;
+  const amountColor = tab === "CREDIT" ? "var(--primary-600)" : "var(--consigned-600)";
 
-    return (
-      <section className="panel ledger-column">
-        <div className="ledger-column-head">
-          <h2>{title}</h2>
-          <span style={{ color: amountColor }}>{formatMoney(total)}</span>
+  return (
+    <>
+      <section className="panel">
+        <div className="grain-table-head" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+          <h3>Records</h3>
+          <div className="tabs" style={{ margin: 0, borderBottom: "none" }}>
+            <button
+              type="button"
+              className={`tab${tab === "CREDIT" ? " active" : ""}`}
+              onClick={() => setTab("CREDIT")}
+            >
+              Credit — money in ({credit.length})
+            </button>
+            <button
+              type="button"
+              className={`tab${tab === "DEBIT" ? " active" : ""}`}
+              onClick={() => setTab("DEBIT")}
+            >
+              Debit — money out ({debit.length})
+            </button>
+          </div>
         </div>
+
         <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Name</th>
+              <th>Entry</th>
+              <th>Details</th>
+              <th style={{ textAlign: "right" }}>Amount</th>
+              <th>Payment</th>
+              <th></th>
+            </tr>
+          </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr className="empty-row">
-                <td colSpan={4}>Nothing recorded for this day.</td>
+                <td colSpan={7}>Nothing recorded for this day.</td>
               </tr>
             ) : (
               rows.map((row) => (
                 <tr key={row.id}>
+                  <td>{formatDate(row.date)}</td>
                   <td>
-                    <Link href={row.counterpartyHref} style={{ fontWeight: 500, color: "inherit" }}>
+                    <Link href={row.counterpartyHref} className="name-link">
                       {row.counterpartyName}
                     </Link>
-                    <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
-                      {row.label}
-                      {row.detail && ` · ${row.detail}`}
-                    </div>
+                  </td>
+                  <td>{row.label}</td>
+                  <td style={{ color: "var(--ink-muted)", fontSize: 13 }}>{row.detail ?? ""}</td>
+                  <td className="num" style={{ textAlign: "right", fontWeight: 600, color: amountColor }}>
+                    {formatMoney(row.amount)}
                   </td>
                   <td>
                     {row.paymentMethod && (
@@ -97,20 +124,15 @@ export function DailyLedgerColumns({
                       </span>
                     )}
                   </td>
-                  <td className="num" style={{ textAlign: "right", fontWeight: 600, color: amountColor }}>
-                    {formatMoney(row.amount)}
-                  </td>
                   <td style={{ textAlign: "right" }}>
                     <div className="row-actions" style={{ justifyContent: "flex-end" }}>
-                      {row.saleId ? (
-                        <>
-                          <button className="icon-btn" onClick={() => setEditingSaleId(row.saleId)} title="Edit">
-                            <svg className="icon" viewBox="0 0 24 24">
-                              <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />
-                            </svg>
-                          </button>
-                          <DeleteSaleButton saleId={row.saleId} />
-                        </>
+                      {row.saleId && row.visitAt ? (
+                        <SaleVisitActions
+                          dailySaleId={row.saleId}
+                          visitAt={row.visitAt}
+                          products={products}
+                          bankAccounts={bankAccounts}
+                        />
                       ) : row.deleteRef && confirmingId === row.id ? (
                         <>
                           <button className="btn btn-primary" onClick={() => handleDelete(row)} disabled={isDeleting}>
@@ -135,24 +157,7 @@ export function DailyLedgerColumns({
           </tbody>
         </table>
       </section>
-    );
-  }
 
-  return (
-    <>
-      <div className="ledger-columns">
-        {column("Daily Credit", credit, creditTotal, "CREDIT")}
-        {column("Daily Debit", debit, debitTotal, "DEBIT")}
-      </div>
-
-      {editingSaleId && (
-        <EditSaleModal
-          saleId={editingSaleId}
-          products={products}
-          bankAccounts={bankAccounts}
-          onClose={() => setEditingSaleId(null)}
-        />
-      )}
     </>
   );
 }

@@ -17,6 +17,9 @@ export function StockSummary({
   customerClaim,
   stockUdhaarOutstanding,
   pooled,
+  stockValue,
+  lentOut,
+  borrowed,
   searchSlot,
 }: {
   totalRemaining: number;
@@ -25,6 +28,11 @@ export function StockSummary({
   customerClaim: number;
   stockUdhaarOutstanding: number;
   pooled: { quantity: number; isProfit: boolean; displayValue: number };
+  // Value of the shop's own grain on hand, at the rates it was bought at.
+  stockValue: number;
+  // Grain loans still to come back to the shop / still to give back.
+  lentOut: number;
+  borrowed: number;
   // Shown in the grid's free cell under Stock Udhaar (the Grain page's
   // name search).
   searchSlot?: React.ReactNode;
@@ -62,9 +70,19 @@ export function StockSummary({
         </p>
       </div>
       <div className="stat-card">
-        <p className="stat-label">{pooled.isProfit ? "Profit" : "Stock value"}</p>
-        <p className={`stat-value${pooled.isProfit ? " tone-primary" : ""}`}>
-          Rs {pooled.displayValue.toLocaleString()}
+        <p className="stat-label">Stock value</p>
+        <p className="stat-value">Rs {stockValue.toLocaleString()}</p>
+      </div>
+      <div className="stat-card">
+        <p className="stat-label">Lent out (loans)</p>
+        <p className={`stat-value${lentOut ? " tone-grain" : ""}`}>
+          {lentOut} {unitName}
+        </p>
+      </div>
+      <div className="stat-card">
+        <p className="stat-label">Borrowed (loans)</p>
+        <p className={`stat-value${borrowed ? " tone-consigned" : ""}`}>
+          {borrowed} {unitName}
         </p>
       </div>
       {searchSlot && <div className="grain-search-cell">{searchSlot}</div>}

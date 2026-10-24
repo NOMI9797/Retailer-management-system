@@ -4,6 +4,9 @@ import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { formatMoney, formatDate } from "@/lib/utils";
 import { PayDealerDebtModal } from "@/modules/dealers/components/PayDealerDebtModal";
 import { DealerUdhaarModal } from "@/modules/dealers/components/DealerUdhaarModal";
+import { listGrainLoans } from "@/modules/grain-loans/actions";
+import { GrainLoansPanel } from "@/modules/grain-loans/components/GrainLoansPanel";
+import { listProducts } from "@/modules/products/actions";
 import {
   buildDealerDetailHref,
   type DealerDetailSearchParams,
@@ -12,6 +15,7 @@ import {
 const TAB_LABELS = {
   purchases: "Purchases & sales",
   "udhaar-history": "Udhaar history",
+  "grain-loans": "Grain loans",
 } as const;
 type Tab = keyof typeof TAB_LABELS;
 
@@ -32,10 +36,15 @@ export default async function DealerDetailPage({
 }) {
   const { id } = await params;
   const { tab: rawTab } = await searchParams;
-  const tab: Tab = rawTab === "udhaar-history" ? "udhaar-history" : "purchases";
-  const [dealerResult, bankAccounts] = await Promise.all([
+  const tab: Tab =
+    rawTab === "udhaar-history" || rawTab === "grain-loans" ? rawTab : "purchases";
+  const [dealerResult, bankAccounts, loans, grainProducts] = await Promise.all([
     getDealer(id),
     listBankAccounts(),
+    tab === "grain-loans" ? listGrainLoans({ dealerId: id }) : Promise.resolve([]),
+    tab === "grain-loans"
+      ? listProducts({ stockKind: "GRAIN", pageSize: 500 })
+      : Promise.resolve({ products: [] }),
   ]);
 
   if (!dealerResult.success) {
@@ -247,6 +256,13 @@ export default async function DealerDetailPage({
             </tbody>
           </table>
         </div>
+      ) : tab === "grain-loans" ? (
+        <GrainLoansPanel
+          party={{ kind: "DEALER", id: dealer.id, name: dealer.name }}
+          loans={loans}
+          products={grainProducts.products.map((p) => ({ id: p.id, name: p.name }))}
+          bankAccounts={bankAccounts}
+        />
       ) : (
         <div className="panel">
           <table>

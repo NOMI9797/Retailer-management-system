@@ -6,7 +6,7 @@ import type { BankAccountsSearchParams } from "./searchParamsHref";
 // feed across every table that carries a bankAccountId — see
 // listBankAccountTransactions) and hands it to
 // BankAccountTransactionsList, the client leaf that owns Delete's
-// confirm state — same split DailyLedgerSection/DailyLedgerColumns
+// confirm state — same split DailyLedgerSection/DailyLedgerRecords
 // follows.
 export async function BankAccountTransactionsTable({ searchParams }: { searchParams: BankAccountsSearchParams }) {
   const page = searchParams.page ? Number(searchParams.page) : 1;

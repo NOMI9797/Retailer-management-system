@@ -7,6 +7,7 @@ import { cachedShopQuery, invalidateShopCache } from "@/lib/cache";
 import { parseLocalDateStart, parseLocalDateEnd } from "@/lib/utils";
 import { postToBankAccount } from "@/modules/settings/bankAccounts.actions";
 import { postToPooledGrainStock } from "@/modules/stock/actions";
+import { coverStockUdhaarFromBatch } from "@/modules/stock/grainFifo";
 import {
   dealerSchema,
   updateDealerSchema,
@@ -623,6 +624,8 @@ export async function createDealerGrainPurchase(input: DealerGrainPurchaseInput)
 
     // Real, priced purchase from a dealer — pool gains what was paid.
     await postToPooledGrainStock(tx, data.productId, data.quantity, amount);
+    // New own grain first gives back any Stock Udhaar still owed.
+    await coverStockUdhaarFromBatch(tx, data.productId, created.id);
 
     return created;
   });

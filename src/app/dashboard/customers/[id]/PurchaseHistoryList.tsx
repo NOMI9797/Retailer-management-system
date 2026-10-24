@@ -2,8 +2,7 @@
 
 import { Fragment, useState } from "react";
 import { formatMoney, formatDate } from "@/lib/utils";
-import { EditSaleModal } from "@/modules/daily-sales/components/EditSaleModal";
-import { DeleteSaleButton } from "@/modules/daily-sales/components/DeleteSaleButton";
+import { SaleVisitActions } from "@/modules/daily-sales/components/SaleVisitActions";
 import { EditAccountTransactionModal } from "@/modules/customers/components/EditAccountTransactionModal";
 import { DeleteAccountTransactionButton } from "@/modules/customers/components/DeleteAccountTransactionButton";
 import { EditGrainSettlementModal } from "@/modules/stock/components/EditGrainSettlementModal";
@@ -56,7 +55,6 @@ function paymentLabel(method: string) {
 // on its first item. Edit/Delete act on the whole visit (not a single
 // item), so they only appear once, on that visit's last item row.
 export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sales: Sale[]; products: Product[]; bankAccounts?: { id: string; name: string }[] }) {
-  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
   // A grain purchase from the customer — edited through the same
   // settlement edit the Grain tab uses (it also moves stock).
   const [editingGrain, setEditingGrain] = useState<Extract<Sale, { kind: "SHOP_GRAIN" }> | null>(null);
@@ -268,16 +266,12 @@ export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sa
                           <td>
                             {isLastItemInVisit && (
                               <div className="row-actions">
-                                <button
-                                  className="icon-btn"
-                                  onClick={() => setEditingSaleId(entry.id)}
-                                  title="Edit"
-                                >
-                                  <svg className="icon" viewBox="0 0 24 24">
-                                    <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />
-                                  </svg>
-                                </button>
-                                <DeleteSaleButton saleId={entry.id} />
+                                <SaleVisitActions
+                                  dailySaleId={entry.id}
+                                  visitAt={visit.visitAt}
+                                  products={products}
+                                  bankAccounts={bankAccounts}
+                                />
                               </div>
                             )}
                           </td>
@@ -292,9 +286,6 @@ export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sa
         </table>
       </div>
 
-      {editingSaleId && (
-        <EditSaleModal saleId={editingSaleId} products={products} bankAccounts={bankAccounts} onClose={() => setEditingSaleId(null)} />
-      )}
       {editingGrain && (
         <EditGrainSettlementModal
           accountTransactionId={editingGrain.id}

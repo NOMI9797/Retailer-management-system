@@ -14,6 +14,7 @@ import {
   type DepositWithSettlementInput,
   type UpdateGrainSettlementInput,
 } from "./schema";
+import { coverStockUdhaarFromBatch } from "./grainFifo";
 
 type Result<T> = { success: true; data: T } | { success: false; error: string };
 
@@ -57,7 +58,9 @@ export async function getPooledGrainStock(productId: string) {
   const product = await db.product.findFirst({ where: { id: productId, shopId } });
   if (!product) throw new Error("Product not found");
 
-  const quantity = Number(product.pooledStockQuantity);
+  // Selling past stock can push the stored quantity below 0 (kept
+  // raw so edits/deletes reverse exactly) — shown as 0, like SIMPLE stock.
+  const quantity = Math.max(Number(product.pooledStockQuantity), 0);
   const value = Number(product.pooledStockValue);
 
   return value < 0
@@ -374,6 +377,8 @@ export async function createDepositWithSettlement(
     // Real, priced purchase (settle-now at drop-off) — pool gains
     // what was paid, same as createTransferPurchase above.
     await postToPooledGrainStock(tx, data.productId, data.quantity, data.quantity * data.rate);
+    // New own grain first gives back any Stock Udhaar still owed.
+    await coverStockUdhaarFromBatch(tx, data.productId, newShopBatch.id);
 
     return {
       success: true,
@@ -972,6 +977,7 @@ export async function getStockOverview(productId: string) {
   const batches = await db.grainBatch.findMany({ where: { productId } });
 
   let ownAvailable = 0;
+  let ownValue = 0;
   let customerClaim = 0;
   let totalPhysical = 0;
   for (const batch of batches) {
@@ -979,31 +985,29 @@ export async function getStockOverview(productId: string) {
     const quantitySold = Number(batch.quantitySold);
     const quantityTransferred = Number(batch.quantityTransferred);
 
-    // A customer batch's quantityTransferred portion physically stays
-    // on the shelf, but it's now counted in the NEW shop-owned batch a
-    // transfer-purchase created (see createTransferPurchase) — so it
-    // must be subtracted here too, or it gets counted twice: once on
-    // this row (still part of quantityIn) and once on the new batch's
-    // row. BUT quantitySold and quantityTransferred are not two
-    // independent departures that both remove grain from this batch —
-    // per GrainBatch.quantityTransferred's schema comment, buying
-    // ALREADY-SOLD grain via a transfer-purchase (settling a Stock
-    // Udhaar shortfall) increments quantityTransferred for grain that
-    // left the shelf via quantitySold, not a second time. Subtracting
-    // both in full double-counts that overlap and can even drive
-    // `available` negative. Only the portion of quantityTransferred
-    // that exceeds quantitySold represents grain genuinely still on
-    // the shelf being moved into a new batch — that's the only part
-    // that should reduce this row's own physical count a second time.
-    // Shop-owned batches never have quantityTransferred set (it's
-    // always 0), so this is a no-op for them.
-    const transferredBeyondSold = Math.max(quantityTransferred - quantitySold, 0);
-    const available = quantityIn - quantitySold - transferredBeyondSold;
-    totalPhysical += available;
     if (batch.ownerCustomerId) {
+      // A customer batch's quantityTransferred portion was bought by
+      // the shop and now lives in a NEW shop-owned batch (see
+      // createTransferPurchase), so it's counted there, not here; and
+      // quantitySold (grain sold from this deposit — Stock Udhaar) has
+      // left the shelf. What's physically still here is what's left
+      // after both — the same figure the sale FIFO uses
+      // (drawGrainFifo). It can dip below 0 when the shop bought grain
+      // that had already been sold: the new shop batch then holds that
+      // already-gone quantity, and the negative here cancels it out.
+      const remaining = quantityIn - quantitySold - quantityTransferred;
+      totalPhysical += remaining;
+      if (remaining < 0) ownAvailable += remaining;
+      // The customer's ownership claim, whatever has physically moved.
       customerClaim += quantityIn - quantityTransferred;
     } else {
+      const available = quantityIn - quantitySold;
+      totalPhysical += available;
       ownAvailable += available;
+      // What the grain the shop owns is worth: each own batch's
+      // remaining quantity at the rate it was bought at (an own batch
+      // always has a rate). Never negative, unlike the pooled value.
+      ownValue += Math.max(available, 0) * Number(batch.rate ?? 0);
     }
   }
 
@@ -1022,7 +1026,43 @@ export async function getStockOverview(productId: string) {
   // comment for the full semantics).
   const pooled = await getPooledGrainStock(productId);
 
-  return { ownAvailable, customerClaim, totalPhysical, stockUdhaarOutstanding, moneyOwedToCustomers, pooled };
+  // Grain loans still outstanding — what parties owe back to the shop
+  // (lent out) and what the shop owes back (borrowed), each at the
+  // loan's agreed rate.
+  const loans = await db.grainLoan.findMany({ where: { shopId, productId }, include: { returns: true } });
+  let lentOut = 0;
+  let lentOutValue = 0;
+  let borrowed = 0;
+  let borrowedValue = 0;
+  for (const loan of loans) {
+    const given = loan.returns.reduce((s, r) => s + Number(r.quantityReturned) + Number(r.quantityPaid), 0);
+    const outstanding = Math.max(Number(loan.quantity) - given, 0);
+    if (loan.direction === "SHOP_LENT") {
+      lentOut += outstanding;
+      lentOutValue += outstanding * Number(loan.rate);
+    } else {
+      borrowed += outstanding;
+      borrowedValue += outstanding * Number(loan.rate);
+    }
+  }
+  const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+  return {
+    // What the shop OWNS, not just what's on its shelf: its own grain
+    // on hand, plus grain it lent out (still the shop's, coming back),
+    // minus grain it borrowed (on the shelf, but someone else's). Shown
+    // below 0 when the shop has sold borrowed grain it still owes; the
+    // next grain that comes in has that shortfall taken off first.
+    ownAvailable: round3(ownAvailable + lentOut - borrowed),
+    ownValue: Math.round((ownValue + lentOutValue - borrowedValue) * 100) / 100,
+    lentOut: round3(lentOut),
+    borrowed: round3(borrowed),
+    customerClaim,
+    totalPhysical,
+    stockUdhaarOutstanding,
+    moneyOwedToCustomers,
+    pooled,
+  };
 }
 
 // One customer's grain — every batch they've deposited (with the

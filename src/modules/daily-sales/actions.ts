@@ -7,6 +7,7 @@ import { serializeDecimals } from "@/lib/serialize";
 import { parseLocalDateStart, parseLocalDateEnd, toLocalDateString } from "@/lib/utils";
 import { postToBankAccount } from "@/modules/settings/bankAccounts.actions";
 import { postToPooledGrainStock } from "@/modules/stock/actions";
+import { drawGrainFifo } from "@/modules/stock/grainFifo";
 import {
   createDailySaleSchema,
   updateDailySaleSchema,
@@ -93,29 +94,14 @@ async function applySaleItems(
         });
       }
     } else {
-      // Grain: deplete oldest-first across as many batches as
-      // needed. Manual batch selection is out of scope this
-      // milestone — always FIFO by receivedAt.
-      const batches = await tx.grainBatch.findMany({
-        where: { productId: product.id },
-        orderBy: { receivedAt: "asc" },
-        include: { ownerCustomer: true },
-      });
-
-      let remaining = item.quantity;
-      for (const batch of batches) {
-        if (remaining <= 0) break;
-        // A customer batch's quantityTransferred portion has already
-        // moved to a NEW shop-owned batch (see stock/actions.ts:
-        // createTransferPurchase) and must not be sold again from
-        // here — that stock is now that other batch's row to deplete.
-        // Always 0 for shop-owned batches, so this is a no-op there.
-        const available =
-          Number(batch.quantityIn) - Number(batch.quantitySold) - Number(batch.quantityTransferred);
-        if (available <= 0) continue;
-
-        const takeFromBatch = Math.min(available, remaining);
-
+      // Grain: the shop's own stock first, then customers' deposits,
+      // oldest batch first within each (shared with grain loans — see
+      // drawGrainFifo). Manual batch selection is out of scope.
+      await drawGrainFifo(tx, {
+        productId: product.id,
+        quantity: item.quantity,
+        stockUdhaarLink: { linkedSaleId: saleId, visitAt },
+        stockUdhaarNote: `Sold from ${product.name} deposit before settlement`,
         // Only a customer batch can ever be rate-less (a "store for
         // later" deposit still awaiting settlement — see
         // GrainBatch.rate's schema comment; a shop-owned batch always
@@ -133,57 +119,29 @@ async function applySaleItems(
         // item supplying an override), every past sale that already
         // drew from it becomes correctly costed automatically, since
         // getPnlReport reads the batch's rate live, not a snapshot.
-        if (batch.rate === null) {
+        beforeTake: async (batch) => {
+          if (batch.rate !== null) return;
           const override = item.batchRateOverrides?.[batch.id];
           if (override !== undefined) {
             await tx.grainBatch.update({ where: { id: batch.id }, data: { rate: override } });
           }
-        }
-
-        remaining -= takeFromBatch;
-
-        await tx.grainBatch.update({
-          where: { id: batch.id },
-          data: { quantitySold: { increment: takeFromBatch } },
-        });
-        await tx.dailySaleItemBatch.create({
-          data: { dailySaleItemId: saleItem.id, grainBatchId: batch.id, quantity: takeFromBatch },
-        });
-
-        if (batch.ownerCustomerId) {
-          // Selling from a customer's deposited batch BEFORE the
-          // shopkeeper has purchased/settled it with them (see Stock
-          // Management spec, "Stock Udhaar"). This must NOT reduce the
-          // customer's ownership claim (that's quantityTransferred,
-          // untouched here — only quantitySold, the physical count,
-          // moved above) and must NOT auto-pay them — payment only
-          // happens later via an explicit transfer-purchase
-          // (stock/actions.ts: createTransferPurchase). Instead this
-          // grows a tracked, auditable shortfall the shopkeeper still
-          // owes the customer in STOCK, not money.
-          await tx.stockUdhaarEntry.create({
-            data: {
-              customerId: batch.ownerCustomerId,
-              productId: product.id,
-              grainBatchId: batch.id,
-              quantity: takeFromBatch,
-              linkedSaleId: saleId,
-              visitAt,
-              notes: `Sold from ${product.name} deposit before settlement`,
-            },
+        },
+        onTake: async (grainBatchId, quantity) => {
+          await tx.dailySaleItemBatch.create({
+            data: { dailySaleItemId: saleItem.id, grainBatchId, quantity },
           });
-        }
-      }
+        },
+      });
 
-      if (remaining > 0) {
-        return { success: false, error: `Not enough grain stock for ${product.name} (short by ${remaining})` };
-      }
+      // A grain sale is never blocked by stock (same as SIMPLE): any
+      // quantity drawGrainFifo couldn't cover is just sold —
+      // it draws from no batch, so it has no batch allocation (an
+      // edit/delete only puts back what the batches gave) and no cost.
 
       // Pooled stock: deduct the quantity sold and the full sale
       // REVENUE (not cost — deliberate, see postToPooledGrainStock's
       // comment), regardless of how many batches the FIFO loop above
-      // actually drew from. The quantity guard above (physical
-      // availability) already ran, so this never needs its own check.
+      // actually drew from.
       await postToPooledGrainStock(tx, product.id, -item.quantity, -(item.actualPrice * item.quantity));
     }
 
@@ -191,6 +149,33 @@ async function applySaleItems(
   }
 
   return { success: true, data: { itemTotal, grainItems } };
+}
+
+// Cancels the Stock Udhaar a sale (or one visit of it) still has
+// outstanding, with compensating entries — never deletes (see
+// reverseSaleContents). Cancels the NET per depositor and batch, not
+// every growth entry: a sale's growth may already have been cancelled
+// once (an edit, or one of its visits deleted), and cancelling it again
+// would leave the depositor with a phantom negative shortfall.
+async function reverseSaleStockUdhaar(
+  tx: Prisma.TransactionClient,
+  link: { linkedSaleId: string; visitAt?: Date },
+  notes: string
+) {
+  const entries = await tx.stockUdhaarEntry.findMany({ where: link });
+  const net = new Map<string, { customerId: string; productId: string; grainBatchId: string; quantity: number }>();
+  for (const e of entries) {
+    const key = `${e.customerId}:${e.grainBatchId}`;
+    const cur = net.get(key) ?? { customerId: e.customerId, productId: e.productId, grainBatchId: e.grainBatchId, quantity: 0 };
+    cur.quantity += Number(e.quantity);
+    net.set(key, cur);
+  }
+  for (const e of net.values()) {
+    if (e.quantity <= 0.0001) continue;
+    await tx.stockUdhaarEntry.create({
+      data: { ...e, quantity: -Math.round(e.quantity * 1000) / 1000, ...link, notes },
+    });
+  }
 }
 
 // The BUYER side: validates the Cash/Account/Credit split sums to the
@@ -473,21 +458,7 @@ async function reverseSaleContents(
   // ledger show a phantom negative shortfall. Inserting the exact
   // negation instead preserves full history and always nets correctly
   // regardless of what settled in between.
-  const stockUdhaarGrowthEntries = await tx.stockUdhaarEntry.findMany({
-    where: { linkedSaleId: saleId, quantity: { gt: 0 } },
-  });
-  for (const entry of stockUdhaarGrowthEntries) {
-    await tx.stockUdhaarEntry.create({
-      data: {
-        customerId: entry.customerId,
-        productId: entry.productId,
-        grainBatchId: entry.grainBatchId,
-        quantity: -Number(entry.quantity),
-        linkedSaleId: saleId,
-        notes: "Reversed — sale edited/deleted",
-      },
-    });
-  }
+  await reverseSaleStockUdhaar(tx, { linkedSaleId: saleId }, "Reversed — sale edited/deleted");
 
   const itemIds = sale.items.map((i) => i.id);
 
@@ -651,22 +622,7 @@ async function reverseVisitContents(
   }
   await tx.dailySalePayment.deleteMany({ where: { dailySaleId, visitAt } });
 
-  const stockUdhaarGrowthEntries = await tx.stockUdhaarEntry.findMany({
-    where: { linkedSaleId: dailySaleId, visitAt, quantity: { gt: 0 } },
-  });
-  for (const entry of stockUdhaarGrowthEntries) {
-    await tx.stockUdhaarEntry.create({
-      data: {
-        customerId: entry.customerId,
-        productId: entry.productId,
-        grainBatchId: entry.grainBatchId,
-        quantity: -Number(entry.quantity),
-        linkedSaleId: dailySaleId,
-        visitAt,
-        notes: "Reversed — receipt edited/deleted",
-      },
-    });
-  }
+  await reverseSaleStockUdhaar(tx, { linkedSaleId: dailySaleId, visitAt }, "Reversed — receipt edited/deleted");
 
   const itemIds = items.map((i) => i.id);
 
@@ -1049,6 +1005,30 @@ export async function deleteReceipt(
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : "Failed to delete receipt" };
   }
+}
+
+// Deletes ONE visit of a sale — what every list's Delete on a sale row
+// means. A customer's same-day visits share one DailySale, so deleting
+// the whole DailySale (deleteDailySale) from a single row would also
+// wipe their other visits that day. When the sale has only this one
+// visit, it's deleted whole instead (same result, and it also covers
+// older sales whose ledger rows predate per-visit tracking).
+export async function deleteSaleVisit(
+  dailySaleId: string,
+  visitAt: Date
+): Promise<{ success: true; data: undefined } | { success: false; error: string }> {
+  const shopId = await getCurrentShopId();
+  const visits = await db.dailySaleItem.findMany({
+    where: { dailySaleId, dailySale: { shopId } },
+    select: { visitAt: true },
+    distinct: ["visitAt"],
+  });
+  if (visits.length === 0) return { success: false, error: "Sale not found" };
+  if (visits.length === 1) {
+    const result = await deleteDailySale(dailySaleId);
+    return "error" in result ? { success: false, error: result.error } : { success: true, data: undefined };
+  }
+  return deleteReceipt(dailySaleId, visitAt);
 }
 
 // The customer detail page's purchase history data source — every

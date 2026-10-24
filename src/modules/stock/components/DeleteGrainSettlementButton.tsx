@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { deleteGrainSettlement } from "../actions";
 import { showToast } from "@/components/shared/toastStore";
 
-// Same confirm-inline pattern as DeleteSaleButton/
+// Same confirm-inline pattern as SaleVisitActions/
 // DeleteAccountTransactionButton, pointed at deleteGrainSettlement.
 export function DeleteGrainSettlementButton({ accountTransactionId }: { accountTransactionId: string }) {
   const router = useRouter();

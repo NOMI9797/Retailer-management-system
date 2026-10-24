@@ -82,8 +82,25 @@ const DEALER_RECEIPT_FILTER = { isDealerSale: true as const, direction: "OUT" as
 // direction "IN" in the ledger but are real cash LEAVING the drawer,
 // not arriving (see each filter's comment). Only Cash counts here —
 // Account and Credit amounts are not physical cash.
+// Money paid on a grain loan return instead of giving the bags back
+// (see GrainLoanReturn): IN for grain the shop lent, OUT for grain it
+// borrowed.
+async function sumGrainLoanMoney(
+  shopId: string,
+  method: "CASH" | "ACCOUNT",
+  direction: "SHOP_LENT" | "SHOP_BORROWED",
+  start: Date,
+  end: Date
+) {
+  const result = await db.grainLoanReturn.aggregate({
+    where: { shopId, paymentMethod: method, returnDate: { gte: start, lte: end }, grainLoan: { direction } },
+    _sum: { amount: true },
+  });
+  return Number(result._sum.amount ?? 0);
+}
+
 async function sumCashIn(shopId: string, start: Date, end: Date) {
-  const [salesResult, repaymentsResult, shopBorrowedResult, dealerReceiptResult] = await Promise.all([
+  const [salesResult, repaymentsResult, shopBorrowedResult, dealerReceiptResult, grainLoanIn] = await Promise.all([
     db.dailySalePayment.aggregate({
       where: {
         paymentMethod: "CASH",
@@ -118,12 +135,14 @@ async function sumCashIn(shopId: string, start: Date, end: Date) {
       },
       _sum: { amount: true },
     }),
+    sumGrainLoanMoney(shopId, "CASH", "SHOP_LENT", start, end),
   ]);
   return (
     Number(salesResult._sum.amount ?? 0) +
     Number(repaymentsResult._sum.amount ?? 0) +
     Number(shopBorrowedResult._sum.amount ?? 0) +
-    Number(dealerReceiptResult._sum.amount ?? 0)
+    Number(dealerReceiptResult._sum.amount ?? 0) +
+    grainLoanIn
   );
 }
 
@@ -158,6 +177,7 @@ async function sumCashOut(shopId: string, start: Date, end: Date) {
     shopBorrowedRepaidResult,
     dealerPurchaseResult,
     dealerDebtRepaidResult,
+    grainLoanOut,
   ] = await Promise.all([
     db.expense.aggregate({
       where: { shopId, expenseType: "DAILY", paymentMethod: "CASH", expenseDate: { gte: start, lte: end } },
@@ -232,6 +252,7 @@ async function sumCashOut(shopId: string, start: Date, end: Date) {
       },
       _sum: { amount: true },
     }),
+    sumGrainLoanMoney(shopId, "CASH", "SHOP_BORROWED", start, end),
   ]);
   return (
     Number(dailyExpenseResult._sum.amount ?? 0) +
@@ -242,7 +263,8 @@ async function sumCashOut(shopId: string, start: Date, end: Date) {
     Number(longTermGivenResult._sum.amount ?? 0) +
     Number(shopBorrowedRepaidResult._sum.amount ?? 0) +
     Number(dealerPurchaseResult._sum.amount ?? 0) +
-    Number(dealerDebtRepaidResult._sum.amount ?? 0)
+    Number(dealerDebtRepaidResult._sum.amount ?? 0) +
+    grainLoanOut
   );
 }
 
@@ -282,7 +304,10 @@ async function sumSalePayments(shopId: string, method: "ACCOUNT" | "CREDIT", sta
     },
     _sum: { amount: true },
   });
-  return salesTotal + Number(repaymentsResult._sum.amount ?? 0) + Number(dealerReceiptsResult._sum.amount ?? 0);
+  const grainLoanIn = await sumGrainLoanMoney(shopId, "ACCOUNT", "SHOP_LENT", start, end);
+  return (
+    salesTotal + Number(repaymentsResult._sum.amount ?? 0) + Number(dealerReceiptsResult._sum.amount ?? 0) + grainLoanIn
+  );
 }
 
 // Same "fold in the equivalent transfer-purchase payouts" treatment
@@ -315,7 +340,8 @@ async function sumExpensesByMethod(shopId: string, method: "ACCOUNT" | "CREDIT",
     },
     _sum: { amount: true },
   });
-  return expenseTotal + Number(transferResult._sum.amount ?? 0);
+  const grainLoanOut = await sumGrainLoanMoney(shopId, "ACCOUNT", "SHOP_BORROWED", start, end);
+  return expenseTotal + Number(transferResult._sum.amount ?? 0) + grainLoanOut;
 }
 
 // That day's CREDIT-paid grain transfer-purchases only — money the
@@ -364,6 +390,8 @@ async function getCashFlowSourceBreakdown(shopId: string, start: Date, end: Date
     dealerPurchaseCash,
     dealerDebtRepaidCash,
     dealerReceiptCash,
+    grainLoanInCash,
+    grainLoanOutCash,
   ] = await Promise.all([
     db.dailySalePayment.aggregate({
       where: { paymentMethod: "CASH", dailySale: { shopId, saleDate: { gte: start, lte: end } } },
@@ -469,6 +497,8 @@ async function getCashFlowSourceBreakdown(shopId: string, start: Date, end: Date
       },
       _sum: { amount: true },
     }),
+    sumGrainLoanMoney(shopId, "CASH", "SHOP_LENT", start, end),
+    sumGrainLoanMoney(shopId, "CASH", "SHOP_BORROWED", start, end),
   ]);
 
   const n = (r: { _sum: { amount: unknown } }) => Number(r._sum.amount ?? 0);
@@ -493,13 +523,14 @@ async function getCashFlowSourceBreakdown(shopId: string, start: Date, end: Date
     out: n(dealerPurchaseCash) + n(dealerDebtRepaidCash),
   };
   const grain = {
-    in: 0,
+    // Bags of lent grain paid for in money instead of returned.
+    in: grainLoanInCash,
     // Transfer-purchase payouts (buying a customer's deposited grain)
     // and grain-debt payouts (paying off grain already settled on
     // Credit) — both money leaving for grain specifically, kept out of
     // the Customers section even though they post against a
     // CustomerAccount, since they're grain-stock events first.
-    out: n(transferPurchaseCash) + n(grainDebtCash),
+    out: n(transferPurchaseCash) + n(grainDebtCash) + grainLoanOutCash,
   };
 
   return { customers, expenses, dealers, grain };

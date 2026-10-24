@@ -8,8 +8,7 @@ import { EditGrainSettlementModal } from "./EditGrainSettlementModal";
 import { DeleteGrainSettlementButton } from "./DeleteGrainSettlementButton";
 import { EditGrainDepositModal } from "./EditGrainDepositModal";
 import { DeleteGrainDepositButton } from "./DeleteGrainDepositButton";
-import { EditSaleModal } from "@/modules/daily-sales/components/EditSaleModal";
-import { DeleteSaleButton } from "@/modules/daily-sales/components/DeleteSaleButton";
+import { SaleVisitActions } from "@/modules/daily-sales/components/SaleVisitActions";
 import { formatMoney, formatDate } from "@/lib/utils";
 import type { listProducts } from "@/modules/products/actions";
 
@@ -72,7 +71,7 @@ type Row =
       dailySaleItemId: string;
       // The parent sale — a credit-purchase row's edit/delete goes
       // through the same sale edit/delete every other sale uses (see
-      // EditSaleModal/DeleteSaleButton), since a DailySaleItem can't
+      // SaleVisitActions), since a DailySaleItem can't
       // be reversed independently of the DailySale it belongs to.
       dailySaleId: string;
       date: Date;
@@ -89,7 +88,7 @@ type Row =
 // A real <table>, matching the app's standard table pattern (see
 // DebtorTable.tsx) rather than CSS-grid rows. Rows are grouped into
 // date headers, same "insert a header row whenever the date changes"
-// pattern DailyLedgerColumns uses. Pure display; the data arrives as a
+// pattern DailyLedgerRecords uses. Pure display; the data arrives as a
 // prop from the Server Component page, same pattern as
 // CustomerAccountsList.
 //
@@ -153,7 +152,6 @@ export function CustomerGrainSection({
   const [activeProductId, setActiveProductId] = useState<string | null>(null);
   const [editingSettlement, setEditingSettlement] = useState<Extract<Row, { kind: "settlement" }> | null>(null);
   const [editingDeposit, setEditingDeposit] = useState<Extract<Row, { kind: "unsettled" }> | null>(null);
-  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
 
   // Per-product quantity rollup — how much of THIS product the
   // customer has deposited in total, how much of that has actually
@@ -446,12 +444,12 @@ export function CustomerGrainSection({
                           </td>
                           <td>
                             <div className="row-actions">
-                              <button className="icon-btn" onClick={() => setEditingSaleId(row.dailySaleId)} title="Edit">
-                                <svg className="icon" viewBox="0 0 24 24">
-                                  <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />
-                                </svg>
-                              </button>
-                              <DeleteSaleButton saleId={row.dailySaleId} />
+                              <SaleVisitActions
+                                dailySaleId={row.dailySaleId}
+                                visitAt={row.date}
+                                products={products}
+                                bankAccounts={bankAccounts}
+                              />
                             </div>
                           </td>
                         </>
@@ -482,14 +480,6 @@ export function CustomerGrainSection({
           initialQuantity={editingDeposit.quantity}
           unitName={editingDeposit.unitName}
           onClose={() => setEditingDeposit(null)}
-        />
-      )}
-      {editingSaleId && (
-        <EditSaleModal
-          saleId={editingSaleId}
-          products={products}
-          bankAccounts={bankAccounts}
-          onClose={() => setEditingSaleId(null)}
         />
       )}
     </>

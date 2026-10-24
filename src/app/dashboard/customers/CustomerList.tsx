@@ -13,7 +13,7 @@ type Area = Awaited<ReturnType<typeof listAreas>>[number];
 // Client leaf for the Customers list table — same split CustomerTable
 // (Server Component, does the listCustomers fetch) / this component
 // (interactive row actions) follows everywhere else in the app (see
-// DailyLedgerSection/DailyLedgerColumns). Edit reuses the exact same
+// DailyLedgerSection/DailyLedgerRecords). Edit reuses the exact same
 // EditCustomerModal/CustomerForm the customer detail page's own header
 // uses — one implementation of the edit flow, not a second copy here.
 export function CustomerList({

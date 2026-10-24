@@ -167,7 +167,11 @@ export async function CashFlowDayView({ date }: { date: string }) {
           />
           <SourceCard title="Expenses" cashOut={flow.sourceBreakdown.expenses.out} />
           <SourceCard title="Dealers" cashOut={flow.sourceBreakdown.dealers.out} />
-          <SourceCard title="Grain" cashOut={flow.sourceBreakdown.grain.out} />
+          <SourceCard
+            title="Grain"
+            cashIn={flow.sourceBreakdown.grain.in}
+            cashOut={flow.sourceBreakdown.grain.out}
+          />
         </div>
       </section>
 
