@@ -46,6 +46,8 @@ export const recordAccountTransactionSchema = z
     // "YYYY-MM-DD" — only meaningful on a loan given (direction OUT);
     // optional even then, since not every loan needs a formal due date.
     dueDate: z.string().optional(),
+    // Set by importLegacyUdhaar only (see AccountTransaction.reference).
+    reference: z.string().trim().optional(),
     notes: z.string().optional(),
     // Marks this posting as belonging to the Long-term Udhaar bucket
     // rather than Regular/Daily Udhaar — both share the same account/
@@ -77,6 +79,9 @@ export const updateAccountTransactionSchema = z
     paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
     bankAccountId: z.string().uuid().optional(),
     dueDate: z.string().optional(),
+    // Only applied to an OUT entry (Udhaar to Shop, or an imported
+    // balance), and never clears an existing one.
+    reference: z.string().trim().optional(),
     notes: z.string().optional(),
   })
   .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
@@ -84,6 +89,25 @@ export const updateAccountTransactionSchema = z
     path: ["bankAccountId"],
   });
 export type UpdateAccountTransactionInput = z.infer<typeof updateAccountTransactionSchema>;
+
+// One Udhaar payment from a customer, as a single total — the
+// shopkeeper never picks which entry it's for. It's spread over every
+// entry they owe (Regular, Grain, Long-term, imported), oldest first,
+// whenever balances are read (see debts/udhaarLedger.ts). Can't exceed
+// what they owe in total.
+export const recordCustomerUdhaarPaymentSchema = z
+  .object({
+    customerId: z.string().uuid(),
+    amount: z.number().positive("Amount must be positive"),
+    paymentMethod: z.enum(["CASH", "ACCOUNT"]),
+    bankAccountId: z.string().uuid().optional(),
+    notes: z.string().optional(),
+  })
+  .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
+    message: "Select which bank account this was paid through",
+    path: ["bankAccountId"],
+  });
+export type RecordCustomerUdhaarPaymentInput = z.infer<typeof recordCustomerUdhaarPaymentSchema>;
 
 // Long-term Udhaar's own creation form: amount plus a duration picked
 // from a fixed set of choices (days/months), rather than a free date
@@ -130,6 +154,9 @@ export const createShopBorrowedLoanSchema = z
     bankAccountId: z.string().uuid().optional(),
     durationValue: z.number().int().positive("Duration must be a positive whole number"),
     durationUnit: durationUnitSchema,
+    // Who/what this Udhaar to Shop came through — required, shown
+    // everywhere the entry is listed (see AccountTransaction.reference).
+    reference: z.string().trim().min(1, "Enter a reference"),
     notes: z.string().optional(),
   })
   .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
@@ -138,13 +165,14 @@ export const createShopBorrowedLoanSchema = z
   });
 export type CreateShopBorrowedLoanInput = z.infer<typeof createShopBorrowedLoanSchema>;
 
-// Paying a customer back for money the shop borrowed from them (see
-// createShopBorrowedLoanSchema) — CREDIT is deliberately not an
-// option, same reasoning as payGrainDebtSchema/payExpenseDebtSchema: a
-// repayment is never itself "not yet paid."
-export const payShopBorrowedLoanSchema = z
+// The shop paying a customer back, as one total — never per entry.
+// Spread over everything the shop owes them (borrowed money, grain
+// bought from them on Udhaar), oldest first, whenever balances are
+// read (debts/udhaarLedger.ts). CREDIT is deliberately not an option:
+// a repayment is never itself "not yet paid."
+export const payShopUdhaarSchema = z
   .object({
-    customerAccountId: z.string().uuid(),
+    customerId: z.string().uuid(),
     amount: z.number().positive("Amount must be positive"),
     paymentMethod: z.enum(["CASH", "ACCOUNT"]),
     bankAccountId: z.string().uuid().optional(),
@@ -154,7 +182,7 @@ export const payShopBorrowedLoanSchema = z
     message: "Select which bank account this was paid through",
     path: ["bankAccountId"],
   });
-export type PayShopBorrowedLoanInput = z.infer<typeof payShopBorrowedLoanSchema>;
+export type PayShopUdhaarInput = z.infer<typeof payShopUdhaarSchema>;
 
 // A legacy Udhaar balance carried over from the shopkeeper's paper
 // register, entered once while moving to this software — not a new
@@ -172,15 +200,18 @@ export type PayShopBorrowedLoanInput = z.infer<typeof payShopBorrowedLoanSchema>
 // SHOP (the new case: the shop owes the customer money — e.g. an
 // old, never-settled grain deposit or purchase from before this
 // software was in use — posted with isShopBorrowed: true instead,
-// the same bucket createShopBorrowedLoan/payShopBorrowedLoan already
+// the same bucket createShopBorrowedLoan/payShopUdhaar already
 // use, so it shows up on the exact same "Borrowed from Customers"
 // subtab and totals a real one does).
+// reference is required in both directions — every imported balance
+// records where it came from (see AccountTransaction.reference).
 export const importLegacyUdhaarSchema = z.object({
   customerId: z.string().uuid(),
   amount: z.number().positive("Amount must be positive"),
   sourceKind: z.enum(["PRODUCT", "GRAIN"]),
   owedBy: z.enum(["CUSTOMER", "SHOP"]).default("CUSTOMER"),
   recoveryDate: z.string().optional(),
+  reference: z.string().trim().min(1, "Enter a reference"),
   notes: z.string().optional(),
 });
 export type ImportLegacyUdhaarInput = z.infer<typeof importLegacyUdhaarSchema>;

@@ -65,7 +65,16 @@ export default async function CustomerDetailPage({
         <CustomerDetail id={id} />
       </Suspense>
 
-      <div className="tabs" style={{ marginTop: 24 }}>
+      {/* The customer's overall standing across every tab — purchases
+          on Udhaar, grain, and Udhaar to Shop — so it sits above the
+          tabs rather than inside any one of them. */}
+      <div style={{ marginTop: 24 }}>
+        <Suspense fallback={<PageLoader label="Loading totals…" />}>
+          <CustomerOverallStats customerId={id} />
+        </Suspense>
+      </div>
+
+      <div className="tabs" style={{ marginTop: 8 }}>
         {(Object.keys(TAB_LABELS) as Tab[]).map((t) => (
           <Link
             key={t}
@@ -96,8 +105,12 @@ export default async function CustomerDetailPage({
   );
 }
 
+async function CustomerOverallStats({ customerId }: { customerId: string }) {
+  return <CustomerRelationshipStats summary={await getCustomerRelationshipSummary(customerId)} />;
+}
+
 async function CustomerDetail({ id }: { id: string }) {
-  const [customer, areas] = await Promise.all([getCustomer(id), listAreas()]);
+  const [customer, areas, bankAccounts] = await Promise.all([getCustomer(id), listAreas(), listBankAccounts()]);
   const initial = customer.name.charAt(0).toUpperCase();
 
   return (
@@ -118,7 +131,7 @@ async function CustomerDetail({ id }: { id: string }) {
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <ImportUdhaarModal customerId={customer.id} />
+          <ImportUdhaarModal customerId={customer.id} customerName={customer.name} bankAccounts={bankAccounts} />
           <EditCustomerModal areas={areas} customer={customer} />
         </div>
       </div>
@@ -132,28 +145,24 @@ async function CustomerDetail({ id }: { id: string }) {
 // explicit "two distinct panels that must not be collapsed into one"
 // requirement.
 async function PurchaseHistorySection({ customerId }: { customerId: string }) {
-  const [sales, categories, units, simpleProducts, grainProducts, bankAccounts, summary] = await Promise.all([
+  const [sales, categories, units, simpleProducts, grainProducts, bankAccounts] = await Promise.all([
     getCustomerPurchaseHistory(customerId),
     listCategories(),
     listUnits(),
-    // includeInactive — see SalesHistoryTable.tsx's identical comment:
+    // includeInactive — see DailyLedgerSection.tsx's identical comment:
     // this feeds PurchaseHistoryList's EditSaleModal, which must still
     // resolve a deactivated product an old sale already used.
     listProducts({ stockKind: "SIMPLE", pageSize: 500, includeInactive: true }),
     listProducts({ stockKind: "GRAIN", pageSize: 500, includeInactive: true }),
     listBankAccounts(),
-    getCustomerRelationshipSummary(customerId),
   ]);
 
   return (
-    <>
-      <CustomerRelationshipStats summary={summary} />
-      <PurchaseHistoryList
-        sales={sales}
-        products={[...simpleProducts.products, ...grainProducts.products]}
-        bankAccounts={bankAccounts}
-      />
-    </>
+    <PurchaseHistoryList
+      sales={sales}
+      products={[...simpleProducts.products, ...grainProducts.products]}
+      bankAccounts={bankAccounts}
+    />
   );
 }
 
@@ -175,7 +184,9 @@ async function GrainSectionLoader({ customerId }: { customerId: string }) {
     getCustomer(customerId),
     getCustomerGrainDeposits(customerId),
     getShopOwedForGrainByProduct(customerId),
-    getCustomerGrainCreditPurchases(customerId),
+    // includePaid — the Grain tab keeps a paid-off grain sale listed
+    // (as "Paid") instead of dropping it.
+    getCustomerGrainCreditPurchases(customerId, undefined, { includePaid: true }),
     listBankAccounts(),
     // includeInactive — EditSaleModal must still resolve a
     // deactivated product an old grain sale already used, same
@@ -206,5 +217,12 @@ async function ShopBorrowedSectionLoader({ customerId }: { customerId: string })
     getCustomerShopBorrowedHistory(customerId),
     listBankAccounts(),
   ]);
-  return <ShopBorrowedHistoryPanel customerName={customer.name} history={history} bankAccounts={bankAccounts} />;
+  return (
+    <ShopBorrowedHistoryPanel
+      customerId={customerId}
+      customerName={customer.name}
+      history={history}
+      bankAccounts={bankAccounts}
+    />
+  );
 }

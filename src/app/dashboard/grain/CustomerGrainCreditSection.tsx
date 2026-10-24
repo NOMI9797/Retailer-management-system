@@ -1,27 +1,30 @@
 import Link from "next/link";
 import { getCustomerGrainCreditPurchases, getCustomerGrainCreditSummary } from "@/modules/daily-sales/actions";
-import { PayGrainSaleItemCreditModal } from "@/modules/daily-sales/components/PayGrainSaleItemCreditModal";
-import { formatMoney, formatDate } from "@/lib/utils";
+import { CustomerUdhaarPaymentModal } from "@/modules/customers/components/CustomerUdhaarPayment";
+import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
+import { formatMoney, formatDate, matchesSearch } from "@/lib/utils";
 
 // Shop-wide "Grain Udhaar" — the mirror of Shop (Udhaar)'s own Grain
 // Udhaar subtab: here the CUSTOMER is the one who owes, having bought
 // grain from the shop at a settled rate and paid via Credit instead
-// of cash/account. Every row is a real, individually-payable purchase
-// (see getCustomerGrainCreditPurchases — per grain sale item, never
-// an approximated cross-item split), not folded into the customer's
-// whole-account Udhaar balance shown on the Regular/Daily subtab.
+// of cash/account. One row per grain sale item; its paid/remaining is
+// its share of the customer's overall Udhaar payments, spread oldest
+// entry first (see getCustomerGrainCreditPurchases).
 // productId optionally narrows both the stat cards and the table to
 // one grain product — see the Debts page's GrainProductFilter, which
-// renders the product-chip row above this section.
-export async function CustomerGrainCreditSection({ productId }: { productId?: string } = {}) {
-  const [rows, summary] = await Promise.all([
+// renders the product-chip row above this section. search (the Udhaar
+// page's search box) narrows only the table; the cards stay shop-wide.
+export async function CustomerGrainCreditSection({ productId, search }: { productId?: string; search?: string } = {}) {
+  const [allRows, summary, bankAccounts] = await Promise.all([
     getCustomerGrainCreditPurchases(undefined, productId),
     getCustomerGrainCreditSummary(undefined, productId),
+    listBankAccounts(),
   ]);
+  const rows = allRows.filter((r) => matchesSearch(search, r.customerName));
 
   return (
     <>
-      {rows.length > 0 && (
+      {allRows.length > 0 && (
         <div className="stat-grid" style={{ marginBottom: 16 }}>
           <div className="stat-card">
             <p className="stat-label">Total owed by customers</p>
@@ -41,7 +44,7 @@ export async function CustomerGrainCreditSection({ productId }: { productId?: st
       {rows.length === 0 ? (
         <div className="panel">
           <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-            No outstanding Grain Udhaar right now.
+            {search ? `No matches for "${search}".` : "No outstanding Grain Udhaar right now."}
           </p>
         </div>
       ) : (
@@ -100,10 +103,12 @@ export async function CustomerGrainCreditSection({ productId }: { productId?: st
                     )}
                   </td>
                   <td style={{ textAlign: "right" }}>
-                    <PayGrainSaleItemCreditModal
-                      dailySaleItemId={row.dailySaleItemId}
+                    {/* Grain Udhaar is paid off by the customer's one overall
+                        Udhaar payment (oldest entry first), not per row. */}
+                    <CustomerUdhaarPaymentModal
+                      customerId={row.customerId}
                       customerName={row.customerName}
-                      remaining={row.remaining}
+                      bankAccounts={bankAccounts}
                     />
                   </td>
                 </tr>

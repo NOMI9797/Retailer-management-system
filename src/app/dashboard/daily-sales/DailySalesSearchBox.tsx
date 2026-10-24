@@ -14,7 +14,7 @@ export function DailySalesSearchBox({ activeSearch }: { activeSearch: string }) 
 
   function submit() {
     const current = Object.fromEntries(searchParams.entries());
-    router.push(buildDailySalesHref(current, { search: draft || undefined, page: undefined }));
+    router.push(buildDailySalesHref(current, { search: draft || undefined }));
   }
 
   return (

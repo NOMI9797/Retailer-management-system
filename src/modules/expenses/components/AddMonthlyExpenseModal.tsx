@@ -10,8 +10,10 @@ import type { listMonthlyExpenseTypes } from "../actions";
 // behind the Monthly expenses list's Suspense boundary.
 export function AddMonthlyExpenseModal({
   types,
+  bankAccounts = [],
 }: {
   types: Awaited<ReturnType<typeof listMonthlyExpenseTypes>>;
+  bankAccounts?: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -34,6 +36,7 @@ export function AddMonthlyExpenseModal({
             </p>
             <MonthlyExpenseForm
               types={types}
+              bankAccounts={bankAccounts}
               onSaved={() => {
                 setOpen(false);
                 router.refresh();

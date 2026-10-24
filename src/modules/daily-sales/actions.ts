@@ -1,6 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
+import { loadCustomerUdhaar, loadShopOwesCustomer, GRACE_PERIOD_DAYS } from "@/modules/debts/udhaarLedger";
 import { getCurrentShopId } from "@/lib/tenant";
 import { serializeDecimals } from "@/lib/serialize";
 import { parseLocalDateStart, parseLocalDateEnd, toLocalDateString } from "@/lib/utils";
@@ -10,19 +11,16 @@ import {
   createDailySaleSchema,
   updateDailySaleSchema,
   updateReceiptSchema,
-  payGrainSaleItemCreditSchema,
   type CreateDailySaleInput,
   type UpdateDailySaleInput,
   type UpdateReceiptInput,
   type DailySaleItemInput,
   type PaymentSplitInput,
-  type PayGrainSaleItemCreditInput,
 } from "./schema";
 import type { Prisma } from "@prisma/client";
 
 type Result<T> = { success: true; data: T } | { success: false; error: string };
 
-const DEFAULT_PAGE_SIZE = 50;
 const PAYMENT_SPLIT_EPSILON = 0.01; // guards against float rounding, not real mismatches
 
 // The core "make this sale real" logic for the ITEMS side — decrement
@@ -1052,7 +1050,7 @@ export async function deleteReceipt(
 export async function getCustomerPurchaseHistory(customerId: string) {
   const shopId = await getCurrentShopId();
 
-  const [sales, clearances, udhaarGiven] = await Promise.all([
+  const [sales, clearances, udhaarGiven, shopGrain, shopCleared, shopLedgers] = await Promise.all([
     db.dailySale.findMany({
       where: { customerId, shopId },
       include: { items: { include: { product: true } }, payments: true },
@@ -1069,6 +1067,9 @@ export async function getCustomerPurchaseHistory(customerId: string) {
         direction: "IN",
         isShopBorrowed: false,
         linkedProductId: null,
+        // A row with a quantity is the shop paying the customer for
+        // grain — listed as a Shop row (shopGrain below), not here.
+        quantity: null,
         customerAccount: { customerId, customer: { shopId } },
       },
       orderBy: { transactionDate: "desc" },
@@ -1091,11 +1092,40 @@ export async function getCustomerPurchaseHistory(customerId: string) {
         isLongTerm: false,
         isShopBorrowed: false,
         linkedSaleId: null,
+        // A row with a quantity is the shop BUYING grain from the
+        // customer — listed as a Shop row (shopGrain below), not as
+        // Udhaar the customer owes.
+        quantity: null,
         customerAccount: { customerId, customer: { shopId } },
       },
       orderBy: { transactionDate: "desc" },
     }),
+    // The shop's own grain dealings with this customer — buying their
+    // grain (OUT with a quantity and its grain batch) and paying them
+    // for grain bought earlier on Udhaar (IN with a quantity). Shown in
+    // the same history, marked "Shop", so it's clear which way it went.
+    db.accountTransaction.findMany({
+      where: {
+        isShopBorrowed: false,
+        quantity: { not: null },
+        customerAccount: { customerId, customer: { shopId } },
+      },
+      include: {
+        linkedGrainBatch: { include: { product: { include: { unit: true } } } },
+        linkedProduct: true,
+      },
+      orderBy: { transactionDate: "desc" },
+    }),
+    // The shop paying this customer back (Udhaar clearance, shop side)
+    // — the mirror of the customer's own "Udhaar Cleared" rows above.
+    db.accountTransaction.findMany({
+      where: { isShopBorrowed: true, direction: "IN", customerAccount: { customerId, customer: { shopId } } },
+      orderBy: { transactionDate: "desc" },
+    }),
+    // For each Udhaar grain purchase's current paid/remaining.
+    loadShopOwesCustomer(shopId, customerId),
   ]);
+  const shopCharges = shopLedgers.get(customerId)?.charges ?? [];
 
   const saleEntries = sales.map((sale) => {
     const visitTimes = Array.from(new Set(sale.items.map((i) => i.visitAt.getTime()))).sort((a, b) => b - a);
@@ -1149,10 +1179,43 @@ export async function getCustomerPurchaseHistory(customerId: string) {
     paymentMethod: txn.paymentMethod,
     bankAccountId: txn.bankAccountId,
     dueDate: txn.dueDate,
+    reference: txn.reference,
     notes: txn.notes,
   }));
 
-  return [...saleEntries, ...clearanceEntries, ...udhaarGivenEntries].sort(
+  const shopGrainEntries = shopGrain.map((txn) => ({
+    kind: "SHOP_GRAIN" as const,
+    id: txn.id,
+    saleDate: txn.transactionDate,
+    // OUT = shop bought grain from the customer; IN = shop paid them
+    // for grain bought earlier on Udhaar.
+    direction: txn.direction,
+    amount: Number(txn.amount),
+    paymentMethod: txn.paymentMethod,
+    productName: txn.linkedGrainBatch?.product.name ?? txn.linkedProduct?.name ?? null,
+    quantity: txn.direction === "OUT" ? Number(txn.quantity) : null,
+    unitName: txn.linkedGrainBatch?.product.unit.name ?? null,
+    rate: txn.linkedGrainBatch?.rate != null ? Number(txn.linkedGrainBatch.rate) : 0,
+    bankAccountId: txn.bankAccountId,
+    dueDate: null,
+    notes: txn.notes,
+    // Udhaar grain purchases only: what the shop still owes on it
+    // after its pooled repayments (oldest first).
+    remaining: shopCharges.find((c) => c.id === txn.id)?.remaining ?? null,
+  }));
+
+  const shopClearedEntries = shopCleared.map((txn) => ({
+    kind: "SHOP_UDHAAR_CLEARED" as const,
+    id: txn.id,
+    saleDate: txn.transactionDate,
+    amount: Number(txn.amount),
+    paymentMethod: txn.paymentMethod,
+    bankAccountId: txn.bankAccountId,
+    dueDate: null,
+    notes: txn.notes,
+  }));
+
+  return [...saleEntries, ...clearanceEntries, ...udhaarGivenEntries, ...shopGrainEntries, ...shopClearedEntries].sort(
     (a, b) => b.saleDate.getTime() - a.saleDate.getTime()
   );
 }
@@ -1170,47 +1233,63 @@ export async function getCustomerPurchaseHistory(customerId: string) {
 
 // Every grain sale item with a recorded Credit amount, optionally
 // scoped to one customer and/or one grain product — the "Grain
-// Udhaar" subtab's table data source, both shop-wide (Debts page) and
-// per-customer (customer detail page), depending on whether
-// customerId is passed. productId powers the Debts page's product
-// filter, same "optional narrowing param" shape getShopOwedForGrain
-// already established for the mirror (Shop Udhaar) case.
-export async function getCustomerGrainCreditPurchases(customerId?: string, productId?: string) {
+// Udhaar" rows, both shop-wide (Debts page) and per-customer (customer
+// detail page, Udhaar clearance). productId powers the Debts page's
+// product filter.
+//
+// Paid/remaining are NOT tracked per item: the customer pays one total
+// against all their Udhaar, spread oldest entry first (see
+// debts/udhaarLedger.ts). An item's share is its sale's Udhaar charge's
+// paid fraction — e.g. a charge 60% cleared shows each of its grain
+// items 60% paid. includePaid keeps fully-paid items (the customer's
+// Grain tab shows them as "Paid"); everywhere else lists only what's
+// still owed.
+export async function getCustomerGrainCreditPurchases(
+  customerId?: string,
+  productId?: string,
+  options?: { includePaid?: boolean }
+) {
   const shopId = await getCurrentShopId();
 
-  const items = await db.dailySaleItem.findMany({
-    where: {
-      creditAmount: { not: null },
-      productId: productId || undefined,
-      product: { shopId, stockKind: "GRAIN" },
-      // Scoped to CUSTOMER sales only — a dealer sale's Credit posts
-      // to DealerAccount instead (see applyPaymentSplit), not this
-      // per-item Customer Udhaar view, so dealer-bought grain items
-      // never show up here even though they share the same
-      // DailySaleItem.creditAmount mechanism.
-      dailySale: { customerId: customerId ? customerId : { not: null }, shopId },
-    },
-    include: {
-      product: { include: { unit: true } },
-      dailySale: { include: { customer: true } },
-      creditPayments: true,
-    },
-    orderBy: { visitAt: "desc" },
-  });
+  const [items, ledgers] = await Promise.all([
+    db.dailySaleItem.findMany({
+      where: {
+        creditAmount: { not: null },
+        productId: productId || undefined,
+        product: { shopId, stockKind: "GRAIN" },
+        // Scoped to CUSTOMER sales only — a dealer sale's Credit posts
+        // to DealerAccount instead (see applyPaymentSplit), not this
+        // Customer Udhaar view.
+        dailySale: { customerId: customerId ? customerId : { not: null }, shopId },
+      },
+      include: {
+        product: { include: { unit: true } },
+        dailySale: { include: { customer: true } },
+      },
+      orderBy: { visitAt: "desc" },
+    }),
+    loadCustomerUdhaar(shopId, customerId),
+  ]);
 
-  // Same week-long grace period the Debts page's overdue flag uses
-  // (see modules/debts/actions.ts: GRACE_PERIOD_DAYS) — one definition
-  // of "overdue" everywhere a due date is checked against today.
-  const GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000;
+  // Same week-long grace period the Udhaar page's overdue flag uses
+  // (GRACE_PERIOD_DAYS) — one definition of "overdue" everywhere.
+  const GRACE_PERIOD_MS = GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000;
   const now = Date.now();
 
   return items
     .map((item) => {
       const borrowed = Number(item.creditAmount);
-      const paid = item.creditPayments.reduce((sum, p) => sum + Number(p.amount), 0);
-      // The query above already scopes to customerId: { not: null },
-      // so every row here genuinely has a customer — non-null
-      // assertion documents that guarantee rather than re-deriving it.
+      // The query above already scopes to customerId: { not: null }.
+      const ledger = ledgers.get(item.dailySale.customerId!);
+      const charge = ledger?.charges.find(
+        (c) =>
+          c.linkedSaleId === item.dailySaleId && (!c.visitAt || c.visitAt.getTime() === item.visitAt.getTime())
+      );
+      // No charge left at all means the sale's Udhaar was fully
+      // reversed or cleared — nothing is owed on it.
+      const paidFraction = charge && charge.amount > 0 ? charge.paid / charge.amount : 1;
+      const paid = Math.round(borrowed * paidFraction * 100) / 100;
+      const remaining = Math.round((borrowed - paid) * 100) / 100;
       return {
         dailySaleItemId: item.id,
         dailySaleId: item.dailySaleId,
@@ -1223,13 +1302,15 @@ export async function getCustomerGrainCreditPurchases(customerId?: string, produ
         rate: Number(item.actualPrice),
         purchaseDate: item.visitAt,
         dueDate: item.creditDueDate,
-        isOverdue: item.creditDueDate !== null && item.creditDueDate.getTime() + GRACE_PERIOD_MS < now,
+        isOverdue:
+          remaining > 0.01 && item.creditDueDate !== null && item.creditDueDate.getTime() + GRACE_PERIOD_MS < now,
         borrowed,
         paid,
-        remaining: borrowed - paid,
+        remaining,
+        status: (remaining <= 0.01 ? "PAID" : paid > 0.01 ? "PARTLY_PAID" : "OPEN") as "PAID" | "PARTLY_PAID" | "OPEN",
       };
     })
-    .filter((row) => row.remaining > 0.01);
+    .filter((row) => options?.includePaid || row.remaining > 0.01);
 }
 
 // Stat-card totals for the Grain Udhaar subtab — same shape as
@@ -1245,64 +1326,11 @@ export async function getCustomerGrainCreditSummary(customerId?: string, product
   return { totalBorrowed, totalPaid, totalRemaining, count: rows.length, customerCount };
 }
 
-// Pays down a customer's Credit purchase of a specific grain sale
-// item — amount is capped at that item's own outstanding remainder,
-// never trusted from the client. Supports partial payments; the item
-// simply stops appearing in getCustomerGrainCreditPurchases once its
-// remainder reaches zero. Deliberately does NOT touch the customer's
-// Udhaar CustomerAccount.currentBalance — that balance was already
-// incremented once, at sale time, by the sale's own AccountTransaction
-// (see applyPaymentSplit); this per-item ledger is a finer-grained
-// VIEW into that same debt, not a second, parallel source of truth,
-// so double-counting a repayment here against currentBalance would
-// silently understate what the customer still owes. A shopkeeper
-// wanting to reduce currentBalance still uses the existing "Record
-// repayment" action on the Regular/Daily Udhaar tab for that.
-export async function payGrainSaleItemCredit(input: PayGrainSaleItemCreditInput) {
-  const shopId = await getCurrentShopId();
-  const data = payGrainSaleItemCreditSchema.parse(input);
-
-  const item = await db.dailySaleItem.findFirst({
-    where: { id: data.dailySaleItemId, product: { shopId } },
-    include: { creditPayments: true },
-  });
-  if (!item || item.creditAmount === null) return { success: false, error: "Grain sale item not found" };
-
-  const paidSoFar = item.creditPayments.reduce((sum, p) => sum + Number(p.amount), 0);
-  const remaining = Number(item.creditAmount) - paidSoFar;
-  if (data.amount > remaining + 0.01) {
-    return {
-      success: false,
-      error: `This payment (Rs ${data.amount}) is more than what's actually owed (Rs ${remaining}) — a payment can't exceed what's owed.`,
-    };
-  }
-
-  await db.$transaction(async (tx) => {
-    await tx.grainSaleCreditPayment.create({
-      data: {
-        dailySaleItemId: item.id,
-        amount: data.amount,
-        paymentMethod: data.paymentMethod,
-        bankAccountId: data.bankAccountId,
-        notes: data.notes,
-      },
-    });
-    // A repayment is money coming INTO the shop.
-    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
-      await postToBankAccount(tx, data.bankAccountId, data.amount);
-    }
-  });
-  return { success: true, data: undefined };
-}
-
-// Reverses a grain-credit repayment — the bank posting (if ACCOUNT),
-// then removes the row. Same "doesn't touch currentBalance" reasoning
-// as payGrainSaleItemCredit itself: this ledger is a view into the
-// sale's own AccountTransaction debt, not a second source of truth,
-// so deleting a payment here needs nothing more than undoing its own
-// bank posting — the item's "remaining" figure is computed live from
-// whatever creditPayments rows still exist, so it corrects itself the
-// moment this row is gone.
+// Reverses a legacy per-row grain-credit repayment (recorded before
+// grain Udhaar moved onto the customer's pooled Udhaar ledger — see
+// debts/udhaarLedger.ts): undoes its bank posting (if ACCOUNT), then
+// removes the row. Kept only so the Bank Accounts history can still
+// delete such a row; no new ones are created.
 export async function deleteGrainSaleItemCreditPayment(
   id: string
 ): Promise<{ success: false; error: string } | { success: true; data: undefined }> {
@@ -1313,14 +1341,18 @@ export async function deleteGrainSaleItemCreditPayment(
   });
   if (!payment) return { success: false, error: "Payment not found" };
 
-  await db.$transaction(async (tx) => {
-    if (payment.paymentMethod === "ACCOUNT" && payment.bankAccountId) {
-      // The repayment brought money IN — reversing it takes that
-      // money back OUT.
-      await postToBankAccount(tx, payment.bankAccountId, -Number(payment.amount));
-    }
-    await tx.grainSaleCreditPayment.delete({ where: { id } });
-  });
+  try {
+    await db.$transaction(async (tx) => {
+      if (payment.paymentMethod === "ACCOUNT" && payment.bankAccountId) {
+        // The repayment brought money IN — reversing it takes that
+        // money back OUT.
+        await postToBankAccount(tx, payment.bankAccountId, -Number(payment.amount));
+      }
+      await tx.grainSaleCreditPayment.delete({ where: { id } });
+    });
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed to delete payment" };
+  }
   return { success: true, data: undefined };
 }
 
@@ -1358,174 +1390,6 @@ export async function getDailySaleForEdit(saleId: string) {
       credit: paymentsByMethod.CREDIT ?? 0,
       bankAccountId: accountPayment?.bankAccountId ?? undefined,
     },
-  };
-}
-
-// Summary-only rows for the Sales history list — buyer name, date,
-// item count, total bill. Full line-item detail deliberately doesn't
-// live here; it's on the buyer's own detail page. One row in the
-// merged history feed — either a real product sale, or an Udhaar
-// Clearance (a repayment recorded against a customer's Udhaar/Regular
-// account, via recordAccountTransaction — Udhaar Clearances are a
-// customer-only concept, since a dealer's own repayments are recorded
-// on the Dealer detail page instead, not merged into this feed). Both
-// are keyed off `kind` so SalesHistoryTable can render each
-// appropriately (a clearance has no items, just an amount and a
-// distinct badge). A SALE row's buyer is either a customer or a
-// dealer — buyerKind distinguishes which, since a dealer sale has no
-// customer detail page to link to.
-export type DailySaleHistoryRow =
-  | {
-      kind: "SALE";
-      id: string;
-      buyerKind: "CUSTOMER" | "DEALER";
-      buyerId: string;
-      buyerName: string;
-      saleDate: Date;
-      itemCount: number;
-      total: number;
-      paymentSummary: "CASH" | "ACCOUNT" | "CREDIT" | "MIXED" | null;
-    }
-  | {
-      kind: "UDHAAR_CLEARANCE";
-      id: string;
-      customerId: string;
-      customerName: string;
-      saleDate: Date;
-      amount: number;
-      paymentMethod: "CASH" | "ACCOUNT" | "CREDIT";
-    };
-
-export async function listDailySales(options?: {
-  customerId?: string;
-  search?: string;
-  areaId?: string;
-  accountTypeId?: string;
-  fromDate?: string;
-  toDate?: string;
-  page?: number;
-  pageSize?: number;
-}) {
-  const shopId = await getCurrentShopId();
-  const page = Math.max(1, options?.page ?? 1);
-  const pageSize = options?.pageSize ?? DEFAULT_PAGE_SIZE;
-
-  const customerFilter = {
-    name: options?.search ? { contains: options.search, mode: "insensitive" as const } : undefined,
-    areaId: options?.areaId || undefined,
-    accounts: options?.accountTypeId ? { some: { accountTypeId: options.accountTypeId } } : undefined,
-  };
-  // A to-one relation filter in Prisma implies "the relation exists
-  // and matches," even with every field inside it undefined — so
-  // passing `customer: {...}` unconditionally would silently exclude
-  // every dealer sale (customerId: null) the moment this function is
-  // called at all, not just when a customer-only filter is active.
-  // Only attach it when the caller actually asked for a customer-only
-  // narrowing (search/area/accountType), so an unfiltered or
-  // dealer-inclusive listing still returns dealer sales.
-  const hasCustomerFilter = !!(options?.search || options?.areaId || options?.accountTypeId);
-
-  const dateFilter = {
-    gte: options?.fromDate ? parseLocalDateStart(options.fromDate) : undefined,
-    lte: options?.toDate ? parseLocalDateEnd(options.toDate) : undefined,
-  };
-
-  const where = {
-    shopId,
-    customerId: options?.customerId || undefined,
-    saleDate: dateFilter,
-    // Filtering by the buyer's name, area, or account type — this is
-    // "find what this customer bought right now" support, not a sales
-    // report; it goes through the customer relation since none of
-    // these live on DailySale itself. Dealer sales have no customer
-    // relation to match, so this filter never applies to them — a
-    // name/area/account-type search is a customer-only lookup by
-    // design (dealers have no area or account-type concept).
-    customer: hasCustomerFilter ? customerFilter : undefined,
-  };
-
-  // Udhaar Clearances are fetched with the same filters (customer/
-  // date), so the merged feed reflects one consistent search across
-  // both sales and repayments.
-  const clearanceWhere = {
-    direction: "IN" as const,
-    transactionDate: dateFilter,
-    customerAccount: {
-      customerId: options?.customerId || undefined,
-      customer: { shopId, ...customerFilter },
-    },
-  };
-
-  // No database-level pagination across two different tables — fetch
-  // every matching row from both, merge by date, then paginate the
-  // combined list in memory. Fine for a single shop's daily volume;
-  // revisit if this ever needs to scale past that.
-  const [sales, clearances] = await Promise.all([
-    db.dailySale.findMany({
-      where,
-      include: { customer: true, dealer: true, items: true, payments: true },
-      orderBy: { saleDate: "desc" },
-    }),
-    db.accountTransaction.findMany({
-      where: clearanceWhere,
-      include: { customerAccount: { include: { customer: true } } },
-      orderBy: { transactionDate: "desc" },
-    }),
-  ]);
-
-  const saleRows: DailySaleHistoryRow[] = sales.map((sale) => {
-    const paymentTotals = { CASH: 0, ACCOUNT: 0, CREDIT: 0 };
-    for (const p of sale.payments) paymentTotals[p.paymentMethod] += Number(p.amount);
-    // A summary tag for the row — "Cash"/"Account"/"Credit" when the
-    // whole day's sale was paid one way, "Mixed" when more than one
-    // method has a nonzero amount. Purely a display label; the real
-    // breakdown lives in paymentTotals and on the buyer's own detail
-    // page.
-    const methodsUsed = (Object.keys(paymentTotals) as (keyof typeof paymentTotals)[]).filter(
-      (m) => paymentTotals[m] > 0
-    );
-    const paymentSummary = methodsUsed.length === 1 ? methodsUsed[0] : methodsUsed.length > 1 ? "MIXED" : null;
-
-    // Exactly one of customer/dealer is set — enforced at the Zod/
-    // action layer (see DailySale's schema comment) — so this is a
-    // safe either/or read, never a guess.
-    const buyerKind: "CUSTOMER" | "DEALER" = sale.customer ? "CUSTOMER" : "DEALER";
-    const buyerId = sale.customer ? sale.customer.id : sale.dealer!.id;
-    const buyerName = sale.customer ? sale.customer.name : sale.dealer!.name;
-
-    return {
-      kind: "SALE",
-      id: sale.id,
-      buyerKind,
-      buyerId,
-      buyerName,
-      saleDate: sale.saleDate,
-      itemCount: sale.items.length,
-      total: sale.items.reduce((sum, i) => sum + Number(i.actualPrice) * Number(i.quantity), 0),
-      paymentSummary,
-    };
-  });
-
-  const clearanceRows: DailySaleHistoryRow[] = clearances.map((txn) => ({
-    kind: "UDHAAR_CLEARANCE",
-    id: txn.id,
-    customerId: txn.customerAccount.customerId,
-    customerName: txn.customerAccount.customer.name,
-    saleDate: txn.transactionDate,
-    amount: Number(txn.amount),
-    paymentMethod: txn.paymentMethod,
-  }));
-
-  const merged = [...saleRows, ...clearanceRows].sort((a, b) => b.saleDate.getTime() - a.saleDate.getTime());
-  const totalCount = merged.length;
-  const paged = merged.slice((page - 1) * pageSize, page * pageSize);
-
-  return {
-    sales: paged,
-    totalCount,
-    page,
-    pageSize,
-    totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
   };
 }
 

@@ -92,3 +92,12 @@ export function describeBalance(balance: number) {
   if (balance < 0) return { label: "Shop owes", amount: Math.abs(balance) };
   return { label: "Settled", amount: 0 };
 }
+
+// Case-insensitive "does any of these fields contain the search text"
+// check for in-memory list filters (e.g. the Udhaar page's search box).
+// An empty/missing search matches everything.
+export function matchesSearch(search: string | undefined, ...fields: (string | null | undefined)[]) {
+  const needle = search?.trim().toLowerCase();
+  if (!needle) return true;
+  return fields.some((field) => field?.toLowerCase().includes(needle));
+}

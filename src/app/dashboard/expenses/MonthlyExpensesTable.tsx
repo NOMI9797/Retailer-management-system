@@ -1,5 +1,6 @@
 import { Fragment } from "react";
 import { listMonthlyExpenses, listMonthlyExpenseTypes } from "@/modules/expenses/actions";
+import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { formatMoney, formatDate } from "@/lib/utils";
 import { Pagination } from "@/modules/products/components/Pagination";
 import { EditMonthlyExpenseButton } from "@/modules/expenses/components/EditMonthlyExpenseButton";
@@ -24,13 +25,14 @@ const PAYMENT_CLASS: Record<string, string> = {
 // Settings-managed type.
 export async function MonthlyExpensesTable({ searchParams }: { searchParams: ExpensesSearchParams }) {
   const page = searchParams.page ? Number(searchParams.page) : 1;
-  const [result, types] = await Promise.all([
+  const [result, types, bankAccounts] = await Promise.all([
     listMonthlyExpenses({
       fromDate: searchParams.from,
       toDate: searchParams.to,
       page,
     }),
     listMonthlyExpenseTypes(true),
+    listBankAccounts(),
   ]);
 
   const pageTotal = result.expenses.reduce((sum, e) => sum + Number(e.amount), 0);
@@ -76,7 +78,7 @@ export async function MonthlyExpensesTable({ searchParams }: { searchParams: Exp
                       <td style={{ textAlign: "right", fontWeight: 600 }}>{formatMoney(Number(expense.amount))}</td>
                       <td>
                         <div className="row-actions">
-                          <EditMonthlyExpenseButton expense={expense} types={types} />
+                          <EditMonthlyExpenseButton expense={expense} types={types} bankAccounts={bankAccounts} />
                           <DeleteExpenseButton expenseId={expense.id} />
                         </div>
                       </td>

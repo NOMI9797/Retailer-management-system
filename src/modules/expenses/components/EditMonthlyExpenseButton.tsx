@@ -11,9 +11,11 @@ type MonthlyExpense = Awaited<ReturnType<typeof listMonthlyExpenses>>["expenses"
 export function EditMonthlyExpenseButton({
   expense,
   types,
+  bankAccounts = [],
 }: {
   expense: MonthlyExpense;
   types: Awaited<ReturnType<typeof listMonthlyExpenseTypes>>;
+  bankAccounts?: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -33,6 +35,7 @@ export function EditMonthlyExpenseButton({
             <MonthlyExpenseForm
               types={types}
               expense={expense}
+              bankAccounts={bankAccounts}
               onCancel={() => setOpen(false)}
               onSaved={() => {
                 setOpen(false);

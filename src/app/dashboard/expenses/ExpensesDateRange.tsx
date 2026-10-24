@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { buildExpensesHref } from "./searchParamsHref";
 
-// Same pattern as daily-sales' DailySalesDateRange — reads the URL
+// Same URL-driven pattern as daily-sales' DailySalesDatePicker — reads the URL
 // itself since a function can't cross the Server -> Client boundary
 // as a prop. Each input commits on change so picking a date
 // immediately re-filters, no separate "apply" step.

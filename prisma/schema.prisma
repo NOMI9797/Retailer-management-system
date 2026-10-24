@@ -18,9 +18,9 @@ datasource db {
 // ── Tenancy ──────────────────────────────────────────────
 
 model Shop {
-  id                String   @id @default(uuid())
-  name              String
-  createdAt         DateTime @default(now())
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
 
   areas               Area[]
   customers           Customer[]
@@ -66,12 +66,12 @@ model User {
 // now so a future permissions pass has somewhere to read from without
 // another migration.
 model UserShop {
-  id      String  @id @default(uuid())
-  userId  String
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shopId  String
-  shop    Shop    @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  role    String  @default("OWNER")
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  role   String @default("OWNER")
 
   @@unique([userId, shopId])
 }
@@ -97,13 +97,13 @@ model BankAccount {
   isActive       Boolean @default(true)
   currentBalance Decimal @default(0) @db.Decimal(14, 2)
 
-  accountTransactions    AccountTransaction[]
-  dailySalePayments      DailySalePayment[]
+  accountTransactions     AccountTransaction[]
+  dailySalePayments       DailySalePayment[]
   grainSaleCreditPayments GrainSaleCreditPayment[]
-  expenses               Expense[]
-  expensePayments        ExpensePayment[]
-  dealerTransactions     DealerTransaction[]
-  dealerProductPurchases DealerProductPurchase[]
+  expenses                Expense[]
+  expensePayments         ExpensePayment[]
+  dealerTransactions      DealerTransaction[]
+  dealerProductPurchases  DealerProductPurchase[]
 
   @@unique([shopId, name])
 }
@@ -183,9 +183,9 @@ model Dealer {
   isDeleted Boolean    @default(false)
   createdAt DateTime   @default(now())
 
-  account   DealerAccount?
-  purchases DealerProductPurchase[]
-  batches   GrainBatch[]
+  account    DealerAccount?
+  purchases  DealerProductPurchase[]
+  batches    GrainBatch[]
   dailySales DailySale[]
 
   @@unique([shopId, name])
@@ -222,24 +222,24 @@ model DealerAccount {
 // a mixed "dealer I buy from AND occasionally sell to" relationship
 // never nets the two activities together into one misleading number.
 model DealerTransaction {
-  id              String          @id @default(uuid())
-  dealerAccountId String
-  dealerAccount   DealerAccount   @relation(fields: [dealerAccountId], references: [id])
-  transactionDate DateTime        @default(now())
-  direction       TxnDirection
-  amount          Decimal         @db.Decimal(14, 2)
+  id                String                 @id @default(uuid())
+  dealerAccountId   String
+  dealerAccount     DealerAccount          @relation(fields: [dealerAccountId], references: [id])
+  transactionDate   DateTime               @default(now())
+  direction         TxnDirection
+  amount            Decimal                @db.Decimal(14, 2)
   // Set only by a dealer product purchase (DealerProductPurchase) paid
   // on Credit — mirrors AccountTransaction.linkedGrainBatchId's
   // "real 1:1 link to the thing this posting paid for" pattern.
-  linkedPurchaseId String?
-  linkedPurchase   DealerProductPurchase? @relation(fields: [linkedPurchaseId], references: [id])
+  linkedPurchaseId  String?
+  linkedPurchase    DealerProductPurchase? @relation(fields: [linkedPurchaseId], references: [id])
   // Set only when this posting came from the shop SELLING to this
   // dealer (DailySale.dealerId) rather than buying from them — see
   // this model's own comment on why the OUT/IN meaning inverts here,
   // same "isShopBorrowed" precedent.
-  isDealerSale    Boolean         @default(false)
-  linkedSaleId    String?
-  linkedSale      DailySale?      @relation(fields: [linkedSaleId], references: [id])
+  isDealerSale      Boolean                @default(false)
+  linkedSaleId      String?
+  linkedSale        DailySale?             @relation(fields: [linkedSaleId], references: [id])
   // true = a Cash/Account dealer purchase, posted purely so Cash Flow
   // (and any other report) has a real row to read for "money left the
   // shop today" — never touches DealerAccount.currentBalance, unlike
@@ -250,13 +250,13 @@ model DealerTransaction {
   // never a problem for the debt math (it derives totalPaid from
   // totalPurchased - outstanding, never from this transaction log),
   // but it was a real gap for cash accounting specifically.
-  isSettledPurchase Boolean       @default(false)
-  paymentMethod   PaymentMethod
+  isSettledPurchase Boolean                @default(false)
+  paymentMethod     PaymentMethod
   // Same convention as AccountTransaction.bankAccountId — set only
   // when paymentMethod = ACCOUNT.
-  bankAccountId   String?
-  bankAccount     BankAccount?    @relation(fields: [bankAccountId], references: [id])
-  notes           String?
+  bankAccountId     String?
+  bankAccount       BankAccount?           @relation(fields: [bankAccountId], references: [id])
+  notes             String?
   // Same purpose as AccountTransaction.visitAt — set only on the row
   // a Daily Sale to this dealer posts (isDealerSale: true), matching
   // that visit's DailySaleItem/DailySalePayment visitAt, so a single
@@ -264,7 +264,7 @@ model DealerTransaction {
   // visit's own Credit posting to this dealer. Null for a real
   // purchase FROM this dealer (nothing to do with a Daily Sales
   // visit) and for every row created before this column existed.
-  visitAt         DateTime?
+  visitAt           DateTime?
 }
 
 // One bulk purchase of Simple (non-grain) stock from a PRODUCTS-type
@@ -310,25 +310,25 @@ enum AccountStatus {
 }
 
 model AccountType {
-  id             String  @id @default(uuid())
-  shopId         String
-  shop           Shop    @relation(fields: [shopId], references: [id])
-  name           String
-  code           String
+  id        String  @id @default(uuid())
+  shopId    String
+  shop      Shop    @relation(fields: [shopId], references: [id])
+  name      String
+  code      String
   // Marks a type as a deliberate loan (e.g. Udhar) rather than a
   // normal running tab (Regular). Explicit and shopkeeper-controlled
   // rather than inferred from `code` or `name`, since both are free
   // text the shopkeeper can set to anything (a shop's "Udhar" type has
   // been seen coded "123"). Powers the Debt module's "Loan" vs
   // "On account" badge.
-  isLoan         Boolean @default(false)
-  isActive       Boolean @default(true)
+  isLoan    Boolean @default(false)
+  isActive  Boolean @default(true)
   // Soft-delete — same reasoning as Dealer.isDeleted:
   // CustomerAccount.accountTypeId is a required foreign key, so a
   // real DELETE would either violate it or orphan every customer's
   // account history. Set only after isActive is false, and once set,
   // permanently hidden from the Settings list and every picker.
-  isDeleted      Boolean @default(false)
+  isDeleted Boolean @default(false)
 
   fields           AccountTypeField[]
   customerAccounts CustomerAccount[]
@@ -394,15 +394,15 @@ enum PaymentMethod {
 }
 
 model AccountTransaction {
-  id                String          @id @default(uuid())
-  customerAccountId String
-  customerAccount   CustomerAccount @relation(fields: [customerAccountId], references: [id])
-  transactionDate   DateTime        @default(now())
-  direction         TxnDirection
-  amount            Decimal         @db.Decimal(14, 2)
-  quantity          Decimal?        @db.Decimal(14, 3)
-  linkedSaleId      String?
-  linkedSale        DailySale?      @relation(fields: [linkedSaleId], references: [id])
+  id                 String          @id @default(uuid())
+  customerAccountId  String
+  customerAccount    CustomerAccount @relation(fields: [customerAccountId], references: [id])
+  transactionDate    DateTime        @default(now())
+  direction          TxnDirection
+  amount             Decimal         @db.Decimal(14, 2)
+  quantity           Decimal?        @db.Decimal(14, 3)
+  linkedSaleId       String?
+  linkedSale         DailySale?      @relation(fields: [linkedSaleId], references: [id])
   // Set only by payCustomerForGrain (stock/actions.ts), on the SAME
   // call that creates the new shop-owned GrainBatch this transaction
   // paid for — a real 1:1 link, since one transfer-purchase/settle-now
@@ -411,7 +411,7 @@ model AccountTransaction {
   // Udhaar status and exact date, rather than only an aggregate figure
   // across every settlement on the account.
   linkedGrainBatchId String?
-  linkedGrainBatch  GrainBatch?     @relation(fields: [linkedGrainBatchId], references: [id])
+  linkedGrainBatch   GrainBatch?     @relation(fields: [linkedGrainBatchId], references: [id])
   // Set only by payGrainDebt (stock/actions.ts) — which PRODUCT this
   // payment clears the shop's grain debt for. A payGrainDebt payment
   // is a pure money posting with no grain batch of its own (unlike
@@ -423,9 +423,9 @@ model AccountTransaction {
   // reduce Wheat debt — per the "pay per product, from that product's
   // own row" decision: every payGrainDebt call is now scoped to one
   // product, never a combined cross-product lump sum.
-  linkedProductId   String?
-  linkedProduct     Product?        @relation(fields: [linkedProductId], references: [id])
-  paymentMethod     PaymentMethod
+  linkedProductId    String?
+  linkedProduct      Product?        @relation(fields: [linkedProductId], references: [id])
+  paymentMethod      PaymentMethod
   // Only ever set on a loan-given posting (direction OUT on an
   // Udhar/Regular account) — optional, since not every loan needs a
   // formal due date. Powers the Debt module's
@@ -433,7 +433,7 @@ model AccountTransaction {
   // transaction's dueDate has passed and currentBalance is still > 0.
   // Deliberately not a full payment-allocation engine — see the
   // Debt (Udhaar) Tracking milestone for why that's out of scope.
-  dueDate           DateTime?
+  dueDate            DateTime?
   // Marks this posting as belonging to a Long-term Udhaar loan (a
   // deliberate cash loan with a chosen duration, e.g. "3 months") as
   // opposed to Regular/Daily Udhaar (which accrues naturally from
@@ -446,7 +446,7 @@ model AccountTransaction {
   // sets it true. A repayment against a long-term loan must also be
   // tagged true by whoever records it — there's no automatic way to
   // tell which "bucket" a repayment is clearing.
-  isLongTerm        Boolean         @default(false)
+  isLongTerm         Boolean         @default(false)
   // Marks this posting as belonging to the Shop (Udhaar) bucket — cash
   // the SHOP itself borrows from a customer (e.g. asking a customer
   // for Rs 50,000 to cover a shortfall), the mirror direction from
@@ -460,7 +460,7 @@ model AccountTransaction {
   // more), IN = shop repays — opposite meaning from every other
   // bucket's OUT/IN, but scoped entirely to isShopBorrowed rows, so it
   // never collides with the Udhaar convention elsewhere on this table.
-  isShopBorrowed    Boolean         @default(false)
+  isShopBorrowed     Boolean         @default(false)
   // Which real bank account this posting moved money through — only
   // ever set when paymentMethod = ACCOUNT, null for CASH/CREDIT rows
   // and for every ACCOUNT row recorded before the Bank Accounts
@@ -469,9 +469,15 @@ model AccountTransaction {
   // comment). Required at the Zod/action layer going forward whenever
   // paymentMethod is ACCOUNT, even though the column itself stays
   // nullable to accommodate that historical data.
-  bankAccountId     String?
-  bankAccount       BankAccount?    @relation(fields: [bankAccountId], references: [id])
-  notes             String?
+  bankAccountId      String?
+  bankAccount        BankAccount?    @relation(fields: [bankAccountId], references: [id])
+  notes              String?
+  // Who/what an Udhaar to Shop entry (isShopBorrowed OUT — the shop
+  // borrowing from a customer, or an imported "shop owes customer"
+  // balance) came through, e.g. the person who brought the cash.
+  // Required by the forms that create those rows; null on every other
+  // kind of posting and on rows recorded before this field existed.
+  reference          String?
   // Set only on the Credit-charge row a Daily Sale posts
   // (applyPaymentSplit's linkedSaleId branch) — the same visitAt
   // stamped on that visit's DailySaleItem/DailySalePayment rows, so a
@@ -484,7 +490,7 @@ model AccountTransaction {
   // column existed. Exists specifically so a single receipt (one
   // visit) can be edited/deleted without touching another same-day
   // receipt's own Udhaar charge — see reverseVisitContents.
-  visitAt           DateTime?
+  visitAt            DateTime?
 }
 
 // ── Products & stock ─────────────────────────────────────
@@ -522,11 +528,11 @@ model Category {
 // the unit dropdown on both simple and grain products — never
 // hardcoded per the product document's "no hardcoded lists" principle.
 model Unit {
-  id       String  @id @default(uuid())
-  shopId   String
-  shop     Shop    @relation(fields: [shopId], references: [id])
-  name     String
-  isActive Boolean @default(true)
+  id        String  @id @default(uuid())
+  shopId    String
+  shop      Shop    @relation(fields: [shopId], references: [id])
+  name      String
+  isActive  Boolean @default(true)
   // Soft-delete — same reasoning as Category.isDeleted: Product.unitId
   // is a required foreign key.
   isDeleted Boolean @default(false)
@@ -542,22 +548,22 @@ enum StockKind {
 }
 
 model Product {
-  id         String    @id @default(uuid())
-  shopId     String
-  shop       Shop      @relation(fields: [shopId], references: [id])
-  categoryId String
-  category   Category  @relation(fields: [categoryId], references: [id])
-  name       String
-  unitId     String
-  unit       Unit      @relation(fields: [unitId], references: [id])
-  stockKind  StockKind @default(SIMPLE)
+  id                  String    @id @default(uuid())
+  shopId              String
+  shop                Shop      @relation(fields: [shopId], references: [id])
+  categoryId          String
+  category            Category  @relation(fields: [categoryId], references: [id])
+  name                String
+  unitId              String
+  unit                Unit      @relation(fields: [unitId], references: [id])
+  stockKind           StockKind @default(SIMPLE)
   // SIMPLE stock uses costPrice/sellPrice; GRAIN stock uses baseRate as
   // a reference rate only — each GrainBatch carries its own actual
   // rate, since grain prices move during the season.
-  costPrice  Decimal?  @db.Decimal(12, 2)
-  sellPrice  Decimal?  @db.Decimal(12, 2)
-  baseRate   Decimal?  @db.Decimal(12, 2)
-  quantity   Decimal   @default(0) @db.Decimal(14, 3)
+  costPrice           Decimal?  @db.Decimal(12, 2)
+  sellPrice           Decimal?  @db.Decimal(12, 2)
+  baseRate            Decimal?  @db.Decimal(12, 2)
+  quantity            Decimal   @default(0) @db.Decimal(14, 3)
   // GRAIN only — a second, deliberately simpler money tracker
   // alongside the per-batch rate/FIFO system above (GrainBatch.rate,
   // quantitySold, etc. — untouched by this, still the source of truth
@@ -579,8 +585,8 @@ model Product {
   // all until it's actually priced (at settlement, or a sale-time
   // rate override), same "never guessed, never zero" rule the
   // existing per-batch COGS system already follows.
-  pooledStockQuantity Decimal @default(0) @db.Decimal(14, 3)
-  pooledStockValue    Decimal @default(0) @db.Decimal(14, 2)
+  pooledStockQuantity Decimal   @default(0) @db.Decimal(14, 3)
+  pooledStockValue    Decimal   @default(0) @db.Decimal(14, 2)
 
   // Added alongside Delete — Product previously had no Active/
   // Inactive concept at all. Delete requires deactivation first, same
@@ -596,11 +602,11 @@ model Product {
   // real name unchanged.
   isDeleted Boolean @default(false)
 
-  batches            GrainBatch[]
-  saleItems          DailySaleItem[]
-  stockUdhaars       StockUdhaarEntry[]
-  grainDebtPayments  AccountTransaction[]
-  dealerPurchases    DealerProductPurchase[]
+  batches           GrainBatch[]
+  saleItems         DailySaleItem[]
+  stockUdhaars      StockUdhaarEntry[]
+  grainDebtPayments AccountTransaction[]
+  dealerPurchases   DealerProductPurchase[]
 }
 
 // Batches let one product (e.g. "Wheat") hold both shop-owned and
@@ -609,11 +615,11 @@ model Product {
 // safekeeping, not a consignment sale — no money posts when one is
 // created (see Stock Management: createGrainBatch).
 model GrainBatch {
-  id              String    @id @default(uuid())
-  productId       String
-  product         Product   @relation(fields: [productId], references: [id])
-  ownerCustomerId String?
-  ownerCustomer   Customer? @relation(fields: [ownerCustomerId], references: [id])
+  id                  String       @id @default(uuid())
+  productId           String
+  product             Product      @relation(fields: [productId], references: [id])
+  ownerCustomerId     String?
+  ownerCustomer       Customer?    @relation(fields: [ownerCustomerId], references: [id])
   // A grain batch's source is EITHER a depositing customer
   // (ownerCustomerId, the existing "stored for safekeeping" flow) OR a
   // GRAIN-type dealer bought from in bulk — never both. A dealer batch
@@ -623,10 +629,10 @@ model GrainBatch {
   // immediate buy with its own agreed rate), so it flows through the
   // exact same FIFO/sale machinery every shop-owned batch already
   // uses, just tagged with where it came from.
-  dealerId        String?
-  dealer          Dealer?   @relation(fields: [dealerId], references: [id])
-  quantityIn      Decimal   @db.Decimal(14, 3)
-  quantitySold    Decimal   @default(0) @db.Decimal(14, 3)
+  dealerId            String?
+  dealer              Dealer?      @relation(fields: [dealerId], references: [id])
+  quantityIn          Decimal      @db.Decimal(14, 3)
+  quantitySold        Decimal      @default(0) @db.Decimal(14, 3)
   // Only meaningful when ownerCustomerId is set. Tracks how much of
   // this customer batch's OWNERSHIP CLAIM has been settled away via a
   // transfer-purchase (createTransferPurchase) — deliberately separate
@@ -637,7 +643,7 @@ model GrainBatch {
   // claim — see StockUdhaarEntry. The customer's remaining ownership
   // claim is quantityIn - quantityTransferred (never quantityIn -
   // quantitySold). Always 0 for shop-owned batches.
-  quantityTransferred Decimal @default(0) @db.Decimal(14, 3)
+  quantityTransferred Decimal      @default(0) @db.Decimal(14, 3)
   // Null means "not yet priced" — either a customer's store-for-later
   // deposit awaiting settlement (createGrainBatch with no rate given),
   // or grain sold via Stock Udhaar before its sale-time cost rate was
@@ -646,19 +652,19 @@ model GrainBatch {
   // transfer-purchase, or a settle-now deposit — a shop-owned batch is
   // the shop's actual inventory and must always have a real cost
   // basis. Once set, never reverts to null.
-  rate            Decimal?  @db.Decimal(12, 2)
-  receivedAt      DateTime  @default(now())
+  rate                Decimal?     @db.Decimal(12, 2)
+  receivedAt          DateTime     @default(now())
   // Set only on a shop-owned batch created BY a transfer-purchase,
   // pointing at the customer batch it drew its claim from. Pure
   // audit/traceability — never read for quantity or cost math, since
   // this new batch's own `rate` (the agreed purchase rate) is already
   // its true cost basis for later profit calculation.
-  sourceBatchId   String?
-  sourceBatch     GrainBatch? @relation("BatchTransferSource", fields: [sourceBatchId], references: [id])
-  transferredBatches GrainBatch[] @relation("BatchTransferSource")
+  sourceBatchId       String?
+  sourceBatch         GrainBatch?  @relation("BatchTransferSource", fields: [sourceBatchId], references: [id])
+  transferredBatches  GrainBatch[] @relation("BatchTransferSource")
 
-  saleAllocations DailySaleItemBatch[]
-  stockUdhaars    StockUdhaarEntry[]
+  saleAllocations     DailySaleItemBatch[]
+  stockUdhaars        StockUdhaarEntry[]
   // The payment transaction(s) linked to THIS batch via
   // AccountTransaction.linkedGrainBatchId — in practice exactly one,
   // since payCustomerForGrain creates one of each per call, but this

@@ -7,7 +7,7 @@ import { ExpenseForm } from "./ExpenseForm";
 // Same pattern as AddAccountTypeModal/AddProductModal — owns its own
 // open/close state locally, calls router.refresh() on save to re-run
 // the server fetch behind the list's Suspense boundary.
-export function AddExpenseModal() {
+export function AddExpenseModal({ bankAccounts = [] }: { bankAccounts?: { id: string; name: string }[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
@@ -28,6 +28,7 @@ export function AddExpenseModal() {
               Every expense needs a payment method — Cash Flow depends on it being set correctly.
             </p>
             <ExpenseForm
+              bankAccounts={bankAccounts}
               onSaved={() => {
                 setOpen(false);
                 router.refresh();

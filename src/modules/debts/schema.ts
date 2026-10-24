@@ -28,6 +28,9 @@ export type DebtRow = {
   // always totalBorrowed - totalPaid for this bucket, NOT
   // CustomerAccount.currentBalance (which combines both buckets).
   balance: number;
+  // Distinct references on this bucket's OUT entries (imported
+  // balances carry one — see AccountTransaction.reference).
+  references: string[];
   totalBorrowed: number;
   totalPaid: number;
   // The earliest unpaid transaction's date — "unpaid" here means the

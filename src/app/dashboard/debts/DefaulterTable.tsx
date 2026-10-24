@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { listDefaulters } from "@/modules/debts/actions";
-import { formatMoney, formatDate } from "@/lib/utils";
-import { RecordAccountTransactionModal } from "@/modules/customers/components/RecordAccountTransactionModal";
+import { formatMoney, formatDate, matchesSearch } from "@/lib/utils";
+import { CustomerUdhaarPaymentModal } from "@/modules/customers/components/CustomerUdhaarPayment";
+import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 
 // A consolidated view across BOTH buckets (Regular and Long-term) —
 // every debtor whose oldest due-dated unpaid transaction is more than
@@ -12,14 +13,15 @@ import { RecordAccountTransactionModal } from "@/modules/customers/components/Re
 // there. Every row is overdue by construction, so unlike DebtorTable
 // there's no non-overdue case to render — the whole table is the
 // warning.
-export async function DefaulterTable() {
-  const defaulters = await listDefaulters();
+export async function DefaulterTable({ search }: { search?: string } = {}) {
+  const [allDefaulters, bankAccounts] = await Promise.all([listDefaulters(), listBankAccounts()]);
+  const defaulters = allDefaulters.filter((d) => matchesSearch(search, d.customerName, d.customerPhone));
 
   if (defaulters.length === 0) {
     return (
       <div className="panel">
         <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-          No defaulters right now — nobody is more than a week past their due date.
+          {search ? `No matches for "${search}".` : "No defaulters right now — nobody is more than a week past their due date."}
         </p>
       </div>
     );
@@ -93,11 +95,10 @@ export async function DefaulterTable() {
                 </span>
               </td>
               <td style={{ textAlign: "right" }}>
-                <RecordAccountTransactionModal
-                  customerAccountId={debtor.customerAccountId}
-                  triggerLabel="Record repayment"
-                  defaultDirection="IN"
-                  lockBucket={debtor.bucket === "LONG_TERM"}
+                <CustomerUdhaarPaymentModal
+                  customerId={debtor.customerId}
+                  customerName={debtor.customerName}
+                  bankAccounts={bankAccounts}
                 />
               </td>
             </tr>

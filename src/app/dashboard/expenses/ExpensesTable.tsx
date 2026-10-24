@@ -1,5 +1,6 @@
 import { Fragment } from "react";
 import { listExpenses } from "@/modules/expenses/actions";
+import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { formatMoney, formatDate } from "@/lib/utils";
 import { Pagination } from "@/modules/products/components/Pagination";
 import { EditExpenseButton } from "@/modules/expenses/components/EditExpenseButton";
@@ -23,11 +24,14 @@ const PAYMENT_CLASS: Record<string, string> = {
 // wait on it.
 export async function ExpensesTable({ searchParams }: { searchParams: ExpensesSearchParams }) {
   const page = searchParams.page ? Number(searchParams.page) : 1;
-  const result = await listExpenses({
-    fromDate: searchParams.from,
-    toDate: searchParams.to,
-    page,
-  });
+  const [result, bankAccounts] = await Promise.all([
+    listExpenses({
+      fromDate: searchParams.from,
+      toDate: searchParams.to,
+      page,
+    }),
+    listBankAccounts(),
+  ]);
 
   const pageTotal = result.expenses.reduce((sum, e) => sum + Number(e.amount), 0);
 
@@ -78,7 +82,7 @@ export async function ExpensesTable({ searchParams }: { searchParams: ExpensesSe
                       <td style={{ textAlign: "right", fontWeight: 600 }}>{formatMoney(Number(expense.amount))}</td>
                       <td>
                         <div className="row-actions">
-                          <EditExpenseButton expense={expense} />
+                          <EditExpenseButton expense={expense} bankAccounts={bankAccounts} />
                           <DeleteExpenseButton expenseId={expense.id} />
                         </div>
                       </td>

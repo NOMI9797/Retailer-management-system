@@ -19,7 +19,7 @@ export function DailySalesAreaSelect({
 
   function onChange(areaId: string) {
     const current = Object.fromEntries(searchParams.entries());
-    router.push(buildDailySalesHref(current, { area: areaId || undefined, page: undefined }));
+    router.push(buildDailySalesHref(current, { area: areaId || undefined }));
   }
 
   const activeName = areas.find((a) => a.id === activeArea)?.name ?? "All areas";

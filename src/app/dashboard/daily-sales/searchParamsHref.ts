@@ -3,9 +3,8 @@ export type DailySalesSearchParams = {
   search?: string;
   area?: string;
   accountType?: string;
-  from?: string;
-  to?: string;
-  page?: string;
+  // "YYYY-MM-DD"; absent means today (see listDailyLedger).
+  date?: string;
 };
 
 // Same pattern as products/customers searchParamsHref.
@@ -20,9 +19,7 @@ export function buildDailySalesHref(
   if (merged.search) params.set("search", merged.search);
   if (merged.area) params.set("area", merged.area);
   if (merged.accountType) params.set("accountType", merged.accountType);
-  if (merged.from) params.set("from", merged.from);
-  if (merged.to) params.set("to", merged.to);
-  if (merged.page && merged.page !== "1") params.set("page", merged.page);
+  if (merged.date) params.set("date", merged.date);
 
   const qs = params.toString();
   return `/dashboard/daily-sales${qs ? `?${qs}` : ""}`;

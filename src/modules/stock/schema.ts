@@ -78,29 +78,3 @@ export const updateGrainSettlementSchema = z
     path: ["bankAccountId"],
   });
 export type UpdateGrainSettlementInput = z.infer<typeof updateGrainSettlementSchema>;
-
-// Paying down money the shop owes a customer for grain it bought on
-// Credit (see getShopOwedForGrain) — the opposite direction from
-// recordAccountTransaction's debt convention (that one is for a
-// customer's debt to the shop, not the shop's debt to a customer), so
-// this needs its own action rather than reusing that one. amount is
-// capped at that PRODUCT's own outstanding grain debt in the action,
-// not trusted from the client — per the "pay per product, from that
-// product's own row" decision, a payment is always scoped to one
-// product (a customer owing on both Cotton and Wheat needs two
-// separate payments, never one combined lump sum), so
-// getShopOwedForGrain's per-product figure stays exact.
-export const payGrainDebtSchema = z
-  .object({
-    customerId: z.string().uuid(),
-    productId: z.string().uuid(),
-    amount: z.number().positive("Amount must be positive"),
-    paymentMethod: z.enum(["CASH", "ACCOUNT"]),
-    bankAccountId: z.string().uuid().optional(),
-    notes: z.string().optional(),
-  })
-  .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
-    message: "Select which bank account this was paid through",
-    path: ["bankAccountId"],
-  });
-export type PayGrainDebtInput = z.infer<typeof payGrainDebtSchema>;

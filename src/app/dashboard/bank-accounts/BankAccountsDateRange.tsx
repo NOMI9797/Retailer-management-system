@@ -3,8 +3,8 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { buildBankAccountsHref } from "./searchParamsHref";
 
-// Same URL-driven date range pattern as Daily Sales' own
-// DailySalesDateRange.
+// URL-driven from/to date range, committing on change like the other
+// filters on this page.
 export function BankAccountsDateRange({ activeFrom, activeTo }: { activeFrom: string; activeTo: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();

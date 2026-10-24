@@ -1,6 +1,5 @@
-// New Sale, Udhaar Clearance, and Stock from customer are tabs on the
-// same page — real ?tab= navigation, same pattern as
-// Settings/Expenses/Reports.
+// The New entry screen: no ?tab shows the option grid, a ?tab shows
+// that entry's form (see ENTRY_GROUPS in page.tsx for the keys).
 export type NewSalePageSearchParams = {
   tab?: string;
 };

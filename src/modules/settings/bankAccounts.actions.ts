@@ -298,18 +298,19 @@ export async function listBankAccountTransactions(options?: {
 
   for (const txn of accountTxns) {
     if (!txn.bankAccount) continue;
-    // isShopBorrowed inverts the usual OUT/IN meaning (see its schema
-    // comment) — OUT there means cash coming INTO the shop (it's
-    // borrowing), IN means the shop paying it back out. Every other
-    // bucket on this table (Regular/Long-term Udhaar, grain debt)
-    // keeps the normal meaning: OUT = money leaving the shop (a loan
-    // given, or paying a customer for grain), IN = money coming in (a
-    // repayment collected).
+    // Bank direction per bucket: isShopBorrowed inverts OUT/IN (OUT =
+    // the shop borrowed, cash IN; IN = the shop repaid, cash OUT). A
+    // grain debt repayment (payGrainDebt: direction IN with quantity
+    // set) is the shop paying a customer for grain, so it's money OUT
+    // despite its IN direction — payGrainDebt posts -amount to the
+    // bank. Everything else: OUT = money out (loan given, grain
+    // settlement), IN = money in (Udhaar repayment collected).
+    const isGrainDebtRepayment = !txn.isShopBorrowed && txn.direction === "IN" && txn.quantity !== null;
     const direction: "IN" | "OUT" = txn.isShopBorrowed
       ? txn.direction === "OUT"
         ? "IN"
         : "OUT"
-      : txn.direction === "OUT"
+      : isGrainDebtRepayment || txn.direction === "OUT"
         ? "OUT"
         : "IN";
     const customerName = txn.customerAccount.customer.name;
@@ -324,24 +325,21 @@ export async function listBankAccountTransactions(options?: {
         ? direction === "IN"
           ? "Borrowed from customer"
           : "Repaid to customer"
-        : txn.quantity !== null
-          ? direction === "OUT"
-            ? "Grain settlement"
-            : "Grain debt repayment"
-          : direction === "OUT"
-            ? "Loan given"
-            : "Udhaar repayment",
-      description: customerName,
-      // A grain settlement (quantity !== null, direction OUT) touches
-      // a batch/pooled-stock on top of the balance/bank move, so it
-      // routes to its own dedicated reversal (deleteGrainSettlement)
-      // — everything else here (loan given, Udhaar repayment, grain
-      // debt repayment, shop-borrowed) is a plain balance+bank move,
-      // handled by deleteAccountTransaction.
-      deleteRef:
-        txn.quantity !== null && direction === "OUT"
-          ? { kind: "GRAIN_SETTLEMENT", transactionId: txn.id }
-          : { kind: "ACCOUNT_TRANSACTION", transactionId: txn.id },
+        : txn.linkedGrainBatchId
+          ? "Grain settlement"
+          : isGrainDebtRepayment
+            ? "Grain debt repayment"
+            : direction === "OUT"
+              ? "Loan given"
+              : "Udhaar repayment",
+      description: txn.reference ? `${customerName} · Ref: ${txn.reference}` : customerName,
+      // A grain settlement (linked to the grain batch it bought) also
+      // touches batch/pooled stock, so it routes to its own reversal
+      // (deleteGrainSettlement). Everything else here is a plain
+      // balance+bank move, handled by deleteAccountTransaction.
+      deleteRef: txn.linkedGrainBatchId
+        ? { kind: "GRAIN_SETTLEMENT", transactionId: txn.id }
+        : { kind: "ACCOUNT_TRANSACTION", transactionId: txn.id },
     });
   }
 

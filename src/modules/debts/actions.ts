@@ -1,119 +1,54 @@
 "use server";
 
-import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
+import { loadCustomerUdhaar, loadShopOwesCustomer, type CustomerUdhaar, type ShopOwesCustomer } from "./udhaarLedger";
 import type { DebtRow, DebtSummary, DebtBucket } from "./schema";
-import type { Prisma } from "@prisma/client";
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
-// A due date passing alone doesn't make someone a defaulter — the
-// shop gives a week's grace after the due date before it's treated as
-// a real problem. This is the ONE definition of "overdue" used
-// everywhere (Regular/Long-term tabs' inline flag AND the Defaulter
-// tab's list) — not two different severities, per the "same rule,
-// Defaulter is just the consolidated view" decision.
-const GRACE_PERIOD_DAYS = 7;
-
-type AccountWithTransactions = Prisma.CustomerAccountGetPayload<{
-  include: { customer: true; accountType: true; transactions: true };
-}>;
-
-// Shared by listDebtors and getCustomerUdhaarSummary — one
-// implementation of "borrowed/paid/overdue math for this account," so
-// the shop-wide Udhaar page and the Udhaar Clearance tab's per-
-// customer summary can never disagree about the same numbers.
-//
-// `bucket` scopes every figure (balance/borrowed/paid/debtSince/
-// overdue) to ONLY that bucket's transactions — REGULAR and LONG_TERM
-// are fully isolated views over the same account, per the "separate
-// totals, never combined" decision (see DebtBucket's schema comment).
-// The returned `balance` is therefore this bucket's own borrowed-paid
-// figure, NOT account.currentBalance (which is the two buckets
-// combined) — the two only agree when a customer has no long-term
-// loans at all.
-function summarizeAccount(account: AccountWithTransactions, bucket: DebtBucket): DebtRow {
+// One customer's figures for one bucket (Regular/Daily or Long-term),
+// read off their Udhaar ledger (see udhaarLedger.ts): payments are one
+// pooled pot spread over every entry oldest-first, so a bucket's
+// "paid" is whatever of that pot landed on its entries. debtSince and
+// the overdue flag come from the oldest entry still unpaid (overdue =
+// its due date plus the week's grace has passed — GRACE_PERIOD_DAYS).
+function summarizeBucket(udhaar: CustomerUdhaar, bucket: DebtBucket): DebtRow {
   const now = Date.now();
-  const wantsLongTerm = bucket === "LONG_TERM";
-  // isShopBorrowed rows are their own fully separate bucket (see
-  // AccountTransaction.isShopBorrowed's schema comment) — excluded
-  // here regardless of which bucket was asked for, so a Shop Borrowed
-  // loan (isLongTerm: false, same as Regular Udhaar) never leaks into
-  // and corrupts the Regular/Daily Udhaar totals.
-  const sortedTxns = account.transactions
-    .filter((t) => t.isLongTerm === wantsLongTerm && !t.isShopBorrowed)
-    .sort((a, b) => a.transactionDate.getTime() - b.transactionDate.getTime());
+  const charges = udhaar.charges.filter((c) => c.isLongTerm === (bucket === "LONG_TERM"));
+  const unpaid = charges.filter((c) => c.remaining > 0.01);
 
-  const earliestTxn = sortedTxns[0] ?? null;
-  const debtSince = earliestTxn?.transactionDate ?? account.openedDate;
-  const daysSince = Math.max(0, Math.floor((now - debtSince.getTime()) / MS_PER_DAY));
-
-  const oldestDueDated = sortedTxns.find((t) => t.dueDate !== null) ?? null;
-  const isOverdue =
-    oldestDueDated !== null &&
-    oldestDueDated.dueDate!.getTime() + GRACE_PERIOD_DAYS * MS_PER_DAY < now;
-
-  let totalBorrowed = 0;
-  let totalPaid = 0;
-  for (const txn of sortedTxns) {
-    if (txn.direction === "OUT") totalBorrowed += Number(txn.amount);
-    else totalPaid += Number(txn.amount);
-  }
+  const debtSince = (unpaid[0] ?? charges[0])?.date ?? new Date(now);
+  const oldestDueDated = unpaid.find((c) => c.dueDate !== null) ?? null;
 
   return {
-    customerAccountId: account.id,
-    customerId: account.customerId,
-    customerName: account.customer.name,
-    customerPhone: account.customer.phone,
-    accountTypeName: account.accountType.name,
-    kind: account.accountType.isLoan ? "LOAN" : "ON_ACCOUNT",
+    customerAccountId: udhaar.udhaarAccountId ?? charges[0]?.customerAccountId ?? "",
+    customerId: udhaar.customerId,
+    customerName: udhaar.customerName,
+    customerPhone: udhaar.customerPhone,
+    accountTypeName: "Udhaar",
+    kind: charges.some((c) => c.isLoanAccount) ? "LOAN" : "ON_ACCOUNT",
     bucket,
-    balance: totalBorrowed - totalPaid,
-    totalBorrowed,
-    totalPaid,
+    balance: unpaid.reduce((sum, c) => sum + c.remaining, 0),
+    references: [...new Set(charges.filter((c) => c.reference).map((c) => c.reference!))],
+    totalBorrowed: charges.reduce((sum, c) => sum + c.amount, 0),
+    totalPaid: charges.reduce((sum, c) => sum + c.paid, 0),
     debtSince,
-    daysSince,
+    daysSince: Math.max(0, Math.floor((now - debtSince.getTime()) / MS_PER_DAY)),
     dueDate: oldestDueDated?.dueDate ?? null,
-    isOverdue,
+    isOverdue: unpaid.some((c) => c.isOverdue),
   };
 }
 
-// Every account with a positive balance IN THE GIVEN BUCKET — "any
-// kind of money owed to the shop by a customer." Not cached — a
-// shopkeeper recording a repayment expects this list to reflect it
-// immediately.
-//
-// "Debt since" and the overdue flag are both deliberately simplified,
-// per the milestone's explicit scope boundary: once partial
-// repayments happen, a running balance doesn't cleanly map back to
-// which original loan it's paying off, so this doesn't attempt full
-// payment allocation. Instead: "debt since" is the account's EARLIEST
-// transaction (when the relationship started owing), and "overdue" is
-// keyed off the earliest transaction that actually carries a dueDate
-// (the oldest loan with a due date set) — if that date PLUS a
-// GRACE_PERIOD_DAYS week has passed and the account still owes money,
-// the whole account is flagged (see GRACE_PERIOD_DAYS above).
-//
-// currentBalance can't be filtered at the database level per-bucket
-// (it's a shared total across both), so this fetches every account
-// with ANY activity and filters to bucket-positive-balance in memory
-// — fine at a single shop's scale.
+// Every customer still owing something IN THE GIVEN BUCKET. Not
+// cached — a shopkeeper recording a repayment expects this list to
+// reflect it immediately.
 export async function listDebtors(bucket: DebtBucket = "REGULAR"): Promise<DebtRow[]> {
   const shopId = await getCurrentShopId();
+  const ledgers = await loadCustomerUdhaar(shopId);
 
-  const accounts = await db.customerAccount.findMany({
-    where: {
-      customer: { shopId },
-      transactions: { some: { isLongTerm: bucket === "LONG_TERM" } },
-    },
-    include: {
-      customer: true,
-      accountType: true,
-      transactions: { orderBy: { transactionDate: "asc" } },
-    },
-  });
-
-  const rows: DebtRow[] = accounts.map((a) => summarizeAccount(a, bucket)).filter((row) => row.balance > 0);
+  const rows: DebtRow[] = [...ledgers.values()]
+    .map((u) => summarizeBucket(u, bucket))
+    .filter((row) => row.balance > 0.01);
 
   // Overdue first, then oldest debt first among the rest — per the
   // milestone's explicit default sort (crossed-due-date rows are a
@@ -168,35 +103,30 @@ export async function listDefaulters(): Promise<DebtRow[]> {
   return defaulters;
 }
 
-// One customer's Udhaar account summary — powers the Udhaar Clearance
-// tab's "how much borrowed, how much cleared, how much remaining"
-// view after a shopkeeper picks a customer. Unlike listDebtors, this
-// is NOT filtered to currentBalance > 0 — a fully cleared customer
-// (balance 0) still needs their history shown so a repayment can be
-// verified as complete, not just customers who currently owe money.
-// Returns null if the customer has no Udhaar account yet (they've
-// never taken a loan or made a Credit sale) — the caller decides how
-// to present that ("no Udhaar activity yet" rather than a payment
-// form with nothing to pay against).
+// One customer's figures for one bucket — e.g. the customer page's
+// overall totals. Null if they have no Udhaar entries at all.
 export async function getCustomerUdhaarSummary(
   customerId: string,
   bucket: DebtBucket = "REGULAR"
 ): Promise<DebtRow | null> {
   const shopId = await getCurrentShopId();
+  const udhaar = (await loadCustomerUdhaar(shopId, customerId)).get(customerId);
+  return udhaar ? summarizeBucket(udhaar, bucket) : null;
+}
 
-  const account = await db.customerAccount.findFirst({
-    where: {
-      customerId,
-      customer: { shopId },
-      accountType: { isLoan: true },
-    },
-    include: {
-      customer: true,
-      accountType: true,
-      transactions: { orderBy: { transactionDate: "asc" } },
-    },
-  });
+// One customer's whole Udhaar ledger — every entry oldest first with
+// its paid/remaining after their pooled payments are spread over them
+// — for the single-payment Udhaar clearance screen.
+export async function getCustomerUdhaarLedger(customerId: string): Promise<CustomerUdhaar | null> {
+  const shopId = await getCurrentShopId();
+  return (await loadCustomerUdhaar(shopId, customerId)).get(customerId) ?? null;
+}
 
-  if (!account) return null;
-  return summarizeAccount(account, bucket);
+// What the shop owes one customer, entry by entry (borrowed money and
+// grain bought on Udhaar) with the shop's pooled repayments spread
+// over them oldest first — for the single-payment "shop pays customer"
+// Udhaar clearance screen.
+export async function getShopOwesCustomerLedger(customerId: string): Promise<ShopOwesCustomer | null> {
+  const shopId = await getCurrentShopId();
+  return (await loadShopOwesCustomer(shopId, customerId)).get(customerId) ?? null;
 }

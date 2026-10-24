@@ -5,15 +5,14 @@ import type { Prisma } from "@prisma/client";
 import { getCurrentShopId } from "@/lib/tenant";
 import { serializeDecimals } from "@/lib/serialize";
 import { postToBankAccount } from "@/modules/settings/bankAccounts.actions";
+import { loadShopOwesCustomer } from "@/modules/debts/udhaarLedger";
 import {
   transferPurchaseSchema,
   depositWithSettlementSchema,
   updateGrainSettlementSchema,
-  payGrainDebtSchema,
   type TransferPurchaseInput,
   type DepositWithSettlementInput,
   type UpdateGrainSettlementInput,
-  type PayGrainDebtInput,
 } from "./schema";
 
 type Result<T> = { success: true; data: T } | { success: false; error: string };
@@ -793,315 +792,95 @@ export async function getStockUdhaarTotals(productId?: string) {
   };
 }
 
-// Money the shop currently owes customers for grain it has already
-// taken ownership of (via a Credit-paid transfer-purchase/settle-now
-// deposit) but hasn't actually paid out yet — NOT the same thing as
-// Stock Udhaar (a quantity obligation from selling before settling).
-// This is the mirror case: the stock side is fully settled (ownership
-// moved, ledger posted), only the MONEY side is still outstanding.
-//
-// Deliberately does NOT just read CustomerAccount.currentBalance
-// going negative — an account can be shared with unrelated activity
-// (e.g. a Udhaar/loan account where a mis-entered repayment larger
-// than what was borrowed also pushes the balance negative), which
-// would misreport an unrelated bookkeeping error as "owed for grain."
-// payCustomerForGrain sets `quantity` on EVERY payment method (Cash/
-// Account/Credit — it's the marker for "this is a grain purchase
-// posting," not "this is unpaid"), but only a CREDIT-paid one ever
-// leaves real money owed — Cash/Account are settled in the same
-// breath as the purchase and never touch the balance at all (see that
-// function's comment). So only CREDIT OUT postings count as debt
-// here; payGrainDebt's IN postings (always paid via Cash/Account —
-// see its schema, CREDIT is deliberately not an option there) net one
-// down regardless.
-// productId optionally scopes the result to one grain product — per
-// the "product-specific, not shop-wide" decision (a customer's Cotton
-// debt and Wheat debt are tracked as two separate numbers, never
-// combined). The OUT side (a Credit-paid transfer-purchase/settle-now
-// deposit) is always attributable to a product via
-// linkedGrainBatch.productId — every such posting creates exactly one
-// grain batch for exactly one product (see payCustomerForGrain). The
-// IN side (a payGrainDebt repayment) is attributable via
-// linkedProductId, which payGrainDebt now always sets — per the "pay
-// per product, from that product's own row" decision, there is no
-// longer any cross-product combined payment to worry about
-// misattributing. Omitting productId gives the old shop-wide total
-// (every product's debt for that customer combined) — still used
-// where a genuinely cross-product figure is wanted (e.g. a customer's
-// account-level summary).
+// Money the shop still owes customers for grain it bought from them on
+// Udhaar (a CREDIT grain settlement), per customer. Read off the shop
+// ledger (debts/udhaarLedger.ts: loadShopOwesCustomer), where the
+// shop's repayments to a customer are one pooled pot spread over
+// everything it owes them — borrowed money and grain — oldest first.
+// So a grain purchase's "owed" is whatever of it that pot hasn't
+// reached yet. productId optionally narrows to one grain product.
 export async function getShopOwedForGrain(customerId?: string, productId?: string) {
   const shopId = await getCurrentShopId();
+  const ledgers = await loadShopOwesCustomer(shopId, customerId);
 
-  const transactions = await db.accountTransaction.findMany({
-    where: {
-      quantity: { not: null },
-      OR: [{ direction: "OUT", paymentMethod: "CREDIT" }, { direction: "IN" }],
-      customerAccount: {
-        customerId: customerId || undefined,
-        customer: { shopId },
-      },
-    },
-    include: {
-      customerAccount: { include: { customer: true } },
-      linkedGrainBatch: { select: { productId: true } },
-    },
-  });
-
-  const byCustomer = new Map<string, { customerId: string; customerName: string; amountOwed: number }>();
-  for (const txn of transactions) {
-    if (productId) {
-      const txnProductId = txn.direction === "OUT" ? txn.linkedGrainBatch?.productId : txn.linkedProductId;
-      if (txnProductId !== productId) continue;
-    }
-    // OUT (CREDIT-paid, per the filter above) grows the debt; IN
-    // (payGrainDebt) shrinks it.
-    const delta = txn.direction === "OUT" ? Number(txn.amount) : -Number(txn.amount);
-    if (delta === 0) continue;
-    const cId = txn.customerAccount.customerId;
-    const existing = byCustomer.get(cId);
-    if (existing) {
-      existing.amountOwed += delta;
-    } else {
-      byCustomer.set(cId, {
-        customerId: cId,
-        customerName: txn.customerAccount.customer.name,
-        amountOwed: delta,
-      });
-    }
-  }
-
-  // Floating-point noise or a fully-settled customer can land at ~0 —
-  // filter those out so a settled debt doesn't linger as a stray
-  // "Rs 0.00 owed" row.
-  return Array.from(byCustomer.values()).filter((e) => e.amountOwed > 0.01);
+  return [...ledgers.values()]
+    .map((l) => ({
+      customerId: l.customerId,
+      customerName: l.customerName,
+      amountOwed: l.charges
+        .filter((c) => c.kind === "GRAIN" && (!productId || c.productId === productId))
+        .reduce((sum, c) => sum + c.remaining, 0),
+    }))
+    .filter((e) => e.amountOwed > 0.01);
 }
 
-// One customer's money-owed broken out PER PRODUCT — powers
-// CustomerGrainSection (the customer detail page's Grain tab and
-// StockFromCustomerForm's deposits panel), where each settlement row
-// needs to know THAT row's own product's outstanding debt, not one
-// combined cross-product figure (see getShopOwedForGrain's comment on
-// why the two are no longer the same number). Returns both `owed`
-// (the net still outstanding — OUT minus IN, same math
-// getShopOwedForGrain uses) and `paid` (just the IN side — every
-// payGrainDebt repayment made against this product) so a "Paid so
-// far" figure can be shown alongside "Shop owes", not just implied by
-// what "owed" no longer includes. A batch with no rate-less/Credit
-// settlement never appears here — only products with a genuinely
-// positive owed OR paid amount are included, same "no stray Rs 0 row"
-// filtering getShopOwedForGrain already does.
+// One customer's grain money-owed broken out PER PRODUCT (the Grain
+// tab's per-product "Shop owes for this" card), plus each grain
+// purchase's own paid/remaining keyed by its AccountTransaction id
+// (`settlements`) so every settlement row can show Paid / Partly paid /
+// Owed. Same pooled oldest-first figures as getShopOwedForGrain.
 export async function getShopOwedForGrainByProduct(customerId: string) {
   const shopId = await getCurrentShopId();
+  const ledger = (await loadShopOwesCustomer(shopId, customerId)).get(customerId);
 
-  const transactions = await db.accountTransaction.findMany({
-    where: {
-      quantity: { not: null },
-      OR: [{ direction: "OUT", paymentMethod: "CREDIT" }, { direction: "IN" }],
-      customerAccount: { customerId, customer: { shopId } },
-    },
-    include: {
-      linkedGrainBatch: { select: { productId: true, product: { select: { name: true } } } },
-      linkedProduct: { select: { name: true } },
-    },
-  });
-
-  const byProduct = new Map<string, { productName: string; owed: number; paid: number }>();
-  for (const txn of transactions) {
-    const productId = txn.direction === "OUT" ? txn.linkedGrainBatch?.productId : txn.linkedProductId;
-    if (!productId) continue;
-    const productName =
-      (txn.direction === "OUT" ? txn.linkedGrainBatch?.product.name : txn.linkedProduct?.name) ?? "Unknown product";
-    const amount = Number(txn.amount);
-    const existing = byProduct.get(productId) ?? { productName, owed: 0, paid: 0 };
-    if (txn.direction === "OUT") {
-      existing.owed += amount;
-    } else {
-      existing.owed -= amount;
-      existing.paid += amount;
-    }
-    byProduct.set(productId, existing);
+  const byProduct = new Map<
+    string,
+    { productName: string; owed: number; paid: number; settlements: Record<string, { paid: number; remaining: number }> }
+  >();
+  for (const c of ledger?.charges ?? []) {
+    if (c.kind !== "GRAIN" || !c.productId) continue;
+    const existing = byProduct.get(c.productId) ?? {
+      productName: c.productName ?? "Unknown product",
+      owed: 0,
+      paid: 0,
+      settlements: {},
+    };
+    existing.owed += c.remaining;
+    existing.paid += c.paid;
+    existing.settlements[c.id] = { paid: c.paid, remaining: c.remaining };
+    byProduct.set(c.productId, existing);
   }
-
   return byProduct;
 }
 
-// Shop-wide "Grain Udhaar" — every CREDIT-paid grain settlement
-// (transfer-purchase or settle-now deposit) across every customer,
-// with its own borrowed/paid/remaining figures, powering the Shop
-// (Udhaar) → Grain Udhaar subtab on the Debts page. Mirrors
-// CustomerGrainSection's per-customer settlement rows, just scoped to
-// the whole shop rather than one customer. A settlement's own
-// borrowed amount is its batch's quantity × rate (the agreed purchase
-// amount); paid/remaining are the CUSTOMER+PRODUCT bucket's shared
-// totals (see getShopOwedForGrainByProduct — a repayment posts
-// against the whole customer+product debt, not one specific
-// settlement, so two settlements for the same customer+product share
-// one remaining figure, same as CustomerGrainSection's own rows do).
-// Only settlements whose customer+product bucket still has a positive
-// remainder are included — a customer+product that's been fully paid
-// off no longer shows here, per the "no stray Rs 0 row" convention
-// every other Udhaar list in the app already follows.
+// Shop-wide "Grain Udhaar" (Udhaar page → Shop (Udhaar) → Grain
+// Udhaar): every grain purchase the shop still owes money on, each with
+// its own paid/remaining from the shop ledger (oldest first across
+// everything the shop owes that customer).
 export async function listShopGrainUdhaar(productId?: string) {
   const shopId = await getCurrentShopId();
+  const ledgers = await loadShopOwesCustomer(shopId);
 
-  const transactions = await db.accountTransaction.findMany({
-    where: {
-      direction: "OUT",
-      paymentMethod: "CREDIT",
-      quantity: { not: null },
-      customerAccount: { customer: { shopId } },
-      linkedGrainBatch: productId ? { productId } : undefined,
-    },
-    include: {
-      customerAccount: { include: { customer: true } },
-      linkedGrainBatch: { include: { product: { include: { unit: true } } } },
-    },
-    orderBy: { transactionDate: "desc" },
-  });
-
-  // customerId -> productId -> { owed, paid } — same math
-  // getShopOwedForGrainByProduct does for one customer, computed here
-  // once across every customer in a single pass rather than N+1
-  // queries per settlement row.
-  const allIn = await db.accountTransaction.findMany({
-    where: {
-      direction: "IN",
-      quantity: { not: null },
-      linkedProductId: { not: null },
-      customerAccount: { customer: { shopId } },
-    },
-    select: { customerAccountId: true, linkedProductId: true, amount: true, customerAccount: { select: { customerId: true } } },
-  });
-  const bucket = new Map<string, { owed: number; paid: number }>();
-  const bucketKey = (customerId: string, productId: string) => `${customerId}:${productId}`;
-  for (const txn of transactions) {
-    const productId = txn.linkedGrainBatch?.productId;
-    if (!productId) continue;
-    const key = bucketKey(txn.customerAccount.customerId, productId);
-    const existing = bucket.get(key) ?? { owed: 0, paid: 0 };
-    existing.owed += Number(txn.amount);
-    bucket.set(key, existing);
-  }
-  for (const txn of allIn) {
-    const productId = txn.linkedProductId!;
-    const key = bucketKey(txn.customerAccount.customerId, productId);
-    const existing = bucket.get(key) ?? { owed: 0, paid: 0 };
-    existing.owed -= Number(txn.amount);
-    existing.paid += Number(txn.amount);
-    bucket.set(key, existing);
-  }
-
-  return transactions
-    .filter((txn) => txn.linkedGrainBatch?.productId)
-    .map((txn) => {
-      const batch = txn.linkedGrainBatch!;
-      const productId = batch.productId;
-      const key = bucketKey(txn.customerAccount.customerId, productId);
-      const totals = bucket.get(key) ?? { owed: 0, paid: 0 };
-      return {
-        transactionId: txn.id,
-        customerId: txn.customerAccount.customerId,
-        customerName: txn.customerAccount.customer.name,
-        productId,
-        productName: batch.product.name,
-        unitName: batch.product.unit.name,
-        quantity: Number(batch.quantityIn),
-        rate: batch.rate !== null ? Number(batch.rate) : 0,
-        borrowed: Number(txn.amount),
-        date: txn.transactionDate,
-        remaining: totals.owed,
-        paid: totals.paid,
-      };
-    })
-    .filter((row) => row.remaining > 0.01);
+  return [...ledgers.values()]
+    .flatMap((l) =>
+      l.charges
+        .filter((c) => c.kind === "GRAIN" && (!productId || c.productId === productId) && c.remaining > 0.01)
+        .map((c) => ({
+          transactionId: c.id,
+          customerId: l.customerId,
+          customerName: l.customerName,
+          productId: c.productId!,
+          productName: c.productName ?? "Unknown product",
+          unitName: c.unitName ?? "",
+          quantity: c.quantity ?? 0,
+          rate: c.rate ?? 0,
+          borrowed: c.amount,
+          date: c.date,
+          remaining: c.remaining,
+          paid: c.paid,
+        }))
+    )
+    .sort((a, b) => b.date.getTime() - a.date.getTime());
 }
 
 // Stat-card totals for the Shop (Udhaar) → Grain Udhaar subtab.
 export async function getShopGrainUdhaarSummary(productId?: string) {
   const rows = await listShopGrainUdhaar(productId);
-
-  // Dedupe by customer+product bucket before summing remaining/paid —
-  // several settlement rows can share the same bucket (see
-  // listShopGrainUdhaar's comment), and each one carries that whole
-  // bucket's totals, not its own slice, so summing every ROW would
-  // double-count a bucket with more than one settlement.
-  const seen = new Set<string>();
-  let totalRemaining = 0;
-  let totalPaid = 0;
-  for (const row of rows) {
-    const key = `${row.customerId}:${row.productId}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    totalRemaining += row.remaining;
-    totalPaid += row.paid;
-  }
-
   return {
-    totalRemaining,
-    totalPaid,
+    totalRemaining: rows.reduce((sum, r) => sum + r.remaining, 0),
+    totalPaid: rows.reduce((sum, r) => sum + r.paid, 0),
     customerCount: new Set(rows.map((r) => r.customerId)).size,
   };
-}
-
-// Pays down money the shop owes a customer for grain (see
-// getShopOwedForGrain) — the opposite direction from
-// recordAccountTransaction's debt convention, since that one is built
-// for a customer's debt TO the shop, not the shop's debt to a
-// customer. Posts a signed AccountTransaction the same way
-// payCustomerForGrain does (direction IN, with `quantity` set so
-// getShopOwedForGrain picks it up and nets it against the debt it's
-// paying down), and moves currentBalance back toward zero
-// (increment — the balance is negative while owed, per
-// describeBalance's convention).
-export async function payGrainDebt(input: PayGrainDebtInput) {
-  const shopId = await getCurrentShopId();
-  const data = payGrainDebtSchema.parse(input);
-
-  const owed = await getShopOwedForGrain(data.customerId, data.productId);
-  const outstanding = owed[0]?.amountOwed ?? 0;
-  if (data.amount > outstanding + 0.01) {
-    return {
-      success: false,
-      error: `This payment (Rs ${data.amount}) is more than what's actually owed for this product (Rs ${outstanding}) — a payment can't exceed what's owed.`,
-    };
-  }
-
-  const regularType = await db.accountType.findFirst({ where: { shopId, code: "REGULAR" } });
-  if (!regularType) {
-    return { success: false, error: "No Regular account type configured for this shop." };
-  }
-  const customerAccount = await db.customerAccount.findFirst({
-    where: { customerId: data.customerId, accountTypeId: regularType.id },
-  });
-  if (!customerAccount) return { success: false, error: "This customer has no Regular account." };
-
-  await db.$transaction(async (tx) => {
-    await tx.accountTransaction.create({
-      data: {
-        customerAccountId: customerAccount.id,
-        direction: "IN",
-        amount: data.amount,
-        // Non-null quantity is what marks this as a grain-debt
-        // posting for getShopOwedForGrain — the value itself isn't a
-        // real physical quantity (this is a pure money payment), so
-        // it's just a marker; 0 keeps it truthful rather than
-        // inventing a fake quantity.
-        quantity: 0,
-        linkedProductId: data.productId,
-        paymentMethod: data.paymentMethod,
-        bankAccountId: data.bankAccountId,
-        notes: data.notes || "Paid customer for settled grain",
-      },
-    });
-    await tx.customerAccount.update({
-      where: { id: customerAccount.id },
-      data: { currentBalance: { increment: data.amount } },
-    });
-    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
-      await postToBankAccount(tx, data.bankAccountId, -data.amount);
-    }
-  });
-  return { success: true, data: undefined };
 }
 
 // The Stock Management overview for one grain product: own-available,

@@ -11,20 +11,22 @@ import {
   updateAccountTransactionSchema,
   createLongTermLoanSchema,
   createShopBorrowedLoanSchema,
-  payShopBorrowedLoanSchema,
+  payShopUdhaarSchema,
   importLegacyUdhaarSchema,
+  recordCustomerUdhaarPaymentSchema,
   type CustomerInput,
   type UpdateCustomerInput,
   type RecordAccountTransactionInput,
   type UpdateAccountTransactionInput,
   type CreateLongTermLoanInput,
   type CreateShopBorrowedLoanInput,
-  type PayShopBorrowedLoanInput,
+  type PayShopUdhaarInput,
   type ImportLegacyUdhaarInput,
+  type RecordCustomerUdhaarPaymentInput,
 } from "./schema";
 import { ok, fail, type ActionResult } from "@/lib/actionResult";
 import { getCustomerUdhaarSummary } from "@/modules/debts/actions";
-import { getShopOwedForGrainByProduct } from "@/modules/stock/actions";
+import { loadCustomerUdhaar, loadShopOwesCustomer } from "@/modules/debts/udhaarLedger";
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -374,6 +376,7 @@ export async function recordAccountTransaction(
         paymentMethod: data.paymentMethod,
         bankAccountId: data.bankAccountId,
         dueDate: data.direction === "OUT" && data.dueDate ? parseLocalDateStart(data.dueDate) : null,
+        reference: data.reference || null,
         isLongTerm: data.isLongTerm,
         notes: data.notes || null,
       },
@@ -411,6 +414,65 @@ export async function recordAccountTransaction(
     amount: Number(txn.amount),
     quantity: txn.quantity ? Number(txn.quantity) : null,
   });
+}
+
+// Records one Udhaar payment from a customer as a single total (see
+// recordCustomerUdhaarPaymentSchema) — one IN row on their Udhaar
+// account. Which entries it clears isn't stored: the ledger spreads
+// all their payments over all their entries oldest-first on every
+// read (debts/udhaarLedger.ts). Capped at what they owe in total.
+export async function recordCustomerUdhaarPayment(
+  input: RecordCustomerUdhaarPaymentInput
+): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+  const data = recordCustomerUdhaarPaymentSchema.parse(input);
+
+  const udhaar = (await loadCustomerUdhaar(shopId, data.customerId)).get(data.customerId);
+  const owed = udhaar?.balance ?? 0;
+  if (owed <= 0.01) return fail("This customer doesn't owe the shop anything right now.");
+  if (data.amount > owed + 0.01) {
+    return fail(
+      `This payment (Rs ${data.amount}) is more than what the customer owes in total (Rs ${owed}) — a payment can't exceed what's owed.`
+    );
+  }
+
+  // Same find-or-create of the customer's Udhaar (loan-type) account
+  // importLegacyUdhaar uses — a customer whose only Udhaar is an old
+  // Regular-account import may not have one yet.
+  let accountId = udhaar?.udhaarAccountId ?? null;
+  if (!accountId) {
+    let udharType = await db.accountType.findFirst({ where: { shopId, isLoan: true } });
+    if (!udharType) {
+      udharType = await db.accountType.create({ data: { shopId, name: "Udhaar", code: "UDHAAR", isLoan: true } });
+    }
+    const account =
+      (await db.customerAccount.findFirst({ where: { customerId: data.customerId, accountTypeId: udharType.id } })) ??
+      (await db.customerAccount.create({ data: { customerId: data.customerId, accountTypeId: udharType.id } }));
+    accountId = account.id;
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.accountTransaction.create({
+      data: {
+        customerAccountId: accountId,
+        direction: "IN",
+        amount: data.amount,
+        paymentMethod: data.paymentMethod,
+        bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
+        isLongTerm: false,
+        notes: data.notes || null,
+      },
+    });
+    await tx.customerAccount.update({
+      where: { id: accountId },
+      data: { currentBalance: { decrement: data.amount } },
+    });
+    // A repayment is money coming INTO the shop.
+    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+      await postToBankAccount(tx, data.bankAccountId, data.amount);
+    }
+  });
+  return ok(null);
 }
 
 // Deletes a plain AccountTransaction row and reverses whatever it did
@@ -457,7 +519,7 @@ export async function deleteAccountTransaction(id: string): Promise<ActionResult
   await db.$transaction(async (tx) => {
     if (txn.isShopBorrowed) {
       // This bucket never touches currentBalance at all (see
-      // createShopBorrowedLoan/payShopBorrowedLoan's comments) — only
+      // createShopBorrowedLoan/payShopUdhaar's comments) — only
       // the bank posting needs reversing, with the INVERTED sign this
       // bucket already uses (OUT = cash came IN, so reversing pays it
       // back OUT; IN = shop repaid, so reversing brings it back IN).
@@ -525,6 +587,30 @@ export async function updateAccountTransaction(
   const oldAmount = Number(txn.amount);
   const isGrainDebtRepayment = txn.linkedProductId !== null && Number(txn.quantity) === 0;
 
+  // A customer's Udhaar payment can only grow up to what they still
+  // owe in total (their payments are one pooled pot — see
+  // recordCustomerUdhaarPayment).
+  if (!txn.isShopBorrowed && txn.direction === "IN" && txn.quantity === null && data.amount > oldAmount) {
+    const customerId = (await db.customerAccount.findUniqueOrThrow({ where: { id: txn.customerAccountId } })).customerId;
+    const owed = (await loadCustomerUdhaar(shopId, customerId)).get(customerId)?.balance ?? 0;
+    if (data.amount > owed + oldAmount + 0.01) {
+      return fail(
+        `This payment can be at most Rs ${owed + oldAmount} — that's everything the customer owes, including this payment.`
+      );
+    }
+  }
+  // Same for the shop repaying a customer — its repayments are one
+  // pooled pot against everything it owes them (see payShopUdhaar).
+  if ((txn.isShopBorrowed || txn.quantity !== null) && txn.direction === "IN" && data.amount > oldAmount) {
+    const customerId = (await db.customerAccount.findUniqueOrThrow({ where: { id: txn.customerAccountId } })).customerId;
+    const owed = (await loadShopOwesCustomer(shopId, customerId)).get(customerId)?.balance ?? 0;
+    if (data.amount > owed + oldAmount + 0.01) {
+      return fail(
+        `This repayment can be at most Rs ${owed + oldAmount} — that's everything the shop owes this customer, including this payment.`
+      );
+    }
+  }
+
   try {
     const updated = await db.$transaction(async (tx) => {
       // Step 1 — reverse the OLD amount's effect, exactly matching
@@ -590,6 +676,9 @@ export async function updateAccountTransaction(
           paymentMethod: data.paymentMethod,
           bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
           dueDate: txn.direction === "OUT" && data.dueDate ? parseLocalDateStart(data.dueDate) : null,
+          // An OUT entry keeps its reference unless a new non-empty one
+          // is given; a repayment (IN) never carries one.
+          ...(txn.direction === "OUT" && data.reference ? { reference: data.reference } : {}),
           notes: data.notes || null,
         },
       });
@@ -718,7 +807,7 @@ export async function importLegacyUdhaar(
 
   if (data.owedBy === "SHOP") {
     // The shop owes THIS customer — the mirror direction, same bucket
-    // createShopBorrowedLoan/payShopBorrowedLoan use (isShopBorrowed:
+    // createShopBorrowedLoan/payShopUdhaar use (isShopBorrowed:
     // true, OUT = the shop's debt grows). Posted directly to
     // AccountTransaction, not through recordAccountTransaction, for
     // the same reason createShopBorrowedLoan does: this bucket's OUT/
@@ -735,6 +824,7 @@ export async function importLegacyUdhaar(
         amount: data.amount,
         paymentMethod: "CREDIT",
         dueDate: data.recoveryDate ? parseLocalDateStart(data.recoveryDate) : null,
+        reference: data.reference,
         notes,
         isShopBorrowed: true,
       },
@@ -752,6 +842,7 @@ export async function importLegacyUdhaar(
     amount: data.amount,
     paymentMethod: "CREDIT",
     dueDate: data.recoveryDate,
+    reference: data.reference,
     notes,
     isLongTerm: false,
   });
@@ -809,6 +900,7 @@ export async function createShopBorrowedLoan(input: CreateShopBorrowedLoanInput)
         paymentMethod: data.paymentMethod,
         bankAccountId: data.bankAccountId,
         dueDate,
+        reference: data.reference,
         notes: data.notes || null,
         isShopBorrowed: true,
       },
@@ -824,57 +916,36 @@ export async function createShopBorrowedLoan(input: CreateShopBorrowedLoanInput)
   return ok(null);
 }
 
-// Every customer the shop currently owes money to via a Shop
-// Borrowed loan — the Udhaar (Shop) → Borrowed from Customers tab's
-// table data source. Same balance/overdue math as summarizeAccount,
-// scoped to isShopBorrowed rows only, computed fresh from the ledger
-// rather than any stored balance (this bucket never touches
-// currentBalance — see the section comment above).
+// Every customer the shop currently owes borrowed money to (incl. an
+// imported "shop owes customer" balance) — the Udhaar (Shop) →
+// Borrowed from Customers tab. Read off the shop ledger
+// (debts/udhaarLedger.ts), where the shop's repayments to a customer
+// are one pot spread over everything it owes them oldest first, so
+// "Paid" here is what of that pot landed on borrowed money.
 export async function listShopBorrowedLoans() {
   const shopId = await getCurrentShopId();
-
-  const accounts = await db.customerAccount.findMany({
-    where: {
-      customer: { shopId },
-      transactions: { some: { isShopBorrowed: true } },
-    },
-    include: {
-      customer: true,
-      transactions: { where: { isShopBorrowed: true }, orderBy: { transactionDate: "asc" } },
-    },
-  });
-
+  const ledgers = await loadShopOwesCustomer(shopId);
   const now = Date.now();
   const MS_PER_DAY = 1000 * 60 * 60 * 24;
-  const GRACE_PERIOD_DAYS = 7;
 
-  const rows = accounts
-    .map((account) => {
-      const txns = account.transactions;
-      const totalBorrowed = txns.filter((t) => t.direction === "OUT").reduce((sum, t) => sum + Number(t.amount), 0);
-      const totalPaid = txns.filter((t) => t.direction === "IN").reduce((sum, t) => sum + Number(t.amount), 0);
-      const balance = totalBorrowed - totalPaid;
-
-      const earliestTxn = txns[0] ?? null;
-      const borrowedSince = earliestTxn?.transactionDate ?? account.openedDate;
-      const daysSince = Math.max(0, Math.floor((now - borrowedSince.getTime()) / MS_PER_DAY));
-
-      const oldestDueDated = txns.find((t) => t.dueDate !== null) ?? null;
-      const isOverdue =
-        oldestDueDated !== null && oldestDueDated.dueDate!.getTime() + GRACE_PERIOD_DAYS * MS_PER_DAY < now;
-
+  const rows = [...ledgers.values()]
+    .map((l) => {
+      const charges = l.charges.filter((c) => c.kind !== "GRAIN");
+      const unpaid = charges.filter((c) => c.remaining > 0.01);
+      const borrowedSince = (unpaid[0] ?? charges[0])?.date ?? new Date(now);
       return {
-        customerAccountId: account.id,
-        customerId: account.customerId,
-        customerName: account.customer.name,
-        customerPhone: account.customer.phone,
-        balance,
-        totalBorrowed,
-        totalPaid,
+        customerId: l.customerId,
+        customerName: l.customerName,
+        customerPhone: l.customerPhone,
+        balance: unpaid.reduce((sum, c) => sum + c.remaining, 0),
+        totalBorrowed: charges.reduce((sum, c) => sum + c.amount, 0),
+        totalPaid: charges.reduce((sum, c) => sum + c.paid, 0),
         borrowedSince,
-        daysSince,
-        dueDate: oldestDueDated?.dueDate ?? null,
-        isOverdue,
+        daysSince: Math.max(0, Math.floor((now - borrowedSince.getTime()) / MS_PER_DAY)),
+        dueDate: unpaid.find((c) => c.dueDate !== null)?.dueDate ?? null,
+        isOverdue: unpaid.some((c) => c.isOverdue),
+        // Every distinct reference these entries came through.
+        references: [...new Set(charges.filter((c) => c.reference).map((c) => c.reference!))],
       };
     })
     .filter((row) => row.balance > 0.01);
@@ -926,10 +997,13 @@ export async function getCustomerShopBorrowedHistory(customerId: string) {
   });
 
   const transactions = account?.transactions ?? [];
-  const totalBorrowed = transactions
-    .filter((t) => t.direction === "OUT")
-    .reduce((sum, t) => sum + Number(t.amount), 0);
-  const totalPaid = transactions.filter((t) => t.direction === "IN").reduce((sum, t) => sum + Number(t.amount), 0);
+  // Paid/balance for borrowed money from the shop ledger — the shop's
+  // repayments are one pot spread over everything it owes this
+  // customer (borrowed money and grain) oldest first.
+  const ledger = (await loadShopOwesCustomer(shopId, customerId)).get(customerId);
+  const borrowedCharges = (ledger?.charges ?? []).filter((c) => c.kind !== "GRAIN");
+  const totalBorrowed = borrowedCharges.reduce((sum, c) => sum + c.amount, 0);
+  const totalPaid = borrowedCharges.reduce((sum, c) => sum + c.paid, 0);
 
   return {
     customerAccountId: account?.id ?? null,
@@ -944,6 +1018,7 @@ export async function getCustomerShopBorrowedHistory(customerId: string) {
       bankAccountId: t.bankAccountId,
       transactionDate: t.transactionDate,
       dueDate: t.dueDate,
+      reference: t.reference,
       notes: t.notes,
     })),
   };
@@ -958,36 +1033,25 @@ export async function getCustomerShopBorrowedHistory(customerId: string) {
 // Recomputed live from the ledger on every call — never cached — so a
 // payment, return, or repayment is reflected immediately.
 //
-// Buckets, and which direction each one counts:
-//   - Regular Udhaar (getCustomerUdhaarSummary, REGULAR) — customer
-//     owes shop. This is the loan-type account Credit sales and
-//     imported/manual Udhaar entries post to.
-//   - Long-term Udhaar (getCustomerUdhaarSummary, LONG_TERM) —
-//     customer owes shop. Same account as Regular, isolated bucket.
-//   - Shop Borrowed (getCustomerShopBorrowedHistory) — shop owes
-//     customer (cash the shop borrowed FROM them).
-//   - Grain money (getShopOwedForGrainByProduct) — shop owes customer
-//     for settled-but-unpaid grain deposits, summed across products.
-// Deliberately excludes grain Credit purchases (customer buying grain
-// FROM the shop on Udhaar) from this total — that money already flows
-// through the Regular Udhaar bucket above via the same Credit-sale
-// posting every other product uses (see applyPaymentSplit), so
-// counting it again here from DailySaleItem.creditAmount as well
-// would double it.
+// Customer owes shop: their Udhaar ledger's balance (Regular +
+// Long-term buckets, grain bought on Udhaar included via the sale's
+// own charge). Shop owes customer: the shop ledger's balance (borrowed
+// money + grain bought from them on Udhaar). Both from
+// debts/udhaarLedger.ts, so this always matches every other screen.
 export async function getCustomerRelationshipSummary(customerId: string) {
-  const [regular, longTerm, shopBorrowed, grainOwedByProduct] = await Promise.all([
+  const shopId = await getCurrentShopId();
+  const [regular, longTerm, shopLedger] = await Promise.all([
     getCustomerUdhaarSummary(customerId, "REGULAR"),
     getCustomerUdhaarSummary(customerId, "LONG_TERM"),
-    getCustomerShopBorrowedHistory(customerId),
-    getShopOwedForGrainByProduct(customerId),
+    loadShopOwesCustomer(shopId, customerId),
   ]);
 
+  const shopCharges = shopLedger.get(customerId)?.charges ?? [];
+  const shopBorrowed = shopCharges.filter((c) => c.kind !== "GRAIN").reduce((sum, c) => sum + c.remaining, 0);
+  const shopOwedForGrain = shopCharges.filter((c) => c.kind === "GRAIN").reduce((sum, c) => sum + c.remaining, 0);
+
   const customerOwesShop = Math.max(0, (regular?.balance ?? 0) + (longTerm?.balance ?? 0));
-  const shopOwedForGrain = Array.from(grainOwedByProduct.values()).reduce(
-    (sum, v) => sum + Math.max(0, v.owed),
-    0
-  );
-  const shopOwesCustomer = Math.max(0, shopBorrowed.balance) + shopOwedForGrain;
+  const shopOwesCustomer = shopBorrowed + shopOwedForGrain;
 
   // The two totals netted against each other into one final figure —
   // e.g. customer owes 138,000 and shop owes 38,000 nets to "customer
@@ -1005,60 +1069,61 @@ export async function getCustomerRelationshipSummary(customerId: string) {
     breakdown: {
       regularUdhaar: Math.max(0, regular?.balance ?? 0),
       longTermUdhaar: Math.max(0, longTerm?.balance ?? 0),
-      shopBorrowed: Math.max(0, shopBorrowed.balance),
+      shopBorrowed,
       grain: shopOwedForGrain,
     },
   };
 }
 
-// Pays a customer back for money the shop borrowed from them — amount
-// is capped at that account's own isShopBorrowed balance, never
-// trusted from the client. Posts directly, same reasoning as
-// createShopBorrowedLoan (this bucket's IN means "shop repays," the
-// opposite of recordAccountTransaction's convention, and never
-// touches currentBalance).
-export async function payShopBorrowedLoan(input: PayShopBorrowedLoanInput): Promise<ActionResult<null>> {
+// The shop repaying a customer, as one total (see payShopUdhaarSchema)
+// — one isShopBorrowed IN row, money leaving the shop. Which entries
+// it clears (borrowed money, grain bought on Udhaar) isn't stored: the
+// shop ledger spreads every repayment over everything the shop owes
+// this customer, oldest first (debts/udhaarLedger.ts). Capped at what
+// the shop owes them in total.
+export async function payShopUdhaar(input: PayShopUdhaarInput): Promise<ActionResult<null>> {
   const shopId = await getCurrentShopId();
-  const data = payShopBorrowedLoanSchema.parse(input);
+  const data = payShopUdhaarSchema.parse(input);
 
-  const account = await db.customerAccount.findFirst({
-    where: { id: data.customerAccountId, customer: { shopId } },
-    include: { transactions: { where: { isShopBorrowed: true } } },
-  });
-  if (!account) return fail("Account not found");
-
-  const totalBorrowed = account.transactions
-    .filter((t) => t.direction === "OUT")
-    .reduce((sum, t) => sum + Number(t.amount), 0);
-  const totalPaid = account.transactions
-    .filter((t) => t.direction === "IN")
-    .reduce((sum, t) => sum + Number(t.amount), 0);
-  const balance = totalBorrowed - totalPaid;
-
-  if (data.amount > balance + 0.01) {
+  const owed = (await loadShopOwesCustomer(shopId, data.customerId)).get(data.customerId)?.balance ?? 0;
+  if (owed <= 0.01) return fail("The shop doesn't owe this customer anything right now.");
+  if (data.amount > owed + 0.01) {
     return fail(
-      `This payment (Rs ${data.amount}) is more than what's actually owed (Rs ${balance}) — a payment can't exceed what's owed.`
+      `This payment (Rs ${data.amount}) is more than what the shop owes this customer in total (Rs ${owed}) — a payment can't exceed what's owed.`
     );
   }
 
-  await db.$transaction(async (tx) => {
-    await tx.accountTransaction.create({
-      data: {
-        customerAccountId: account.id,
-        direction: "IN",
-        amount: data.amount,
-        paymentMethod: data.paymentMethod,
-        bankAccountId: data.bankAccountId,
-        notes: data.notes || "Paid customer back for shop-borrowed money",
-        isShopBorrowed: true,
-      },
+  // Same find-or-create of the customer's Udhaar (loan-type) account
+  // createShopBorrowedLoan uses — a customer the shop only owes for
+  // grain may not have one yet.
+  let udharType = await db.accountType.findFirst({ where: { shopId, isLoan: true } });
+  if (!udharType) {
+    udharType = await db.accountType.create({ data: { shopId, name: "Udhaar", code: "UDHAAR", isLoan: true } });
+  }
+  const account =
+    (await db.customerAccount.findFirst({ where: { customerId: data.customerId, accountTypeId: udharType.id } })) ??
+    (await db.customerAccount.create({ data: { customerId: data.customerId, accountTypeId: udharType.id } }));
+
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.accountTransaction.create({
+        data: {
+          customerAccountId: account.id,
+          direction: "IN",
+          amount: data.amount,
+          paymentMethod: data.paymentMethod,
+          bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
+          notes: data.notes || "Paid customer back",
+          isShopBorrowed: true,
+        },
+      });
+      // The shop is paying out — money leaves the bank account.
+      if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
+        await postToBankAccount(tx, data.bankAccountId, -data.amount);
+      }
     });
-    // The shop is REPAYING here — money leaves the bank account (see
-    // createShopBorrowedLoan's comment on this bucket's inverted OUT/
-    // IN meaning).
-    if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
-      await postToBankAccount(tx, data.bankAccountId, -data.amount);
-    }
-  });
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : "Failed to record payment");
+  }
   return ok(null);
 }

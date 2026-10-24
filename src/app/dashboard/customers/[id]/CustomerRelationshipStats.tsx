@@ -3,11 +3,10 @@ import type { getCustomerRelationshipSummary } from "@/modules/customers/actions
 
 type Summary = Awaited<ReturnType<typeof getCustomerRelationshipSummary>>;
 
-// Shared by both the Purchase History and Grain tabs (see
-// CustomerDetailPage) — one combined "where do we stand" total, so a
-// payment/return/repayment recorded from either tab is reflected on
-// both, since there's exactly one query
-// (getCustomerRelationshipSummary) feeding both renders. Deliberately
+// The customer's overall standing, shown above the detail page's tabs
+// (see CustomerDetailPage) so it covers all of them at once: Purchase
+// history Udhaar (incl. grain bought on Udhaar), Long-term loans,
+// Udhaar to Shop, and grain the shop still owes for. Deliberately
 // just the three headline figures (net, customer-owes, shop-owes) —
 // the per-bucket breakdown (Regular/Long-term Udhaar, Shop Borrowed,
 // Grain) is NOT shown here, since each of those already has its own

@@ -13,25 +13,34 @@ import type { listAreas } from "@/modules/settings/areas.actions";
 
 type Area = Awaited<ReturnType<typeof listAreas>>[number];
 
-// The Shop (Udhaar) tab's "borrow from a customer" entry point — the
-// mirror of LongTermLoanModal, but reuses CustomerPicker (the same
-// search-or-create widget Daily Sales/Stock-from-customer use)
-// instead of a bespoke existing-only search — the person the shop
-// borrows from doesn't have to already be a customer on file (the
-// milestone's explicit "it can be any other new person" requirement).
-// A "new" pick is resolved into a real Customer (createCustomer)
-// immediately on submit, same "resolve then proceed" pattern
-// StockFromCustomerForm uses for its own picker, since
-// createShopBorrowedLoan needs a real customerId either way.
-export function ShopBorrowedLoanModal({ areas, bankAccounts = [] }: { areas: Area[]; bankAccounts?: { id: string; name: string }[] }) {
-  const router = useRouter();
-  const [open, setOpen] = useState(false);
+// "Borrow from a customer" — the mirror of LongTermLoanForm, but reuses
+// CustomerPicker (the same search-or-create widget Daily Sales/Stock-
+// from-customer use) instead of an existing-only search — the person
+// the shop borrows from doesn't have to already be a customer on file
+// (the milestone's explicit "it can be any other new person"
+// requirement). A "new" pick is resolved into a real Customer
+// (createCustomer) immediately on submit, since createShopBorrowedLoan
+// needs a real customerId either way. Rendered both inside
+// ShopBorrowedLoanModal (Udhaar page) and inline on the New entry
+// screen.
+export function ShopBorrowedLoanForm({
+  areas,
+  bankAccounts = [],
+  onSaved,
+  onCancel,
+}: {
+  areas: Area[];
+  bankAccounts?: { id: string; name: string }[];
+  onSaved?: () => void;
+  onCancel?: () => void;
+}) {
   const [selection, setSelection] = useState<CustomerSelection | null>(null);
   const [amount, setAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT">("CASH");
   const [bankAccountId, setBankAccountId] = useState("");
   const [durationValue, setDurationValue] = useState("1");
   const [durationUnit, setDurationUnit] = useState<DurationUnit>("MONTHS");
+  const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -46,22 +55,6 @@ export function ShopBorrowedLoanModal({ areas, bankAccounts = [] }: { areas: Are
     return d;
   })();
 
-  function reset() {
-    setSelection(null);
-    setAmount("");
-    setPaymentMethod("CASH");
-    setBankAccountId("");
-    setDurationValue("1");
-    setDurationUnit("MONTHS");
-    setNotes("");
-    setError(null);
-  }
-
-  function close() {
-    setOpen(false);
-    reset();
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!selection) {
@@ -71,10 +64,6 @@ export function ShopBorrowedLoanModal({ areas, bankAccounts = [] }: { areas: Are
     setError(null);
     setIsSaving(true);
     try {
-      // A "new" pick has no customerId yet — resolve it into a real
-      // customer first (same immediate-resolve reasoning
-      // StockFromCustomerForm uses), since createShopBorrowedLoan
-      // needs one either way.
       const customerId =
         selection.mode === "existing"
           ? selection.customerId
@@ -95,6 +84,7 @@ export function ShopBorrowedLoanModal({ areas, bankAccounts = [] }: { areas: Are
         bankAccountId: bankAccountId || undefined,
         durationValue: Number(durationValue),
         durationUnit,
+        reference,
         notes: notes || undefined,
       });
       if (!result.success) {
@@ -102,14 +92,106 @@ export function ShopBorrowedLoanModal({ areas, bankAccounts = [] }: { areas: Are
         return;
       }
       showToast(`Borrowed from ${customerName} — ${formatMoney(Number(amount))}`);
-      close();
-      router.refresh();
+      onSaved?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to record loan");
     } finally {
       setIsSaving(false);
     }
   }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {error && <p className="form-banner error">{error}</p>}
+
+      <CustomerPicker areas={areas} onChange={setSelection} />
+
+      <div className="field-row">
+        <div className="field">
+          <label>Amount</label>
+          <input type="number" step="any" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} required />
+        </div>
+        <div className="field">
+          <label>Received as</label>
+          <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as "CASH" | "ACCOUNT")}>
+            <option value="CASH">Cash</option>
+            <option value="ACCOUNT">On account</option>
+          </select>
+        </div>
+      </div>
+
+      {paymentMethod === "ACCOUNT" && (
+        <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+      )}
+
+      <div className="field-row">
+        <div className="field">
+          <label>To be repaid in</label>
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={durationValue}
+            onChange={(e) => setDurationValue(e.target.value)}
+            required
+          />
+        </div>
+        <div className="field">
+          <label>&nbsp;</label>
+          <select value={durationUnit} onChange={(e) => setDurationUnit(e.target.value as DurationUnit)}>
+            <option value="DAYS">Days</option>
+            <option value="WEEKS">Weeks</option>
+            <option value="MONTHS">Months</option>
+          </select>
+        </div>
+      </div>
+
+      {dueDate && (
+        <p style={{ fontSize: 12.5, color: "var(--ink-muted)", marginTop: -8, marginBottom: 14 }}>
+          Due date: <strong style={{ color: "var(--ink)" }}>{dueDate.toLocaleDateString("en-PK")}</strong> (calculated
+          automatically)
+        </p>
+      )}
+
+      <div className="field">
+        <label>Reference</label>
+        <input
+          type="text"
+          value={reference}
+          onChange={(e) => setReference(e.target.value)}
+          placeholder="e.g. through Aslam, or slip no. 42"
+          required
+        />
+      </div>
+
+      <div className="field">
+        <label>Notes (optional)</label>
+        <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} />
+      </div>
+
+      <div className="modal-actions">
+        <button type="submit" className="btn btn-primary" disabled={isSaving || !selection}>
+          {isSaving ? "Saving…" : "Borrow"}
+        </button>
+        {onCancel && (
+          <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={isSaving}>
+            Cancel
+          </button>
+        )}
+      </div>
+    </form>
+  );
+}
+
+export function ShopBorrowedLoanModal({
+  areas,
+  bankAccounts = [],
+}: {
+  areas: Area[];
+  bankAccounts?: { id: string; name: string }[];
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
 
   return (
     <>
@@ -121,84 +203,19 @@ export function ShopBorrowedLoanModal({ areas, bankAccounts = [] }: { areas: Are
       </button>
 
       {open && (
-        <div className="modal-backdrop" onClick={close}>
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Borrow from a customer</h2>
             <p className="modal-sub">Cash the shop itself takes from a customer — not tied to a sale or purchase.</p>
-
-            <form onSubmit={handleSubmit}>
-              {error && <p className="form-banner error">{error}</p>}
-
-              <CustomerPicker areas={areas} onChange={setSelection} />
-
-              <div className="field-row">
-                <div className="field">
-                  <label>Amount</label>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="field">
-                  <label>Received as</label>
-                  <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as "CASH" | "ACCOUNT")}>
-                    <option value="CASH">Cash</option>
-                    <option value="ACCOUNT">On account</option>
-                  </select>
-                </div>
-              </div>
-
-              {paymentMethod === "ACCOUNT" && (
-                <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
-              )}
-
-              <div className="field-row">
-                <div className="field">
-                  <label>To be repaid in</label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={durationValue}
-                    onChange={(e) => setDurationValue(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="field">
-                  <label>&nbsp;</label>
-                  <select value={durationUnit} onChange={(e) => setDurationUnit(e.target.value as DurationUnit)}>
-                    <option value="DAYS">Days</option>
-                    <option value="WEEKS">Weeks</option>
-                    <option value="MONTHS">Months</option>
-                  </select>
-                </div>
-              </div>
-
-              {dueDate && (
-                <p style={{ fontSize: 12.5, color: "var(--ink-muted)", marginTop: -8, marginBottom: 14 }}>
-                  Due date: <strong style={{ color: "var(--ink)" }}>{dueDate.toLocaleDateString("en-PK")}</strong>{" "}
-                  (calculated automatically)
-                </p>
-              )}
-
-              <div className="field">
-                <label>Notes (optional)</label>
-                <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} />
-              </div>
-
-              <div className="modal-actions">
-                <button type="submit" className="btn btn-primary" disabled={isSaving || !selection}>
-                  {isSaving ? "Saving…" : "Borrow"}
-                </button>
-                <button type="button" className="btn btn-ghost" onClick={close} disabled={isSaving}>
-                  Cancel
-                </button>
-              </div>
-            </form>
+            <ShopBorrowedLoanForm
+              areas={areas}
+              bankAccounts={bankAccounts}
+              onSaved={() => {
+                setOpen(false);
+                router.refresh();
+              }}
+              onCancel={() => setOpen(false)}
+            />
           </div>
         </div>
       )}

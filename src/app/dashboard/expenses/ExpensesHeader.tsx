@@ -12,9 +12,11 @@ import type { listMonthlyExpenseTypes } from "@/modules/expenses/actions";
 export function ExpensesHeader({
   searchParams,
   monthlyExpenseTypes,
+  bankAccounts,
 }: {
   searchParams: ExpensesSearchParams;
   monthlyExpenseTypes: Awaited<ReturnType<typeof listMonthlyExpenseTypes>>;
+  bankAccounts: { id: string; name: string }[];
 }) {
   const tab = searchParams.tab === "monthly" ? "monthly" : "daily";
 
@@ -25,7 +27,11 @@ export function ExpensesHeader({
           <h1>Expenses</h1>
           <p>Daily and monthly expenses — every daily one tagged with how it was paid, for Cash Flow.</p>
         </div>
-        {tab === "daily" ? <AddExpenseModal /> : <AddMonthlyExpenseModal types={monthlyExpenseTypes} />}
+        {tab === "daily" ? (
+          <AddExpenseModal bankAccounts={bankAccounts} />
+        ) : (
+          <AddMonthlyExpenseModal types={monthlyExpenseTypes} bankAccounts={bankAccounts} />
+        )}
       </div>
 
       <div className="tabs">

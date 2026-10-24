@@ -61,7 +61,7 @@ export function GrainBatchList({
 }) {
   // Date-header rows grouped by deposit date (receivedAt) — same
   // "insert a header row whenever the date changes" pattern
-  // SalesHistoryTable uses, since customerBatches already arrives
+  // DailyLedgerColumns uses, since customerBatches already arrives
   // sorted newest-first (see listCustomerBatchesForProduct). A
   // batch's settlements can span several LATER dates, which this
   // grouping deliberately doesn't try to split apart — it groups by

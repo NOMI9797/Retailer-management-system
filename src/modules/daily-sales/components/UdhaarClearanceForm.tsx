@@ -2,57 +2,39 @@
 
 import { useEffect, useState } from "react";
 import { useCustomers } from "@/modules/customers/hooks/useCustomers";
-import { getCustomerUdhaarSummary } from "@/modules/debts/actions";
-import { getShopOwedForGrainByProduct } from "@/modules/stock/actions";
-import { getCustomerGrainCreditPurchases } from "@/modules/daily-sales/actions";
-import { getCustomerShopBorrowedHistory } from "@/modules/customers/actions";
 import { listShopExpenseUdhaar, getShopExpenseUdhaarSummary } from "@/modules/expenses/actions";
 import { formatMoney, formatDate } from "@/lib/utils";
-import { RecordAccountTransactionModal } from "@/modules/customers/components/RecordAccountTransactionModal";
-import { PayGrainDebtModal } from "@/modules/stock/components/PayGrainDebtModal";
-import { PayGrainSaleItemCreditModal } from "@/modules/daily-sales/components/PayGrainSaleItemCreditModal";
-import { PayShopBorrowedLoanModal } from "@/modules/customers/components/PayShopBorrowedLoanModal";
+import { CustomerUdhaarPaymentPanel, ShopUdhaarPaymentPanel } from "@/modules/customers/components/CustomerUdhaarPayment";
 import { PayExpenseDebtModal } from "@/modules/expenses/components/PayExpenseDebtModal";
 import type { listAreas } from "@/modules/settings/areas.actions";
 import type { listAccountTypes } from "@/modules/settings/accountTypes.actions";
-import type { DebtRow } from "@/modules/debts/schema";
 
 type Area = Awaited<ReturnType<typeof listAreas>>[number];
 type AccountType = Awaited<ReturnType<typeof listAccountTypes>>[number];
 type ExistingCustomer = ReturnType<typeof useCustomers>["customers"][number];
-type GrainOwed = Awaited<ReturnType<typeof getShopOwedForGrainByProduct>>;
-type GrainCreditRows = Awaited<ReturnType<typeof getCustomerGrainCreditPurchases>>;
-type ShopBorrowedHistory = Awaited<ReturnType<typeof getCustomerShopBorrowedHistory>>;
 type ExpenseUdhaarRows = Awaited<ReturnType<typeof listShopExpenseUdhaar>>;
 
-type CustomerSummary = {
-  regular: DebtRow | null;
-  longTerm: DebtRow | null;
-  grainCredit: GrainCreditRows;
-};
-
-// Top-level split by WHO picks first, per the "type-wise, then pick
-// the customer" request: "Customer Udhaar" goes straight into the
-// existing search-a-customer flow (everywhere the CUSTOMER owes the
-// shop — Regular, Long-term, Grain credit); "Shop Udhaar" asks WHICH
-// kind of shop debt first ("Borrowed from customer" or "Stock/Grain
-// Udhaar"), then searches a customer scoped to just that one type.
-// Each leaf section's "Record payment" is wired to the SAME action
-// every other screen in the app already uses for that specific Udhaar
-// type (never a new payment mechanism), so a payment recorded here
-// shows up identically wherever else that section is also displayed
-// (Debts page, Grain page, customer's own profile).
+// Top-level split by WHO owes: "Customer Udhaar" (everything the
+// customer owes the shop) and "Shop Udhaar" — either what the shop owes
+// a customer (borrowed money and grain bought on Udhaar, together) or
+// its Daily/Monthly expense Udhaar. Customer-related Udhaar is cleared
+// by ONE total payment either way, spread over every entry oldest
+// first (CustomerUdhaarPaymentPanel / ShopUdhaarPaymentPanel); expense
+// Udhaar keeps its per-expense pay buttons.
 export function UdhaarClearanceForm({
   areas,
   accountTypes,
   bankAccounts = [],
+  initialTab = "customer",
 }: {
   areas: Area[];
   accountTypes: AccountType[];
   bankAccounts?: { id: string; name: string }[];
+  // The New entry screen opens straight on "shop" from its Debit side.
+  initialTab?: "customer" | "shop";
 }) {
-  const [mainTab, setMainTab] = useState<"customer" | "shop">("customer");
-  const [shopType, setShopType] = useState<"borrowed" | "grain" | "expenses" | null>(null);
+  const [mainTab, setMainTab] = useState<"customer" | "shop">(initialTab);
+  const [shopType, setShopType] = useState<"customer" | "expenses" | null>(null);
 
   return (
     <div>
@@ -80,11 +62,8 @@ export function UdhaarClearanceForm({
         <CustomerUdhaarPanel areas={areas} accountTypes={accountTypes} bankAccounts={bankAccounts} />
       ) : shopType === null ? (
         <div style={{ display: "flex", gap: 12 }}>
-          <button type="button" className="btn btn-primary" onClick={() => setShopType("borrowed")}>
-            Borrowed from customer
-          </button>
-          <button type="button" className="btn btn-primary" onClick={() => setShopType("grain")}>
-            Stock/Grain Udhaar
+          <button type="button" className="btn btn-primary" onClick={() => setShopType("customer")}>
+            Owed to a customer (borrowed money &amp; grain)
           </button>
           <button type="button" className="btn btn-primary" onClick={() => setShopType("expenses")}>
             Daily/Monthly Udhaar
@@ -96,7 +75,6 @@ export function UdhaarClearanceForm({
         <ShopUdhaarPanel
           areas={areas}
           accountTypes={accountTypes}
-          shopType={shopType}
           onBack={() => setShopType(null)}
           bankAccounts={bankAccounts}
         />
@@ -221,9 +199,9 @@ function CustomerHeader({ customer, onBack }: { customer: ExistingCustomer; onBa
   );
 }
 
-// "Customer Udhaar" tab's content — search a customer, then show
-// every section where the CUSTOMER owes the shop: Regular Udhaar,
-// Long-term Udhaar, and Customer Udhaar for Grain.
+// "Customer Udhaar" tab's content — search a customer, then one
+// payment for everything they owe the shop (CustomerUdhaarPaymentPanel
+// spreads it over their entries oldest-first).
 function CustomerUdhaarPanel({
   areas,
   accountTypes,
@@ -234,134 +212,33 @@ function CustomerUdhaarPanel({
   bankAccounts: { id: string; name: string }[];
 }) {
   const [selected, setSelected] = useState<ExistingCustomer | null>(null);
-  const [summary, setSummary] = useState<CustomerSummary | null>(null);
-  const [isLoadingSummary, setIsLoadingSummary] = useState(false);
-
-  async function loadSummary(customerId: string) {
-    setIsLoadingSummary(true);
-    try {
-      const [regular, longTerm, grainCredit] = await Promise.all([
-        getCustomerUdhaarSummary(customerId, "REGULAR"),
-        getCustomerUdhaarSummary(customerId, "LONG_TERM"),
-        getCustomerGrainCreditPurchases(customerId),
-      ]);
-      setSummary({ regular, longTerm, grainCredit });
-    } finally {
-      setIsLoadingSummary(false);
-    }
-  }
-
-  async function selectCustomer(customer: ExistingCustomer) {
-    setSelected(customer);
-    await loadSummary(customer.id);
-  }
-
-  function refreshSummary() {
-    if (!selected) return;
-    loadSummary(selected.id);
-  }
 
   if (!selected) {
-    return <CustomerSearch areas={areas} accountTypes={accountTypes} onSelect={selectCustomer} />;
+    return <CustomerSearch areas={areas} accountTypes={accountTypes} onSelect={setSelected} />;
   }
-
-  const hasActivity =
-    summary &&
-    ((summary.regular && summary.regular.balance > 0) ||
-      (summary.longTerm && summary.longTerm.balance > 0) ||
-      summary.grainCredit.length > 0);
 
   return (
     <div>
       <CustomerHeader customer={selected} onBack={() => setSelected(null)} />
-
-      {isLoadingSummary || !summary ? (
-        <p style={{ color: "var(--ink-muted)" }}>Loading Udhaar summary…</p>
-      ) : !hasActivity ? (
-        <div className="panel">
-          <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-            This customer doesn&apos;t owe the shop anything right now — nothing to clear.
-          </p>
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-          {summary.regular && summary.regular.balance > 0 && (
-            <DebtRowSection
-              title="Regular / Daily Udhaar"
-              subtitle="Owed to the shop — no fixed term."
-              row={summary.regular}
-              onRecorded={refreshSummary}
-              bankAccounts={bankAccounts}
-            />
-          )}
-          {summary.longTerm && summary.longTerm.balance > 0 && (
-            <DebtRowSection
-              title="Long-term Udhaar"
-              subtitle="A deliberate cash loan with a chosen term."
-              row={summary.longTerm}
-              onRecorded={refreshSummary}
-              lockBucket
-              bankAccounts={bankAccounts}
-            />
-          )}
-          {summary.grainCredit.length > 0 && (
-            <GrainCreditSection
-              customerName={selected.name}
-              rows={summary.grainCredit}
-              onRecorded={refreshSummary}
-              bankAccounts={bankAccounts}
-            />
-          )}
-        </div>
-      )}
+      <CustomerUdhaarPaymentPanel key={selected.id} customerId={selected.id} bankAccounts={bankAccounts} />
     </div>
   );
 }
 
-// "Shop Udhaar" tab's content, once a type has been picked — search a
-// customer, then show just THAT type's section (Borrowed from
-// customer = Udhaar to Shop; Stock/Grain Udhaar = Shop owes this
-// customer for settled grain bought on Credit).
+// "Shop Udhaar" → "Owed to a customer": search a customer, then one
+// repayment for everything the shop owes them (ShopUdhaarPaymentPanel).
 function ShopUdhaarPanel({
   areas,
   accountTypes,
-  shopType,
   onBack,
   bankAccounts,
 }: {
   areas: Area[];
   accountTypes: AccountType[];
-  shopType: "borrowed" | "grain";
   onBack: () => void;
   bankAccounts: { id: string; name: string }[];
 }) {
   const [selected, setSelected] = useState<ExistingCustomer | null>(null);
-  const [grainOwed, setGrainOwed] = useState<GrainOwed | null>(null);
-  const [shopBorrowed, setShopBorrowed] = useState<ShopBorrowedHistory | null>(null);
-  const [isLoadingSummary, setIsLoadingSummary] = useState(false);
-
-  async function loadSummary(customerId: string) {
-    setIsLoadingSummary(true);
-    try {
-      if (shopType === "grain") {
-        setGrainOwed(await getShopOwedForGrainByProduct(customerId));
-      } else {
-        setShopBorrowed(await getCustomerShopBorrowedHistory(customerId));
-      }
-    } finally {
-      setIsLoadingSummary(false);
-    }
-  }
-
-  async function selectCustomer(customer: ExistingCustomer) {
-    setSelected(customer);
-    await loadSummary(customer.id);
-  }
-
-  function refreshSummary() {
-    if (!selected) return;
-    loadSummary(selected.id);
-  }
 
   if (!selected) {
     return (
@@ -372,54 +249,38 @@ function ShopUdhaarPanel({
           </svg>
           Choose a different type
         </button>
-        <h2 className="section-title">
-          {shopType === "grain" ? "Stock/Grain Udhaar" : "Borrowed from customer"}
-        </h2>
-        <CustomerSearch areas={areas} accountTypes={accountTypes} onSelect={selectCustomer} />
+        <h2 className="section-title">Owed to a customer</h2>
+        <CustomerSearch areas={areas} accountTypes={accountTypes} onSelect={setSelected} />
       </div>
     );
   }
 
-  const hasGrainActivity = grainOwed && Array.from(grainOwed.values()).some((v) => v.owed > 0.01);
-  const hasBorrowedActivity = shopBorrowed && shopBorrowed.transactions.length > 0 && shopBorrowed.balance > 0;
-
   return (
     <div>
       <CustomerHeader customer={selected} onBack={() => setSelected(null)} />
-
-      {isLoadingSummary || (shopType === "grain" ? !grainOwed : !shopBorrowed) ? (
-        <p style={{ color: "var(--ink-muted)" }}>Loading…</p>
-      ) : shopType === "grain" ? (
-        !hasGrainActivity ? (
-          <div className="panel">
-            <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-              The shop doesn&apos;t owe this customer anything for grain right now.
-            </p>
-          </div>
-        ) : (
-          <GrainOwedSection
-            customerId={selected.id}
-            customerName={selected.name}
-            grainOwed={grainOwed!}
-            onRecorded={refreshSummary}
-            bankAccounts={bankAccounts}
-          />
-        )
-      ) : !hasBorrowedActivity ? (
-        <div className="panel">
-          <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-            The shop hasn&apos;t borrowed anything from this customer right now.
-          </p>
-        </div>
-      ) : (
-        <ShopBorrowedSection
-          customerName={selected.name}
-          history={shopBorrowed!}
-          onRecorded={refreshSummary}
-          bankAccounts={bankAccounts}
-        />
-      )}
+      <ShopUdhaarPaymentPanel key={selected.id} customerId={selected.id} bankAccounts={bankAccounts} />
     </div>
+  );
+}
+
+// Udhaar clearance for ONE known customer — the customer detail page's
+// version of this screen, for one direction at a time (`side`), so a
+// payment is recorded as a payment, never as an opposite-direction
+// import. Either way it's one total, spread over every entry oldest
+// first.
+export function CustomerUdhaarClearance({
+  customer,
+  side,
+  bankAccounts,
+}: {
+  customer: { id: string; name: string };
+  side: "CUSTOMER" | "SHOP";
+  bankAccounts: { id: string; name: string }[];
+}) {
+  return side === "CUSTOMER" ? (
+    <CustomerUdhaarPaymentPanel customerId={customer.id} bankAccounts={bankAccounts} />
+  ) : (
+    <ShopUdhaarPaymentPanel customerId={customer.id} bankAccounts={bankAccounts} />
   );
 }
 
@@ -516,252 +377,5 @@ function ExpenseUdhaarPanel({
         </section>
       )}
     </div>
-  );
-}
-
-// Regular/Long-term Udhaar section — the customer owes the shop.
-// Reuses RecordAccountTransactionModal, the exact same write path the
-// Debts page's own "Record repayment" button uses, so a payment
-// recorded here is indistinguishable from one recorded there.
-function DebtRowSection({
-  title,
-  subtitle,
-  row,
-  onRecorded,
-  lockBucket,
-  bankAccounts,
-}: {
-  title: string;
-  subtitle: string;
-  row: DebtRow;
-  onRecorded: () => void;
-  lockBucket?: boolean;
-  bankAccounts: { id: string; name: string }[];
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <section className="panel" style={{ padding: 16 }}>
-      <h3 style={{ margin: "0 0 2px", fontSize: 15 }}>{title}</h3>
-      <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--ink-muted)" }}>{subtitle}</p>
-      <div className="stat-grid customers-stat-grid" style={{ marginBottom: 12 }}>
-        <div className="stat-card">
-          <p className="stat-label">Borrowed</p>
-          <p className="stat-value">{formatMoney(row.totalBorrowed)}</p>
-        </div>
-        <div className="stat-card">
-          <p className="stat-label">Paid</p>
-          <p className="stat-value tone-primary">{formatMoney(row.totalPaid)}</p>
-        </div>
-        <div className="stat-card">
-          <p className="stat-label">Remaining</p>
-          <p className="stat-value" style={{ color: "var(--consigned-600)" }}>
-            {formatMoney(row.balance)}
-          </p>
-        </div>
-      </div>
-      <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--ink-muted)" }}>
-        Udhaar since {formatDate(row.debtSince)} ({row.daysSince} day{row.daysSince === 1 ? "" : "s"} ago)
-        {row.dueDate && <> · Due {formatDate(row.dueDate)}</>}
-        {row.isOverdue && <span style={{ color: "var(--consigned-600)", fontWeight: 600 }}> · Overdue</span>}
-      </p>
-      <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
-        Record payment
-      </button>
-      {open && (
-        <RecordAccountTransactionModal
-          customerAccountId={row.customerAccountId}
-          defaultDirection="IN"
-          lockBucket={lockBucket}
-          bankAccounts={bankAccounts}
-          onClose={() => {
-            setOpen(false);
-            onRecorded();
-          }}
-        />
-      )}
-    </section>
-  );
-}
-
-// Shop owes THIS customer money for already-settled grain bought on
-// Credit — the mirror direction from every other section here. One
-// row per product (see getShopOwedForGrainByProduct), each with its
-// own PayGrainDebtModal — same "pay per product, from that row"
-// convention the Grain page's own per-product Shop Udhaar table uses.
-function GrainOwedSection({
-  customerId,
-  customerName,
-  grainOwed,
-  onRecorded,
-  bankAccounts,
-}: {
-  customerId: string;
-  customerName: string;
-  grainOwed: GrainOwed;
-  onRecorded: () => void;
-  bankAccounts: { id: string; name: string }[];
-}) {
-  const rows = Array.from(grainOwed.entries()).filter(([, v]) => v.owed > 0.01);
-  if (rows.length === 0) return null;
-
-  const totalOwed = rows.reduce((sum, [, v]) => sum + v.owed, 0);
-
-  return (
-    <section className="panel" style={{ padding: 16 }}>
-      <h3 style={{ margin: "0 0 2px", fontSize: 15 }}>Shop owes this customer (Grain)</h3>
-      <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--ink-muted)" }}>
-        Money owed for grain already bought from them on Credit, not yet paid out.
-      </p>
-      <div className="stat-grid customers-stat-grid" style={{ marginBottom: 12 }}>
-        <div className="stat-card">
-          <p className="stat-label">Total owed</p>
-          <p className="stat-value" style={{ color: "var(--consigned-600)" }}>
-            {formatMoney(totalOwed)}
-          </p>
-        </div>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {rows.map(([productId, v]) => (
-          <div
-            key={productId}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "8px 0",
-              borderTop: "0.5px solid var(--border)",
-            }}
-          >
-            <span>
-              {v.productName} — <strong>{formatMoney(v.owed)}</strong> owed
-            </span>
-            <PayGrainDebtModal
-              customerId={customerId}
-              productId={productId}
-              customerName={customerName}
-              amountOwed={v.owed}
-              onDone={onRecorded}
-              bankAccounts={bankAccounts}
-            />
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-// This customer owes the SHOP money for grain they bought at a
-// settled rate on Credit — one row per grain sale item (see
-// getCustomerGrainCreditPurchases), each individually payable via
-// PayGrainSaleItemCreditModal, the same "Customer Udhaar" repayment
-// path the Grain page's own subtab uses.
-function GrainCreditSection({
-  customerName,
-  rows,
-  onRecorded,
-  bankAccounts,
-}: {
-  customerName: string;
-  rows: GrainCreditRows;
-  onRecorded: () => void;
-  bankAccounts: { id: string; name: string }[];
-}) {
-  const totalRemaining = rows.reduce((sum, r) => sum + r.remaining, 0);
-  return (
-    <section className="panel" style={{ padding: 16 }}>
-      <h3 style={{ margin: "0 0 2px", fontSize: 15 }}>Customer Udhaar (Grain)</h3>
-      <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--ink-muted)" }}>
-        Grain bought from the shop at a settled rate, paid via Credit.
-      </p>
-      <div className="stat-grid customers-stat-grid" style={{ marginBottom: 12 }}>
-        <div className="stat-card">
-          <p className="stat-label">Total owed</p>
-          <p className="stat-value" style={{ color: "var(--consigned-600)" }}>
-            {formatMoney(totalRemaining)}
-          </p>
-        </div>
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {rows.map((row) => (
-          <div
-            key={row.dailySaleItemId}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "8px 0",
-              borderTop: "0.5px solid var(--border)",
-            }}
-          >
-            <span>
-              {row.productName} ({row.quantity} {row.unitName}) — <strong>{formatMoney(row.remaining)}</strong>{" "}
-              remaining
-              {row.dueDate && (
-                <span style={{ color: row.isOverdue ? "var(--consigned-600)" : "var(--ink-muted)", fontSize: 12.5 }}>
-                  {" "}
-                  · Due {formatDate(row.dueDate)}
-                  {row.isOverdue ? " (overdue)" : ""}
-                </span>
-              )}
-            </span>
-            <PayGrainSaleItemCreditModal
-              dailySaleItemId={row.dailySaleItemId}
-              customerName={customerName}
-              remaining={row.remaining}
-              onDone={onRecorded}
-              bankAccounts={bankAccounts}
-            />
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-// Cash the shop itself borrowed FROM this customer — the mirror of
-// every other section here, where the shop is the debtor. Reuses
-// ShopBorrowedHistoryPanel's own PayShopBorrowedLoanModal trigger.
-function ShopBorrowedSection({
-  customerName,
-  history,
-  onRecorded,
-  bankAccounts,
-}: {
-  customerName: string;
-  history: ShopBorrowedHistory;
-  onRecorded: () => void;
-  bankAccounts: { id: string; name: string }[];
-}) {
-  if (!history.customerAccountId) return null;
-  return (
-    <section className="panel" style={{ padding: 16 }}>
-      <h3 style={{ margin: "0 0 2px", fontSize: 15 }}>Udhaar to Shop</h3>
-      <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--ink-muted)" }}>
-        Cash the shop itself borrowed from this customer.
-      </p>
-      <div className="stat-grid customers-stat-grid" style={{ marginBottom: 12 }}>
-        <div className="stat-card">
-          <p className="stat-label">Given to shop</p>
-          <p className="stat-value">{formatMoney(history.totalBorrowed)}</p>
-        </div>
-        <div className="stat-card">
-          <p className="stat-label">Repaid</p>
-          <p className="stat-value tone-primary">{formatMoney(history.totalPaid)}</p>
-        </div>
-        <div className="stat-card">
-          <p className="stat-label">Shop still owes</p>
-          <p className="stat-value" style={{ color: "var(--consigned-600)" }}>
-            {formatMoney(history.balance)}
-          </p>
-        </div>
-      </div>
-      <PayShopBorrowedLoanModal
-        customerAccountId={history.customerAccountId}
-        customerName={customerName}
-        balance={history.balance}
-        onDone={onRecorded}
-        bankAccounts={bankAccounts}
-      />
-    </section>
   );
 }

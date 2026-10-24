@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getDealerBalances } from "@/modules/dealers/actions";
 import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney, matchesSearch } from "@/lib/utils";
 import { PayDealerDebtModal } from "@/modules/dealers/components/PayDealerDebtModal";
 
 // Every dealer (Products or Grain) the shop still owes money to —
@@ -10,7 +10,7 @@ import { PayDealerDebtModal } from "@/modules/dealers/components/PayDealerDebtMo
 // instead of expenses/grain settlements. Only dealers with a positive
 // balance show up here — same "no stray Rs 0 row" convention every
 // other Udhaar list in the app already follows.
-export async function ShopDealerUdhaarTable() {
+export async function ShopDealerUdhaarTable({ search }: { search?: string } = {}) {
   const [productsDealers, grainDealers, bankAccounts] = await Promise.all([
     getDealerBalances("PRODUCTS"),
     getDealerBalances("GRAIN"),
@@ -18,14 +18,14 @@ export async function ShopDealerUdhaarTable() {
   ]);
 
   const rows = [...productsDealers, ...grainDealers]
-    .filter((d) => d.currentBalance > 0)
+    .filter((d) => d.currentBalance > 0 && matchesSearch(search, d.name, d.phone))
     .sort((a, b) => b.currentBalance - a.currentBalance);
 
   if (rows.length === 0) {
     return (
       <div className="panel">
         <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-          No outstanding Dealer Udhaar right now.
+          {search ? `No matches for "${search}".` : "No outstanding Dealer Udhaar right now."}
         </p>
       </div>
     );

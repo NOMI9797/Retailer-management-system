@@ -12,6 +12,10 @@ export type DebtsSearchParams = {
   // filtered to — "all" (default, omitted from the URL) or a real
   // product id. Ignored on every other tab.
   product?: string;
+  // Name/phone (or description, on Daily/Monthly Udhaar) search —
+  // narrows whichever subtab's table is showing. Carried across tab
+  // switches so the same person can be checked tab by tab.
+  search?: string;
 };
 
 export function buildDebtsHref(overrides: Partial<DebtsSearchParams>) {
@@ -19,6 +23,7 @@ export function buildDebtsHref(overrides: Partial<DebtsSearchParams>) {
   if (overrides.group) params.set("group", overrides.group);
   if (overrides.tab) params.set("tab", overrides.tab);
   if (overrides.product && overrides.product !== "all") params.set("product", overrides.product);
+  if (overrides.search) params.set("search", overrides.search);
   const qs = params.toString();
   return `/dashboard/debts${qs ? `?${qs}` : ""}`;
 }

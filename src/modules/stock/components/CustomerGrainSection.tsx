@@ -3,13 +3,11 @@
 import { useState } from "react";
 import type { getCustomerGrainDeposits } from "../actions";
 import type { getCustomerGrainCreditPurchases } from "@/modules/daily-sales/actions";
-import { PayGrainDebtModal } from "./PayGrainDebtModal";
 import { BuyFromCustomerModal } from "./BuyFromCustomerModal";
 import { EditGrainSettlementModal } from "./EditGrainSettlementModal";
 import { DeleteGrainSettlementButton } from "./DeleteGrainSettlementButton";
 import { EditGrainDepositModal } from "./EditGrainDepositModal";
 import { DeleteGrainDepositButton } from "./DeleteGrainDepositButton";
-import { PayGrainSaleItemCreditModal } from "@/modules/daily-sales/components/PayGrainSaleItemCreditModal";
 import { EditSaleModal } from "@/modules/daily-sales/components/EditSaleModal";
 import { DeleteSaleButton } from "@/modules/daily-sales/components/DeleteSaleButton";
 import { formatMoney, formatDate } from "@/lib/utils";
@@ -84,13 +82,14 @@ type Row =
       quantity: number;
       rate: number;
       remaining: number;
+      status: "PAID" | "PARTLY_PAID" | "OPEN";
     };
 
 // A customer's grain — the Grain tab's content on their detail page.
 // A real <table>, matching the app's standard table pattern (see
 // DebtorTable.tsx) rather than CSS-grid rows. Rows are grouped into
 // date headers, same "insert a header row whenever the date changes"
-// pattern SalesHistoryTable uses. Pure display; the data arrives as a
+// pattern DailyLedgerColumns uses. Pure display; the data arrives as a
 // prop from the Server Component page, same pattern as
 // CustomerAccountsList.
 //
@@ -109,14 +108,19 @@ export function CustomerGrainSection({
   deposits,
   moneyOwedByProduct,
   creditPurchases,
-  customerId,
   customerName,
   onSettle,
   bankAccounts = [],
   products = [],
 }: {
   deposits: Deposits;
-  moneyOwedByProduct: Map<string, { owed: number; paid: number }>;
+  // Per product, plus each Udhaar grain purchase's own paid/remaining
+  // keyed by its transaction id — the shop's repayments to this
+  // customer are one pot spread oldest first (getShopOwedForGrainByProduct).
+  moneyOwedByProduct: Map<
+    string,
+    { owed: number; paid: number; settlements: Record<string, { paid: number; remaining: number }> }
+  >;
   // Grain this customer bought FROM the shop on Credit, still
   // outstanding — optional since a caller with no such concept yet
   // (e.g. a future embed) can simply omit it; the customer detail
@@ -231,6 +235,7 @@ export function CustomerGrainSection({
       quantity: r.quantity,
       rate: r.rate,
       remaining: r.remaining,
+      status: r.status,
     });
   }
   // Newest first within each product's own rows, matching Sales
@@ -349,19 +354,22 @@ export function CustomerGrainSection({
                           <td>
                             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                               {row.paymentMethod === "CREDIT" ? (
-                                <>
-                                  <span className="pay-badge pay-credit">Udhaar</span>
-                                  {(moneyOwedByProduct.get(row.productId)?.owed ?? 0) > 0 && (
-                                    <PayGrainDebtModal
-                                      customerId={customerId}
-                                      productId={row.productId}
-                                      customerName={customerName}
-                                      amountOwed={moneyOwedByProduct.get(row.productId)!.owed}
-                                      defaultAmount={Math.min(row.amount, moneyOwedByProduct.get(row.productId)!.owed)}
-                                      label="Mark as paid"
-                                    />
-                                  )}
-                                </>
+                                (() => {
+                                  const status = row.transactionId
+                                    ? moneyOwedByProduct.get(row.productId)?.settlements[row.transactionId]
+                                    : undefined;
+                                  if (status && status.remaining <= 0.01) {
+                                    return <span className="pay-badge pay-cash">Paid</span>;
+                                  }
+                                  if (status && status.paid > 0.01) {
+                                    return (
+                                      <span className="pay-badge pay-mixed">
+                                        Shop owes {formatMoney(status.remaining)}
+                                      </span>
+                                    );
+                                  }
+                                  return <span className="pay-badge pay-credit">Udhaar — shop owes</span>;
+                                })()
                               ) : (
                                 <span className="pay-badge pay-cash">
                                   Paid — {row.paymentMethod === "ACCOUNT" ? "Account" : "Cash"}
@@ -426,14 +434,15 @@ export function CustomerGrainSection({
                             {formatMoney(row.quantity * row.rate)}
                           </td>
                           <td>
-                            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                            {/* Paid down by the customer's overall Udhaar
+                                payments (oldest first), not per row. */}
+                            {row.status === "PAID" ? (
+                              <span className="pay-badge pay-cash">Paid</span>
+                            ) : row.status === "PARTLY_PAID" ? (
+                              <span className="pay-badge pay-mixed">Customer owes {formatMoney(row.remaining)}</span>
+                            ) : (
                               <span className="pay-badge pay-credit">Customer owes</span>
-                              <PayGrainSaleItemCreditModal
-                                dailySaleItemId={row.dailySaleItemId}
-                                customerName={customerName}
-                                remaining={row.remaining}
-                              />
-                            </div>
+                            )}
                           </td>
                           <td>
                             <div className="row-actions">

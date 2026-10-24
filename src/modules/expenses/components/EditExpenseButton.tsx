@@ -9,7 +9,13 @@ type Expense = Awaited<ReturnType<typeof listExpenses>>["expenses"][number];
 
 // The one client leaf per row — owns its own open/close state
 // locally, same pattern as EditProductButton.
-export function EditExpenseButton({ expense }: { expense: Expense }) {
+export function EditExpenseButton({
+  expense,
+  bankAccounts = [],
+}: {
+  expense: Expense;
+  bankAccounts?: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
@@ -27,6 +33,7 @@ export function EditExpenseButton({ expense }: { expense: Expense }) {
             <h2>Edit expense</h2>
             <ExpenseForm
               expense={expense}
+              bankAccounts={bankAccounts}
               onCancel={() => setOpen(false)}
               onSaved={() => {
                 setOpen(false);

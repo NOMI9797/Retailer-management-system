@@ -6,6 +6,8 @@ import { EditSaleModal } from "@/modules/daily-sales/components/EditSaleModal";
 import { DeleteSaleButton } from "@/modules/daily-sales/components/DeleteSaleButton";
 import { EditAccountTransactionModal } from "@/modules/customers/components/EditAccountTransactionModal";
 import { DeleteAccountTransactionButton } from "@/modules/customers/components/DeleteAccountTransactionButton";
+import { EditGrainSettlementModal } from "@/modules/stock/components/EditGrainSettlementModal";
+import { DeleteGrainSettlementButton } from "@/modules/stock/components/DeleteGrainSettlementButton";
 import type { getCustomerPurchaseHistory } from "@/modules/daily-sales/actions";
 import type { listProducts } from "@/modules/products/actions";
 
@@ -16,6 +18,17 @@ function paymentBadgeClass(method: string) {
   if (method === "CASH") return "pay-cash";
   if (method === "ACCOUNT") return "pay-account";
   return "pay-credit";
+}
+
+// Who this row was done by — the customer (bought, owes, paid) or the
+// shop (bought grain from them / paid them for it). Grey for the
+// customer, amber (the app's grain colour) for the shop.
+function ByBadge({ by }: { by: "CUSTOMER" | "SHOP" }) {
+  return by === "SHOP" ? (
+    <span className="pay-badge pay-account">Shop</span>
+  ) : (
+    <span className="pay-badge pay-mixed">Customer</span>
+  );
 }
 
 function paymentLabel(method: string) {
@@ -38,13 +51,16 @@ function paymentLabel(method: string) {
 // pointed at the plain AccountTransaction reversal — editing
 // direction/bucket isn't supported (delete + re-add instead), same
 // restriction updateAccountTransaction's own schema comment explains.
-// Flat table, same shape as the Expenses table — one date-header row
-// per day, then one row per item; Edit/Delete act on the whole visit
-// (not a single item),
-// so they only appear once, on that visit's last item row.
+// Flat table with a Date column on each row (same as the Udhaar to
+// Shop tab), one row per item; a multi-item visit shows its date once,
+// on its first item. Edit/Delete act on the whole visit (not a single
+// item), so they only appear once, on that visit's last item row.
 export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sales: Sale[]; products: Product[]; bankAccounts?: { id: string; name: string }[] }) {
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
-  const [editingTxn, setEditingTxn] = useState<Extract<Sale, { kind: "UDHAAR_CLEARANCE" | "UDHAAR_GIVEN" }> | null>(null);
+  // A grain purchase from the customer — edited through the same
+  // settlement edit the Grain tab uses (it also moves stock).
+  const [editingGrain, setEditingGrain] = useState<Extract<Sale, { kind: "SHOP_GRAIN" }> | null>(null);
+  const [editingTxn, setEditingTxn] = useState<Extract<Sale, { kind: "UDHAAR_CLEARANCE" | "UDHAAR_GIVEN" | "SHOP_UDHAAR_CLEARED" | "SHOP_GRAIN" }> | null>(null);
 
   if (sales.length === 0) {
     return (
@@ -60,6 +76,8 @@ export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sa
         <table>
           <thead>
             <tr>
+              <th>Date</th>
+              <th>By</th>
               <th>Product</th>
               <th style={{ textAlign: "right" }}>Quantity</th>
               <th>Payment</th>
@@ -70,11 +88,12 @@ export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sa
           <tbody>
             {sales.map((entry) => (
               <Fragment key={entry.id}>
-                <tr className="table-date-header">
-                  <td colSpan={5}>{formatDate(entry.saleDate)}</td>
-                </tr>
                 {entry.kind === "UDHAAR_CLEARANCE" ? (
                   <tr>
+                    <td>{formatDate(entry.saleDate)}</td>
+                    <td>
+                      <ByBadge by="CUSTOMER" />
+                    </td>
                     <td style={{ color: "var(--ink-muted)" }}>—</td>
                     <td className="num" style={{ textAlign: "right" }}>
                       <span className="dash">—</span>
@@ -98,8 +117,15 @@ export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sa
                   </tr>
                 ) : entry.kind === "UDHAAR_GIVEN" ? (
                   <tr>
+                    <td>{formatDate(entry.saleDate)}</td>
+                    <td>
+                      <ByBadge by="CUSTOMER" />
+                    </td>
                     <td style={{ color: "var(--ink-muted)" }}>
                       {entry.notes || "Udhaar recorded"}
+                      {entry.reference && (
+                        <div style={{ fontSize: 12 }}>Ref: {entry.reference}</div>
+                      )}
                     </td>
                     <td className="num" style={{ textAlign: "right" }}>
                       <span className="dash">—</span>
@@ -121,12 +147,101 @@ export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sa
                       </div>
                     </td>
                   </tr>
+                ) : entry.kind === "SHOP_UDHAAR_CLEARED" ? (
+                  <tr>
+                    <td>{formatDate(entry.saleDate)}</td>
+                    <td>
+                      <ByBadge by="SHOP" />
+                    </td>
+                    <td style={{ color: "var(--ink-muted)" }}>Shop paid customer back</td>
+                    <td className="num" style={{ textAlign: "right" }}>
+                      <span className="dash">—</span>
+                    </td>
+                    <td>
+                      <span className="pay-badge pay-udhaar-cleared">Udhaar Cleared</span>
+                    </td>
+                    <td className="num" style={{ textAlign: "right", fontWeight: 600, color: "var(--grain-600)" }}>
+                      −{formatMoney(entry.amount)}
+                    </td>
+                    <td>
+                      <div className="row-actions">
+                        <button className="icon-btn" onClick={() => setEditingTxn(entry)} title="Edit">
+                          <svg className="icon" viewBox="0 0 24 24">
+                            <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />
+                          </svg>
+                        </button>
+                        <DeleteAccountTransactionButton transactionId={entry.id} />
+                      </div>
+                    </td>
+                  </tr>
+                ) : entry.kind === "SHOP_GRAIN" ? (
+                  <tr>
+                    <td>{formatDate(entry.saleDate)}</td>
+                    <td>
+                      <ByBadge by="SHOP" />
+                    </td>
+                    <td>
+                      {entry.productName ?? "Grain"}
+                      <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
+                        {entry.direction === "OUT" ? "Shop bought from customer" : "Shop paid customer for grain"}
+                      </div>
+                    </td>
+                    <td className="num" style={{ textAlign: "right" }}>
+                      {entry.quantity !== null ? (
+                        `${entry.quantity} ${entry.unitName ?? ""}`
+                      ) : (
+                        <span className="dash">—</span>
+                      )}
+                    </td>
+                    <td>
+                      {entry.direction === "OUT" && entry.paymentMethod === "CREDIT" ? (
+                        entry.remaining !== null && entry.remaining <= 0.01 ? (
+                          <span className="pay-badge pay-cash">Udhaar — paid</span>
+                        ) : (
+                          <span className="pay-badge pay-credit">
+                            Udhaar — shop owes{entry.remaining !== null && entry.remaining < entry.amount - 0.01
+                              ? ` ${formatMoney(entry.remaining)}`
+                              : ""}
+                          </span>
+                        )
+                      ) : (
+                        <span className="pay-badge pay-cash">
+                          Paid — {entry.paymentMethod === "ACCOUNT" ? "Account" : "Cash"}
+                        </span>
+                      )}
+                    </td>
+                    <td className="num" style={{ textAlign: "right", fontWeight: 600, color: "var(--grain-600)" }}>
+                      {formatMoney(entry.amount)}
+                    </td>
+                    <td>
+                      <div className="row-actions">
+                        <button
+                          className="icon-btn"
+                          onClick={() => (entry.direction === "OUT" ? setEditingGrain(entry) : setEditingTxn(entry))}
+                          title="Edit"
+                        >
+                          <svg className="icon" viewBox="0 0 24 24">
+                            <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />
+                          </svg>
+                        </button>
+                        {/* A purchase's delete also reverses its stock;
+                            the shop paying for grain is a plain payment. */}
+                        {entry.direction === "OUT" ? (
+                          <DeleteGrainSettlementButton accountTransactionId={entry.id} />
+                        ) : (
+                          <DeleteAccountTransactionButton transactionId={entry.id} />
+                        )}
+                      </div>
+                    </td>
+                  </tr>
                 ) : (
-                  entry.visits.map((visit, visitIndex) =>
+                  entry.visits.map((visit) =>
                     visit.items.map((item, itemIndex) => {
                       const isLastItemInVisit = itemIndex === visit.items.length - 1;
                       return (
                         <tr key={item.id}>
+                          <td>{itemIndex === 0 ? formatDate(visit.visitAt) : null}</td>
+                          <td>{itemIndex === 0 && <ByBadge by="CUSTOMER" />}</td>
                           <td>{item.productName}</td>
                           <td className="num" style={{ textAlign: "right" }}>
                             {item.quantity}
@@ -180,15 +295,39 @@ export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sa
       {editingSaleId && (
         <EditSaleModal saleId={editingSaleId} products={products} bankAccounts={bankAccounts} onClose={() => setEditingSaleId(null)} />
       )}
+      {editingGrain && (
+        <EditGrainSettlementModal
+          accountTransactionId={editingGrain.id}
+          initialQuantity={editingGrain.quantity ?? 0}
+          initialRate={editingGrain.rate}
+          initialPaymentMethod={editingGrain.paymentMethod}
+          initialBankAccountId={editingGrain.bankAccountId}
+          unitName={editingGrain.unitName ?? ""}
+          bankAccounts={bankAccounts}
+          onClose={() => setEditingGrain(null)}
+        />
+      )}
       {editingTxn && (
         <EditAccountTransactionModal
           transactionId={editingTxn.id}
-          direction={editingTxn.kind === "UDHAAR_CLEARANCE" ? "IN" : "OUT"}
+          direction={editingTxn.kind === "UDHAAR_GIVEN" ? "OUT" : "IN"}
+          subtitle={
+            editingTxn.kind === "SHOP_UDHAAR_CLEARED"
+              ? "Shop paid this customer back."
+              : editingTxn.kind === "SHOP_GRAIN"
+                ? "Shop paid this customer for grain."
+                : undefined
+          }
           initialAmount={editingTxn.amount}
           initialPaymentMethod={editingTxn.paymentMethod}
           initialBankAccountId={editingTxn.bankAccountId}
           initialDueDate={editingTxn.kind === "UDHAAR_GIVEN" ? editingTxn.dueDate : null}
           initialNotes={editingTxn.notes}
+          initialReference={editingTxn.kind === "UDHAAR_GIVEN" ? editingTxn.reference : null}
+          showReference={
+            editingTxn.kind === "UDHAAR_GIVEN" &&
+            (!!editingTxn.reference || !!editingTxn.notes?.startsWith("Imported from register"))
+          }
           bankAccounts={bankAccounts}
           onClose={() => setEditingTxn(null)}
         />

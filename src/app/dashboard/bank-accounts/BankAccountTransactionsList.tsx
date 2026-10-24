@@ -11,7 +11,7 @@ import { buildBankAccountsHref, type BankAccountsSearchParams } from "./searchPa
 type Result = Awaited<ReturnType<typeof listBankAccountTransactions>>;
 
 // Client leaf for the Bank Accounts transaction history — same split
-// SalesHistoryTable/SalesHistoryList follows elsewhere. Deleting a row
+// DailyLedgerSection/DailyLedgerColumns follows elsewhere. Deleting a row
 // here deletes the real underlying record it came from (a sale, an
 // expense, a dealer purchase, a repayment, ...), reversing whatever
 // stock/balance/bank-account effects that record originally caused —

@@ -122,9 +122,9 @@ function CustomerGrainPanel({
   grainProducts: GrainProduct[];
 }) {
   const [deposits, setDeposits] = useState<Deposits | null>(null);
-  const [moneyOwedByProduct, setMoneyOwedByProduct] = useState<Map<string, { owed: number; paid: number }>>(
-    new Map()
-  );
+  const [moneyOwedByProduct, setMoneyOwedByProduct] = useState<
+    Awaited<ReturnType<typeof getShopOwedForGrainByProduct>>
+  >(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [productId, setProductId] = useState(grainProducts[0]?.id ?? "");
   // Selection-based instead of both sections stacked — a shopkeeper

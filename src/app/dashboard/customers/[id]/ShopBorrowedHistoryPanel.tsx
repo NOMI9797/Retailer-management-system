@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { formatMoney, formatDate } from "@/lib/utils";
-import { PayShopBorrowedLoanModal } from "@/modules/customers/components/PayShopBorrowedLoanModal";
+import { ShopUdhaarPaymentModal } from "@/modules/customers/components/CustomerUdhaarPayment";
 import { EditAccountTransactionModal } from "@/modules/customers/components/EditAccountTransactionModal";
 import { DeleteAccountTransactionButton } from "@/modules/customers/components/DeleteAccountTransactionButton";
 import type { getCustomerShopBorrowedHistory } from "@/modules/customers/actions";
@@ -17,12 +17,16 @@ type Txn = History["transactions"][number];
 // until the first loan, matching Stock Udhaar's own tab — a
 // shopkeeper giving this customer their FIRST Shop Borrowed loan just
 // makes this tab go from empty to populated, nothing about the tab
-// itself needs to spring into existence.
+// itself needs to spring into existence. Repaying is one total for
+// everything the shop owes this customer (ShopUdhaarPaymentModal,
+// spread oldest first), not a button per loan.
 export function ShopBorrowedHistoryPanel({
+  customerId,
   customerName,
   history,
   bankAccounts = [],
 }: {
+  customerId: string;
   customerName: string;
   history: History;
   bankAccounts?: { id: string; name: string }[];
@@ -39,31 +43,22 @@ export function ShopBorrowedHistoryPanel({
     );
   }
 
+  // No tab-level stat cards: the page's overall cards above the tabs
+  // (CustomerRelationshipStats) already include this tab's balance.
   return (
     <>
-      <div className="stat-grid" style={{ marginBottom: 16 }}>
-        <div className="stat-card">
-          <p className="stat-label">Total given to shop</p>
-          <p className="stat-value tone-grain">{formatMoney(history.totalBorrowed)}</p>
+      {history.balance > 0.01 && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          <ShopUdhaarPaymentModal customerId={customerId} customerName={customerName} bankAccounts={bankAccounts} />
         </div>
-        <div className="stat-card">
-          <p className="stat-label">Total repaid so far</p>
-          <p className="stat-value tone-primary">{formatMoney(history.totalPaid)}</p>
-        </div>
-        {history.balance > 0.01 && (
-          <div className="stat-card">
-            <p className="stat-label">Shop still owes</p>
-            <p className="stat-value tone-consigned">{formatMoney(history.balance)}</p>
-          </div>
-        )}
-      </div>
-
+      )}
       <div className="panel">
         <table>
           <thead>
             <tr>
               <th>Date</th>
               <th>Type</th>
+              <th>Reference</th>
               <th style={{ textAlign: "right" }}>Amount</th>
               <th>Via</th>
               <th>Due date</th>
@@ -76,9 +71,10 @@ export function ShopBorrowedHistoryPanel({
                 <td>{formatDate(txn.transactionDate)}</td>
                 <td>
                   <span className={`pay-badge ${txn.direction === "OUT" ? "pay-mixed" : "pay-cash"}`}>
-                    {txn.direction === "OUT" ? "Given to shop" : "Repaid"}
+                    {txn.direction === "OUT" ? "Customer given to shop" : "Shop repaid"}
                   </span>
                 </td>
+                <td>{txn.reference || <span className="dash">—</span>}</td>
                 <td className="num" style={{ textAlign: "right" }}>
                   {formatMoney(txn.amount)}
                 </td>
@@ -86,13 +82,6 @@ export function ShopBorrowedHistoryPanel({
                 <td>{txn.dueDate ? formatDate(txn.dueDate) : <span className="dash">—</span>}</td>
                 <td style={{ textAlign: "right" }}>
                   <div className="row-actions" style={{ justifyContent: "flex-end" }}>
-                    {txn.direction === "OUT" && history.balance > 0.01 && history.customerAccountId && (
-                      <PayShopBorrowedLoanModal
-                        customerAccountId={history.customerAccountId}
-                        customerName={customerName}
-                        balance={history.balance}
-                      />
-                    )}
                     <button className="icon-btn" onClick={() => setEditingTxn(txn)} title="Edit">
                       <svg className="icon" viewBox="0 0 24 24">
                         <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />
@@ -116,6 +105,8 @@ export function ShopBorrowedHistoryPanel({
           initialBankAccountId={editingTxn.bankAccountId}
           initialDueDate={editingTxn.dueDate}
           initialNotes={editingTxn.notes}
+          initialReference={editingTxn.reference}
+          showReference={editingTxn.direction === "OUT"}
           bankAccounts={bankAccounts}
           onClose={() => setEditingTxn(null)}
         />

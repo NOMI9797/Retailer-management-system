@@ -1,25 +1,25 @@
 import Link from "next/link";
 import { listShopGrainUdhaar } from "@/modules/stock/actions";
 import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
-import { formatMoney, formatDate } from "@/lib/utils";
-import { PayGrainDebtModal } from "@/modules/stock/components/PayGrainDebtModal";
+import { formatMoney, formatDate, matchesSearch } from "@/lib/utils";
+import { ShopUdhaarPaymentModal } from "@/modules/customers/components/CustomerUdhaarPayment";
 
 // Every grain settlement the shop bought on Credit and hasn't fully
 // paid out yet, across every customer — the Shop (Udhaar) → Grain
 // Udhaar subtab's table, same layout as ShopUdhaarTable (Daily/
 // Monthly Udhaar) but scoped to grain settlements instead of
-// expenses. See listShopGrainUdhaar for why "Remaining"/"Paid" are
-// shared across every settlement row for the same customer+product —
-// a repayment pays down that whole bucket, not one specific
-// settlement.
-export async function ShopGrainUdhaarTable({ productId }: { productId?: string } = {}) {
-  const [rows, bankAccounts] = await Promise.all([listShopGrainUdhaar(productId), listBankAccounts()]);
+// expenses. Each row's Paid/Remaining is its own share of the shop's
+// pooled repayments to that customer, spread oldest first (see
+// listShopGrainUdhaar).
+export async function ShopGrainUdhaarTable({ productId, search }: { productId?: string; search?: string } = {}) {
+  const [allRows, bankAccounts] = await Promise.all([listShopGrainUdhaar(productId), listBankAccounts()]);
+  const rows = allRows.filter((r) => matchesSearch(search, r.customerName));
 
   if (rows.length === 0) {
     return (
       <div className="panel">
         <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-          No outstanding Grain Udhaar right now.
+          {search ? `No matches for "${search}".` : "No outstanding Grain Udhaar right now."}
         </p>
       </div>
     );
@@ -67,13 +67,11 @@ export async function ShopGrainUdhaarTable({ productId }: { productId?: string }
               </td>
               <td>{formatDate(row.date)}</td>
               <td style={{ textAlign: "right" }}>
-                <PayGrainDebtModal
+                {/* The shop repays a customer one total, spread over
+                    everything it owes them oldest first — not per row. */}
+                <ShopUdhaarPaymentModal
                   customerId={row.customerId}
-                  productId={row.productId}
                   customerName={row.customerName}
-                  amountOwed={row.remaining}
-                  defaultAmount={Math.min(row.borrowed, row.remaining)}
-                  label="Mark as paid"
                   bankAccounts={bankAccounts}
                 />
               </td>

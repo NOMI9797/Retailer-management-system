@@ -1,19 +1,21 @@
 import Link from "next/link";
 import { listShopBorrowedLoans } from "@/modules/customers/actions";
-import { formatMoney, formatDate } from "@/lib/utils";
-import { PayShopBorrowedLoanModal } from "@/modules/customers/components/PayShopBorrowedLoanModal";
+import { formatMoney, formatDate, matchesSearch } from "@/lib/utils";
+import { ShopUdhaarPaymentModal } from "@/modules/customers/components/CustomerUdhaarPayment";
+import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 
 // Every customer the shop currently owes money to via a Shop Borrowed
 // loan — same layout as DebtorTable, mirrored for the opposite money
 // direction (the shop is the borrower here, not the customer).
-export async function BorrowedFromCustomersTable() {
-  const rows = await listShopBorrowedLoans();
+export async function BorrowedFromCustomersTable({ search }: { search?: string } = {}) {
+  const [allRows, bankAccounts] = await Promise.all([listShopBorrowedLoans(), listBankAccounts()]);
+  const rows = allRows.filter((r) => matchesSearch(search, r.customerName, r.customerPhone, ...r.references));
 
   if (rows.length === 0) {
     return (
       <div className="panel">
         <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-          The shop hasn&apos;t borrowed from any customer right now.
+          {search ? `No matches for "${search}".` : "The shop hasn't borrowed from any customer right now."}
         </p>
       </div>
     );
@@ -25,6 +27,7 @@ export async function BorrowedFromCustomersTable() {
         <thead>
           <tr>
             <th>Customer</th>
+            <th>Reference</th>
             <th style={{ textAlign: "right" }}>Borrowed</th>
             <th style={{ textAlign: "right" }}>Paid</th>
             <th style={{ textAlign: "right" }}>Remaining</th>
@@ -35,7 +38,7 @@ export async function BorrowedFromCustomersTable() {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.customerAccountId} className={row.isOverdue ? "is-open" : undefined}>
+            <tr key={row.customerId} className={row.isOverdue ? "is-open" : undefined}>
               <td>
                 <Link href={`/dashboard/customers/${row.customerId}`} className="name-link">
                   {row.customerName}
@@ -44,6 +47,7 @@ export async function BorrowedFromCustomersTable() {
                   <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>{row.customerPhone}</p>
                 )}
               </td>
+              <td>{row.references.length > 0 ? row.references.join(", ") : <span className="dash">—</span>}</td>
               <td className="num" style={{ textAlign: "right" }}>
                 {formatMoney(row.totalBorrowed)}
               </td>
@@ -86,10 +90,10 @@ export async function BorrowedFromCustomersTable() {
                 )}
               </td>
               <td style={{ textAlign: "right" }}>
-                <PayShopBorrowedLoanModal
-                  customerAccountId={row.customerAccountId}
+                <ShopUdhaarPaymentModal
+                  customerId={row.customerId}
                   customerName={row.customerName}
-                  balance={row.balance}
+                  bankAccounts={bankAccounts}
                 />
               </td>
             </tr>

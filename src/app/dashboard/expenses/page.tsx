@@ -6,6 +6,7 @@ import { ExpensesTable } from "./ExpensesTable";
 import { MonthlyExpensesDateRange } from "./MonthlyExpensesDateRange";
 import { MonthlyExpensesTable } from "./MonthlyExpensesTable";
 import { listMonthlyExpenseTypes } from "@/modules/expenses/actions";
+import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import type { ExpensesSearchParams } from "./searchParamsHref";
 
 // Same tab shape as the Products page: a header with real ?tab=
@@ -20,11 +21,11 @@ export default async function ExpensesPage({
 }) {
   const params = await searchParams;
   const tab = params.tab === "monthly" ? "monthly" : "daily";
-  const monthlyExpenseTypes = await listMonthlyExpenseTypes();
+  const [monthlyExpenseTypes, bankAccounts] = await Promise.all([listMonthlyExpenseTypes(), listBankAccounts()]);
 
   return (
     <div>
-      <ExpensesHeader searchParams={params} monthlyExpenseTypes={monthlyExpenseTypes} />
+      <ExpensesHeader searchParams={params} monthlyExpenseTypes={monthlyExpenseTypes} bankAccounts={bankAccounts} />
 
       {tab === "daily" ? (
         <>

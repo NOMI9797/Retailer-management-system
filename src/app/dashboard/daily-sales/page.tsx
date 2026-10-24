@@ -3,18 +3,16 @@ import { listAreas } from "@/modules/settings/areas.actions";
 import { listAccountTypes } from "@/modules/settings/accountTypes.actions";
 import { PageLoader } from "@/components/shared/PageLoader";
 import { DailySalesHeader } from "./DailySalesHeader";
-import { DailySalesStatRow } from "./DailySalesStatRow";
 import { DailySalesFilterBar } from "./DailySalesFilterBar";
-import { SalesHistoryTable } from "./SalesHistoryTable";
+import { DailyLedgerSection } from "./DailyLedgerSection";
 import type { DailySalesSearchParams } from "./searchParamsHref";
 
-// The entry form now lives on its own route (/daily-sales/new) rather
-// than a modal here — this page is just the header + today's stat row
-// + filters + history list. Areas/account types are cached, cheap
-// lookups fetched once here and shared with the filter bar so it
-// renders instantly; the stat row and history list are each their own
-// genuinely per-navigation query, so each streams in behind its own
-// Suspense boundary rather than blocking the other.
+// Header, filters, then the day's credit/debit/net totals and the
+// Daily Credit (money in) and Daily Debit (money out) columns side by
+// side. With no date picked it shows today. Entry forms live on
+// /daily-sales/new. Areas/account types are cached lookups fetched here
+// so the filter bar renders instantly; the ledger streams in behind its
+// own Suspense boundary.
 export default async function DailySalesPage({
   searchParams,
 }: {
@@ -27,14 +25,10 @@ export default async function DailySalesPage({
     <div>
       <DailySalesHeader />
 
-      <Suspense fallback={<PageLoader label="Loading today's stats…" />}>
-        <DailySalesStatRow />
-      </Suspense>
-
       <DailySalesFilterBar searchParams={params} areas={areas} accountTypes={accountTypes} />
 
-      <Suspense key={JSON.stringify(params)} fallback={<PageLoader label="Loading sales history…" />}>
-        <SalesHistoryTable searchParams={params} />
+      <Suspense key={JSON.stringify(params)} fallback={<PageLoader label="Loading the day's credit and debit…" />}>
+        <DailyLedgerSection searchParams={params} />
       </Suspense>
     </div>
   );

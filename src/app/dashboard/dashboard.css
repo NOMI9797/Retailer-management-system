@@ -773,6 +773,84 @@
   color: var(--consigned-600);
 }
 
+/* Daily sales page: Daily Credit and Daily Debit side by side. */
+.shop-app .ledger-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.shop-app .ledger-column {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.shop-app .ledger-column-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 14px 16px;
+  border-bottom: 0.5px solid var(--border);
+}
+
+.shop-app .ledger-column-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.shop-app .ledger-column-head span {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* New entry screen: each option is a clickable stat-card. */
+.shop-app .entry-card {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.shop-app .entry-card:hover {
+  border-color: var(--primary-600);
+  box-shadow: 0 0 0 1px var(--primary-600);
+}
+
+.shop-app .entry-card h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--primary-900);
+}
+
+.shop-app .entry-card p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+
+.shop-app .entry-group + .entry-group {
+  margin-top: 18px;
+}
+
+.shop-app .entry-group-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+
+.shop-app .entry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
 /* Profit/Loss: the calculation chain — Revenue − COGS = Gross profit
    − Expenses, read left to right as one continuous formula rather
    than four disconnected stat cards, with the Gross profit subtotal
@@ -2064,6 +2142,9 @@
   }
   .shop-app .stat-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .shop-app .ledger-columns {
+    grid-template-columns: 1fr;
   }
   .shop-app .batch-row {
     grid-template-columns: 1fr 1fr;

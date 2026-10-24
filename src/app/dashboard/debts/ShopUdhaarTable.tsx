@@ -1,19 +1,19 @@
 import { listShopExpenseUdhaar } from "@/modules/expenses/actions";
-import { formatMoney, formatDate } from "@/lib/utils";
+import { formatMoney, formatDate, matchesSearch } from "@/lib/utils";
 import { PayExpenseDebtModal } from "@/modules/expenses/components/PayExpenseDebtModal";
 
 // Every still-unpaid Daily/Monthly expense — the Udhaar (Shop) tab's
 // table, same layout as DebtorTable but scoped to expenses instead of
 // customer accounts (there's no customer/due-date/overdue concept
 // here, so those columns are dropped).
-export async function ShopUdhaarTable() {
-  const rows = await listShopExpenseUdhaar();
+export async function ShopUdhaarTable({ search }: { search?: string } = {}) {
+  const rows = (await listShopExpenseUdhaar()).filter((r) => matchesSearch(search, r.description));
 
   if (rows.length === 0) {
     return (
       <div className="panel">
         <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-          No outstanding Daily/Monthly Udhaar right now.
+          {search ? `No matches for "${search}".` : "No outstanding Daily/Monthly Udhaar right now."}
         </p>
       </div>
     );

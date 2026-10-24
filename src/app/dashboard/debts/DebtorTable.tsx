@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { listDebtors } from "@/modules/debts/actions";
-import { formatMoney, formatDate } from "@/lib/utils";
-import { RecordAccountTransactionModal } from "@/modules/customers/components/RecordAccountTransactionModal";
+import { formatMoney, formatDate, matchesSearch } from "@/lib/utils";
+import { CustomerUdhaarPaymentModal } from "@/modules/customers/components/CustomerUdhaarPayment";
+import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import type { DebtBucket } from "@/modules/debts/schema";
 
 // Overdue first, then oldest debt first among the rest — listDebtors
@@ -11,14 +12,17 @@ import type { DebtBucket } from "@/modules/debts/schema";
 // explicit "genuinely hard to miss" requirement. bucket scopes every
 // figure to just Regular or just Long-term Udhaar (see
 // DebtBucket's schema comment) — the two never mix on this table.
-export async function DebtorTable({ bucket }: { bucket: DebtBucket }) {
-  const debtors = await listDebtors(bucket);
+export async function DebtorTable({ bucket, search }: { bucket: DebtBucket; search?: string }) {
+  const [allDebtors, bankAccounts] = await Promise.all([listDebtors(bucket), listBankAccounts()]);
+  const debtors = allDebtors.filter((d) => matchesSearch(search, d.customerName, d.customerPhone, ...d.references));
 
   if (debtors.length === 0) {
     return (
       <div className="panel">
         <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>
-          {bucket === "LONG_TERM"
+          {search
+            ? `No matches for "${search}".`
+            : bucket === "LONG_TERM"
             ? "No outstanding long-term loans right now."
             : "No outstanding loans or on-account balances right now."}
         </p>
@@ -51,6 +55,11 @@ export async function DebtorTable({ bucket }: { bucket: DebtBucket }) {
                 {debtor.customerPhone && (
                   <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
                     {debtor.customerPhone}
+                  </p>
+                )}
+                {debtor.references.length > 0 && (
+                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
+                    Ref: {debtor.references.join(", ")}
                   </p>
                 )}
               </td>
@@ -101,11 +110,10 @@ export async function DebtorTable({ bucket }: { bucket: DebtBucket }) {
                 )}
               </td>
               <td style={{ textAlign: "right" }}>
-                <RecordAccountTransactionModal
-                  customerAccountId={debtor.customerAccountId}
-                  triggerLabel="Record repayment"
-                  defaultDirection="IN"
-                  lockBucket={bucket === "LONG_TERM"}
+                <CustomerUdhaarPaymentModal
+                  customerId={debtor.customerId}
+                  customerName={debtor.customerName}
+                  bankAccounts={bankAccounts}
                 />
               </td>
             </tr>

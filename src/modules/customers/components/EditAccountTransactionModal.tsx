@@ -22,6 +22,9 @@ export function EditAccountTransactionModal({
   initialBankAccountId,
   initialDueDate,
   initialNotes,
+  initialReference,
+  showReference = false,
+  subtitle,
   bankAccounts = [],
   onClose,
 }: {
@@ -32,6 +35,13 @@ export function EditAccountTransactionModal({
   initialBankAccountId?: string | null;
   initialDueDate?: Date | string | null;
   initialNotes?: string | null;
+  initialReference?: string | null;
+  // True for an Udhaar to Shop "given to shop" entry, the only kind
+  // that carries a (required) reference.
+  showReference?: boolean;
+  // Overrides the default "Loan given / Repayment received" line —
+  // e.g. for the shop repaying a customer.
+  subtitle?: string;
   bankAccounts?: { id: string; name: string }[];
   onClose: () => void;
 }) {
@@ -43,6 +53,7 @@ export function EditAccountTransactionModal({
     initialDueDate ? toLocalDateString(new Date(initialDueDate)) : ""
   );
   const [notes, setNotes] = useState(initialNotes ?? "");
+  const [reference, setReference] = useState(initialReference ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -57,6 +68,7 @@ export function EditAccountTransactionModal({
         paymentMethod,
         bankAccountId: bankAccountId || undefined,
         dueDate: direction === "OUT" && dueDate ? dueDate : undefined,
+        reference: showReference ? reference : undefined,
         notes: notes || undefined,
       });
       if (!result.success) {
@@ -76,7 +88,8 @@ export function EditAccountTransactionModal({
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>Edit entry</h2>
         <p className="modal-sub">
-          {direction === "OUT" ? "Loan given — customer owes more." : "Repayment received — customer owes less."}
+          {subtitle ??
+            (direction === "OUT" ? "Loan given — customer owes more." : "Repayment received — customer owes less.")}
         </p>
 
         <form onSubmit={handleSubmit}>
@@ -115,6 +128,13 @@ export function EditAccountTransactionModal({
             <div className="field">
               <label>Due date (optional)</label>
               <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            </div>
+          )}
+
+          {showReference && (
+            <div className="field">
+              <label>Reference</label>
+              <input type="text" value={reference} onChange={(e) => setReference(e.target.value)} required />
             </div>
           )}
 

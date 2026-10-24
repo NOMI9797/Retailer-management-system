@@ -7,7 +7,7 @@ import type { CustomersSearchParams } from "./searchParamsHref";
 // filtered/paginated customer list, plus the area list
 // EditCustomerModal needs for its picker) and hands everything to
 // CustomerList, the client leaf that owns the Edit modal's local
-// open/close state — same split SalesHistoryTable/SalesHistoryList
+// open/close state — same split DailyLedgerSection/DailyLedgerColumns
 // follows.
 export async function CustomerTable({ searchParams }: { searchParams: CustomersSearchParams }) {
   const page = searchParams.page ? Number(searchParams.page) : 1;

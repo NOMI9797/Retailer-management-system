@@ -18,6 +18,7 @@ import { ShopBorrowedLoanModal } from "@/modules/customers/components/ShopBorrow
 import { CustomerGrainCreditSection } from "../grain/CustomerGrainCreditSection";
 import { listAreas } from "@/modules/settings/areas.actions";
 import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
+import { DebtsSearchBox } from "./DebtsSearchBox";
 import { buildDebtsHref, type DebtsSearchParams } from "./searchParamsHref";
 
 type Group = "customers" | "shop";
@@ -58,6 +59,10 @@ export default async function DebtsPage({
           ? "dealer-udhaar"
           : "credit-expenses";
   const productFilter = params.product || undefined;
+  const search = params.search?.trim() || undefined;
+  // Every link on this page keeps the active search, so switching tabs
+  // checks the same person in the next bucket.
+  const href = (overrides: Partial<DebtsSearchParams>) => buildDebtsHref({ ...overrides, search });
   const [areas, bankAccounts] = await Promise.all([
     group === "shop" && shopTab === "borrowed" ? listAreas() : Promise.resolve([]),
     group === "customers" && tab === "long-term" ? listBankAccounts() : group === "shop" && shopTab === "borrowed" ? listBankAccounts() : Promise.resolve([]),
@@ -93,13 +98,13 @@ export default async function DebtsPage({
       <div className="tabs">
         <Link
           className={`tab${group === "customers" ? " active" : ""}`}
-          href={buildDebtsHref({ group: "customers", tab: "regular" })}
+          href={href({ group: "customers", tab: "regular" })}
         >
           Customers (Udhaar)
         </Link>
         <Link
           className={`tab${group === "shop" ? " active" : ""}`}
-          href={buildDebtsHref({ group: "shop", tab: "credit-expenses" })}
+          href={href({ group: "shop", tab: "credit-expenses" })}
         >
           Shop (Udhaar)
         </Link>
@@ -110,40 +115,46 @@ export default async function DebtsPage({
           <div className="tabs" style={{ marginTop: 4 }}>
             <Link
               className={`tab${tab === "regular" ? " active" : ""}`}
-              href={buildDebtsHref({ group: "customers", tab: "regular" })}
+              href={href({ group: "customers", tab: "regular" })}
             >
               Regular / Daily Udhaar
             </Link>
             <Link
               className={`tab${tab === "long-term" ? " active" : ""}`}
-              href={buildDebtsHref({ group: "customers", tab: "long-term" })}
+              href={href({ group: "customers", tab: "long-term" })}
             >
               Long-term Udhaar
             </Link>
             <Link
               className={`tab${tab === "defaulters" ? " active" : ""}`}
-              href={buildDebtsHref({ group: "customers", tab: "defaulters" })}
+              href={href({ group: "customers", tab: "defaulters" })}
             >
               Defaulters
             </Link>
             <Link
               className={`tab${tab === "grain-udhaar" ? " active" : ""}`}
-              href={buildDebtsHref({ group: "customers", tab: "grain-udhaar" })}
+              href={href({ group: "customers", tab: "grain-udhaar" })}
             >
               Grain Udhaar
             </Link>
           </div>
+
+          <DebtsSearchBox
+            key={`search-customers-${search ?? ""}`}
+            activeSearch={search ?? ""}
+            placeholder="Search by customer name or phone…"
+          />
 
           {tab === "grain-udhaar" ? (
             <>
               <Suspense key="filter-customers-grain-udhaar" fallback={null}>
                 <GrainProductFilter
                   productId={productFilter}
-                  buildHref={(productId) => buildDebtsHref({ group: "customers", tab: "grain-udhaar", product: productId })}
+                  buildHref={(productId) => href({ group: "customers", tab: "grain-udhaar", product: productId })}
                 />
               </Suspense>
-              <Suspense key={`table-grain-udhaar-${productFilter ?? "all"}`} fallback={<PageLoader label="Loading…" />}>
-                <CustomerGrainCreditSection productId={productFilter} />
+              <Suspense key={`table-grain-udhaar-${productFilter ?? "all"}-${search ?? ""}`} fallback={<PageLoader label="Loading…" />}>
+                <CustomerGrainCreditSection productId={productFilter} search={search} />
               </Suspense>
             </>
           ) : (
@@ -154,11 +165,11 @@ export default async function DebtsPage({
                 </Suspense>
               )}
 
-              <Suspense key={`table-${tab}`} fallback={<PageLoader label="Loading…" />}>
+              <Suspense key={`table-${tab}-${search ?? ""}`} fallback={<PageLoader label="Loading…" />}>
                 {tab === "defaulters" ? (
-                  <DefaulterTable />
+                  <DefaulterTable search={search} />
                 ) : (
-                  <DebtorTable bucket={tab === "long-term" ? "LONG_TERM" : "REGULAR"} />
+                  <DebtorTable bucket={tab === "long-term" ? "LONG_TERM" : "REGULAR"} search={search} />
                 )}
               </Suspense>
             </>
@@ -169,37 +180,49 @@ export default async function DebtsPage({
           <div className="tabs" style={{ marginTop: 4 }}>
             <Link
               className={`tab${shopTab === "credit-expenses" ? " active" : ""}`}
-              href={buildDebtsHref({ group: "shop", tab: "credit-expenses" })}
+              href={href({ group: "shop", tab: "credit-expenses" })}
             >
               Daily/Monthly Udhaar
             </Link>
             <Link
               className={`tab${shopTab === "borrowed" ? " active" : ""}`}
-              href={buildDebtsHref({ group: "shop", tab: "borrowed" })}
+              href={href({ group: "shop", tab: "borrowed" })}
             >
               Borrowed from Customers
             </Link>
             <Link
               className={`tab${shopTab === "grain-udhaar" ? " active" : ""}`}
-              href={buildDebtsHref({ group: "shop", tab: "grain-udhaar" })}
+              href={href({ group: "shop", tab: "grain-udhaar" })}
             >
               Grain Udhaar
             </Link>
             <Link
               className={`tab${shopTab === "dealer-udhaar" ? " active" : ""}`}
-              href={buildDebtsHref({ group: "shop", tab: "dealer-udhaar" })}
+              href={href({ group: "shop", tab: "dealer-udhaar" })}
             >
               Dealers Udhaar
             </Link>
           </div>
+
+          <DebtsSearchBox
+            key={`search-shop-${search ?? ""}`}
+            activeSearch={search ?? ""}
+            placeholder={
+              shopTab === "credit-expenses"
+                ? "Search by expense description…"
+                : shopTab === "dealer-udhaar"
+                  ? "Search by dealer name or phone…"
+                  : "Search by customer name or phone…"
+            }
+          />
 
           {shopTab === "credit-expenses" ? (
             <>
               <Suspense key="summary-shop-expenses" fallback={<PageLoader label="Loading summary…" />}>
                 <ShopUdhaarSummaryCards />
               </Suspense>
-              <Suspense key="table-shop-expenses" fallback={<PageLoader label="Loading…" />}>
-                <ShopUdhaarTable />
+              <Suspense key={`table-shop-expenses-${search ?? ""}`} fallback={<PageLoader label="Loading…" />}>
+                <ShopUdhaarTable search={search} />
               </Suspense>
             </>
           ) : shopTab === "borrowed" ? (
@@ -207,8 +230,8 @@ export default async function DebtsPage({
               <Suspense key="summary-shop-borrowed" fallback={<PageLoader label="Loading summary…" />}>
                 <BorrowedFromCustomersSummaryCards />
               </Suspense>
-              <Suspense key="table-shop-borrowed" fallback={<PageLoader label="Loading…" />}>
-                <BorrowedFromCustomersTable />
+              <Suspense key={`table-shop-borrowed-${search ?? ""}`} fallback={<PageLoader label="Loading…" />}>
+                <BorrowedFromCustomersTable search={search} />
               </Suspense>
             </>
           ) : shopTab === "grain-udhaar" ? (
@@ -216,14 +239,14 @@ export default async function DebtsPage({
               <Suspense key="filter-shop-grain-udhaar" fallback={null}>
                 <GrainProductFilter
                   productId={productFilter}
-                  buildHref={(productId) => buildDebtsHref({ group: "shop", tab: "grain-udhaar", product: productId })}
+                  buildHref={(productId) => href({ group: "shop", tab: "grain-udhaar", product: productId })}
                 />
               </Suspense>
               <Suspense key={`summary-shop-grain-udhaar-${productFilter ?? "all"}`} fallback={<PageLoader label="Loading summary…" />}>
                 <ShopGrainUdhaarSummaryCards productId={productFilter} />
               </Suspense>
-              <Suspense key={`table-shop-grain-udhaar-${productFilter ?? "all"}`} fallback={<PageLoader label="Loading…" />}>
-                <ShopGrainUdhaarTable productId={productFilter} />
+              <Suspense key={`table-shop-grain-udhaar-${productFilter ?? "all"}-${search ?? ""}`} fallback={<PageLoader label="Loading…" />}>
+                <ShopGrainUdhaarTable productId={productFilter} search={search} />
               </Suspense>
             </>
           ) : (
@@ -231,8 +254,8 @@ export default async function DebtsPage({
               <Suspense key="summary-shop-dealer-udhaar" fallback={<PageLoader label="Loading summary…" />}>
                 <ShopDealerUdhaarSummaryCards />
               </Suspense>
-              <Suspense key="table-shop-dealer-udhaar" fallback={<PageLoader label="Loading…" />}>
-                <ShopDealerUdhaarTable />
+              <Suspense key={`table-shop-dealer-udhaar-${search ?? ""}`} fallback={<PageLoader label="Loading…" />}>
+                <ShopDealerUdhaarTable search={search} />
               </Suspense>
             </>
           )}

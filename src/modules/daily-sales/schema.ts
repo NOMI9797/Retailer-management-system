@@ -125,26 +125,3 @@ export const updateReceiptSchema = z.object({
 });
 export type UpdateReceiptInput = z.infer<typeof updateReceiptSchema>;
 
-// Paying down a customer's Credit purchase of a specific grain sale
-// item — the "Customer Udhaar" tab's own repayment path (see
-// stock/actions.ts: getCustomerGrainCreditPurchases), deliberately
-// separate from recordAccountTransaction's whole-account Udhaar
-// repayment: a shopkeeper may have several outstanding grain
-// purchases at once and needs to pay one off individually, same
-// "pay per product/purchase, from that row" precedent payGrainDebt
-// and payExpenseDebt already established. amount is capped at that
-// item's own outstanding remainder in the action, not trusted from
-// the client.
-export const payGrainSaleItemCreditSchema = z
-  .object({
-    dailySaleItemId: z.string().uuid(),
-    amount: z.number().positive("Amount must be positive"),
-    paymentMethod: z.enum(["CASH", "ACCOUNT"]),
-    bankAccountId: z.string().uuid().optional(),
-    notes: z.string().optional(),
-  })
-  .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
-    message: "Select which bank account this was paid through",
-    path: ["bankAccountId"],
-  });
-export type PayGrainSaleItemCreditInput = z.infer<typeof payGrainSaleItemCreditSchema>;

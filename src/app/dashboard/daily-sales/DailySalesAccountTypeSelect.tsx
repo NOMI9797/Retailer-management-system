@@ -19,7 +19,7 @@ export function DailySalesAccountTypeSelect({
 
   function onChange(accountTypeId: string) {
     const current = Object.fromEntries(searchParams.entries());
-    router.push(buildDailySalesHref(current, { accountType: accountTypeId || undefined, page: undefined }));
+    router.push(buildDailySalesHref(current, { accountType: accountTypeId || undefined }));
   }
 
   const activeName = accountTypes.find((t) => t.id === activeAccountType)?.name ?? "All account types";
