@@ -145,9 +145,17 @@ export default async function CustomerDetailPage({
 }
 
 async function CustomerOverallStats({ customerId }: { customerId: string }) {
+  const [summary, customer, bankAccounts] = await Promise.all([
+    getCustomerRelationshipSummary(customerId),
+    getCustomer(customerId),
+    listBankAccounts(),
+  ]);
   return (
     <CustomerRelationshipStats
-      summary={await getCustomerRelationshipSummary(customerId)}
+      summary={summary}
+      customerId={customerId}
+      customerName={customer.name}
+      bankAccounts={bankAccounts}
     />
   );
 }

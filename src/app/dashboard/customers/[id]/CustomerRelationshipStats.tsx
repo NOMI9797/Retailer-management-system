@@ -1,4 +1,8 @@
 import { formatMoney } from "@/lib/utils";
+import {
+  CustomerUdhaarPaymentModal,
+  ShopUdhaarPaymentModal,
+} from "@/modules/customers/components/CustomerUdhaarPayment";
 import type { getCustomerRelationshipSummary } from "@/modules/customers/actions";
 
 type Summary = Awaited<ReturnType<typeof getCustomerRelationshipSummary>>;
@@ -13,7 +17,19 @@ type Summary = Awaited<ReturnType<typeof getCustomerRelationshipSummary>>;
 // dedicated, more detailed view elsewhere (the Debts page, the Udhaar
 // to Shop tab, the Grain tab's own per-product cards) and repeating
 // them here as flat cards read as confusing duplicates.
-export function CustomerRelationshipStats({ summary }: { summary: Summary }) {
+// Each total carries the button that settles it (Receive payment / Pay
+// now), same as the New entry screen's person card.
+export function CustomerRelationshipStats({
+  summary,
+  customerId,
+  customerName,
+  bankAccounts,
+}: {
+  summary: Summary;
+  customerId: string;
+  customerName: string;
+  bankAccounts: { id: string; name: string }[];
+}) {
   const { customerOwesShop, shopOwesCustomer, netAmount, netOwedBy } = summary;
 
   const netLabel =
@@ -29,10 +45,28 @@ export function CustomerRelationshipStats({ summary }: { summary: Summary }) {
       <div className="stat-card">
         <p className="stat-label">Customer owes shop (total)</p>
         <p className="stat-value tone-primary">{formatMoney(customerOwesShop)}</p>
+        {customerOwesShop > 0.01 && (
+          <CustomerUdhaarPaymentModal
+            customerId={customerId}
+            customerName={customerName}
+            bankAccounts={bankAccounts}
+            triggerLabel="Receive payment"
+            triggerClassName="btn btn-primary stat-card-action"
+          />
+        )}
       </div>
       <div className="stat-card">
         <p className="stat-label">Shop owes customer (total)</p>
         <p className="stat-value tone-consigned">{formatMoney(shopOwesCustomer)}</p>
+        {shopOwesCustomer > 0.01 && (
+          <ShopUdhaarPaymentModal
+            customerId={customerId}
+            customerName={customerName}
+            bankAccounts={bankAccounts}
+            triggerLabel="Pay now"
+            triggerClassName="btn btn-primary stat-card-action"
+          />
+        )}
       </div>
     </div>
   );

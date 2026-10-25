@@ -3,7 +3,10 @@ import { getDealer } from "@/modules/dealers/actions";
 import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { formatMoney, formatDate } from "@/lib/utils";
 import { PayDealerDebtModal } from "@/modules/dealers/components/PayDealerDebtModal";
-import { DealerUdhaarModal } from "@/modules/dealers/components/DealerUdhaarModal";
+import {
+  DealerUdhaarModal,
+  ReceiveDealerPaymentModal,
+} from "@/modules/dealers/components/DealerUdhaarModal";
 import { listGrainLoans } from "@/modules/grain-loans/actions";
 import { GrainLoansPanel } from "@/modules/grain-loans/components/GrainLoansPanel";
 import { listProducts } from "@/modules/products/actions";
@@ -131,6 +134,15 @@ export default async function DealerDetailPage({
           >
             {formatMoney(dealer.dealerOwes)}
           </p>
+          {dealer.dealerOwes > 0.01 && (
+            <ReceiveDealerPaymentModal
+              dealerId={dealer.id}
+              dealerName={dealer.name}
+              amountOwed={dealer.dealerOwes}
+              bankAccounts={bankAccounts}
+              className="btn btn-primary stat-card-action"
+            />
+          )}
         </div>
         <div className="stat-card">
           <p className="stat-label">Shop owes dealer</p>
@@ -139,6 +151,16 @@ export default async function DealerDetailPage({
           >
             {formatMoney(dealer.shopOwes)}
           </p>
+          {dealer.shopOwes > 0.01 && (
+            <PayDealerDebtModal
+              dealerId={dealer.id}
+              dealerName={dealer.name}
+              amountOwed={dealer.shopOwes}
+              bankAccounts={bankAccounts}
+              label="Pay now"
+              className="btn btn-primary stat-card-action"
+            />
+          )}
         </div>
         <div className="stat-card">
           <p className="stat-label">Total purchased</p>

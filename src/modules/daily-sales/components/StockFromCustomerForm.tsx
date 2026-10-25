@@ -33,9 +33,11 @@ export function StockFromCustomerForm({
   areas,
   grainProducts,
   initialCustomer,
+  bankAccounts = [],
 }: {
   areas: Area[];
   grainProducts: GrainProduct[];
+  bankAccounts?: { id: string; name: string }[];
   // Opens with this customer already picked (New entry's person-first flow).
   initialCustomer?: { id: string; name: string };
 }) {
@@ -94,7 +96,12 @@ export function StockFromCustomerForm({
           </div>
         </div>
 
-        <CustomerGrainPanel customerId={selected.id} customerName={selected.name} grainProducts={grainProducts} />
+        <CustomerGrainPanel
+          customerId={selected.id}
+          customerName={selected.name}
+          grainProducts={grainProducts}
+          bankAccounts={bankAccounts}
+        />
       </div>
     );
   }
@@ -119,10 +126,12 @@ function CustomerGrainPanel({
   customerId,
   customerName,
   grainProducts,
+  bankAccounts,
 }: {
   customerId: string;
   customerName: string;
   grainProducts: GrainProduct[];
+  bankAccounts: { id: string; name: string }[];
 }) {
   const [deposits, setDeposits] = useState<Deposits | null>(null);
   const [moneyOwedByProduct, setMoneyOwedByProduct] = useState<
@@ -176,6 +185,7 @@ function CustomerGrainPanel({
             customerId={customerId}
             customerName={customerName}
             onSettle={loadDeposits}
+            bankAccounts={bankAccounts}
           />
         )
       ) : grainProducts.length === 0 ? (

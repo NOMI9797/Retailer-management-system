@@ -100,19 +100,21 @@ export function PayDealerDebtModal({
   amountOwed,
   bankAccounts = [],
   label = "Pay debt",
+  className = "btn btn-primary",
 }: {
   dealerId: string;
   dealerName: string;
   amountOwed: number;
   bankAccounts?: { id: string; name: string }[];
   label?: string;
+  className?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
   return (
     <>
-      <button type="button" className="btn btn-primary" onClick={() => setOpen(true)}>
+      <button type="button" className={className} onClick={() => setOpen(true)}>
         {label}
       </button>
 

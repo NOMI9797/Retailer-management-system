@@ -9,6 +9,10 @@ import { DeleteGrainSettlementButton } from "./DeleteGrainSettlementButton";
 import { EditGrainDepositModal } from "./EditGrainDepositModal";
 import { DeleteGrainDepositButton } from "./DeleteGrainDepositButton";
 import { SaleVisitActions } from "@/modules/daily-sales/components/SaleVisitActions";
+import {
+  CustomerUdhaarPaymentModal,
+  ShopUdhaarPaymentModal,
+} from "@/modules/customers/components/CustomerUdhaarPayment";
 import { formatMoney, formatDate } from "@/lib/utils";
 import type { listProducts } from "@/modules/products/actions";
 
@@ -107,6 +111,7 @@ export function CustomerGrainSection({
   deposits,
   moneyOwedByProduct,
   creditPurchases,
+  customerId,
   customerName,
   onSettle,
   bankAccounts = [],
@@ -311,12 +316,30 @@ export function CustomerGrainSection({
                   <div className="stat-card">
                     <p className="stat-label">Shop owes for this</p>
                     <p className="stat-value tone-consigned">{formatMoney(owedForProduct.owed)}</p>
+                    {/* One repayment for everything the shop owes this
+                        customer, spread oldest first. */}
+                    <ShopUdhaarPaymentModal
+                      customerId={customerId}
+                      customerName={customerName}
+                      bankAccounts={bankAccounts}
+                      triggerLabel="Pay now"
+                      triggerClassName="btn btn-primary stat-card-action"
+                      onRecorded={onSettle}
+                    />
                   </div>
                 )}
                 {customerOwedForProduct > 0 && (
                   <div className="stat-card">
                     <p className="stat-label">Customer owes for this</p>
                     <p className="stat-value tone-consigned">{formatMoney(customerOwedForProduct)}</p>
+                    <CustomerUdhaarPaymentModal
+                      customerId={customerId}
+                      customerName={customerName}
+                      bankAccounts={bankAccounts}
+                      triggerLabel="Receive payment"
+                      triggerClassName="btn btn-primary stat-card-action"
+                      onRecorded={onSettle}
+                    />
                   </div>
                 )}
               </div>

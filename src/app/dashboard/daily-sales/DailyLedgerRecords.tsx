@@ -115,13 +115,18 @@ export function DailyLedgerRecords({
                   <td>{row.label}</td>
                   <td style={{ color: "var(--ink-muted)", fontSize: 13 }}>{row.detail ?? ""}</td>
                   <td className="num" style={{ textAlign: "right", fontWeight: 600, color: amountColor }}>
-                    {formatMoney(row.amount)}
+                    {row.stockOnly ? <span className="dash">—</span> : formatMoney(row.amount)}
                   </td>
                   <td>
-                    {row.paymentMethod && (
-                      <span className={`pay-badge ${PAYMENT_CLASS[row.paymentMethod]}`}>
-                        {PAYMENT_LABEL[row.paymentMethod]}
-                      </span>
+                    {row.stockOnly ? (
+                      // Grain moved, no money: the quantity is in Details.
+                      <span className="pay-badge pay-account">Grain</span>
+                    ) : (
+                      row.paymentMethod && (
+                        <span className={`pay-badge ${PAYMENT_CLASS[row.paymentMethod]}`}>
+                          {PAYMENT_LABEL[row.paymentMethod]}
+                        </span>
+                      )
                     )}
                   </td>
                   <td style={{ textAlign: "right" }}>

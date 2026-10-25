@@ -18,7 +18,8 @@ import { deleteExpense, deleteExpensePayment } from "@/modules/expenses/actions"
 import { deleteDealerProductPurchase, deleteDealerTransaction } from "@/modules/dealers/actions";
 import { deleteAccountTransaction } from "@/modules/customers/actions";
 import { deleteGrainSettlement } from "@/modules/stock/actions";
-import { deleteGrainLoanReturn } from "@/modules/grain-loans/actions";
+import { deleteGrainLoan, deleteGrainLoanReturn } from "@/modules/grain-loans/actions";
+import { deleteGrainBatch } from "@/modules/products/batches.actions";
 
 const ENTITY = "bankAccounts";
 
@@ -185,7 +186,10 @@ export type BankAccountRowDeleteRef =
   | { kind: "GRAIN_CREDIT_PAYMENT"; paymentId: string }
   | { kind: "EXPENSE_PAYMENT"; paymentId: string }
   | { kind: "DEALER_TRANSACTION"; transactionId: string }
-  | { kind: "GRAIN_LOAN_RETURN"; returnId: string };
+  | { kind: "GRAIN_LOAN_RETURN"; returnId: string }
+  // Grain-only rows on the Daily sales page (never bank rows).
+  | { kind: "GRAIN_DEPOSIT"; batchId: string }
+  | { kind: "GRAIN_LOAN"; loanId: string };
 
 export type BankAccountTransactionRow = {
   id: string;
@@ -542,6 +546,13 @@ export async function deleteBankAccountRow(ref: BankAccountRowDeleteRef): Promis
     }
     case "GRAIN_LOAN_RETURN": {
       const result = await deleteGrainLoanReturn(ref.returnId);
+      if (!result.success) return fail(result.error);
+      return ok(null);
+    }
+    case "GRAIN_DEPOSIT":
+      return deleteGrainBatch(ref.batchId);
+    case "GRAIN_LOAN": {
+      const result = await deleteGrainLoan(ref.loanId);
       if (!result.success) return fail(result.error);
       return ok(null);
     }

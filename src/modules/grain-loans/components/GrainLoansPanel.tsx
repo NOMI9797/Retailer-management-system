@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { GrainLoanModal, type LoanParty } from "./GrainLoanModal";
 import { GrainLoanRecords } from "./GrainLoanRecords";
+import { GrainLoanReturnModal } from "./GrainLoanReturnModal";
 import type { GrainLoanRow } from "../actions";
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -71,6 +72,27 @@ export function GrainLoansPanel({
   const borrowed = sum("SHOP_BORROWED", (l) => l.quantity);
   const owesShop = sum("SHOP_LENT", (l) => l.outstanding);
   const shopOwes = sum("SHOP_BORROWED", (l) => l.outstanding);
+  // The card's own Record return, when there's exactly one open loan
+  // that way; with several, each loan's row below has its own.
+  const returnButton = (direction: GrainLoanRow["direction"]) => {
+    const open = rows.filter(
+      (l) => l.direction === direction && l.outstanding > 0,
+    );
+    if (open.length === 0) return null;
+    if (open.length > 1)
+      return (
+        <p
+          style={{ margin: "8px 0 0", fontSize: 12, color: "var(--ink-muted)" }}
+        >
+          Record return on the loan below.
+        </p>
+      );
+    return (
+      <div style={{ marginTop: 10 }}>
+        <GrainLoanReturnModal loan={open[0]} bankAccounts={bankAccounts} />
+      </div>
+    );
+  };
 
   return (
     <>
@@ -123,6 +145,7 @@ export function GrainLoansPanel({
           >
             {owesShop} {unit}
           </p>
+          {returnButton("SHOP_LENT")}
         </div>
         <div className="stat-card">
           <p className="stat-label">
@@ -133,6 +156,7 @@ export function GrainLoansPanel({
           >
             {shopOwes} {unit}
           </p>
+          {returnButton("SHOP_BORROWED")}
         </div>
       </div>
 

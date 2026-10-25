@@ -22,6 +22,11 @@ export type LedgerRow = {
   // one visit (a customer's same-day visits share one DailySale).
   saleId: string | null;
   visitAt?: Date;
+  // Grain-only entries (a drop-off kept for later, own stock added, a
+  // grain loan or grain given back) move no money: amount is 0 and the
+  // quantity is in detail. They sit on the side the grain moves —
+  // Credit when it comes in, Debit when it goes out.
+  stockOnly?: boolean;
   // Which existing reversal deletes this row (see deleteBankAccountRow).
   // Null where the app has no safe reversal yet (dealer grain purchases).
   deleteRef: BankAccountRowDeleteRef | null;
@@ -350,6 +355,110 @@ export async function listDailyLedger(options?: {
       paymentMethod: ret.paymentMethod,
       amount: Number(ret.amount),
       saleId: null,
+      deleteRef: { kind: "GRAIN_LOAN_RETURN", returnId: ret.id },
+    });
+  }
+
+  // Grain-only entries — no money moves, so they add 0 to the totals.
+  const [deposits, ownBatches, grainLoans, grainReturns] = await Promise.all([
+    // A customer's drop-off kept for later (settle-now drop-offs create
+    // no customer batch — they're already "Grain bought from customer").
+    db.grainBatch.findMany({
+      where: {
+        receivedAt: range,
+        product: { shopId },
+        ownerCustomerId: { not: null },
+        ownerCustomer: customerScoped ? customerMatch : undefined,
+      },
+      include: { product: { include: { unit: true } }, ownerCustomer: true },
+    }),
+    // Own stock added with Add batch: a shop batch that came from no
+    // dealer, customer purchase or grain loan (those have their own rows).
+    customerScoped
+      ? none
+      : db.grainBatch.findMany({
+          where: {
+            receivedAt: range,
+            product: { shopId },
+            ownerCustomerId: null,
+            dealerId: null,
+            sourceBatchId: null,
+            grainLoanId: null,
+            grainLoanReturnId: null,
+            paymentTransactions: { none: {} },
+          },
+          include: { product: { include: { unit: true } } },
+        }),
+    db.grainLoan.findMany({
+      where: { shopId, loanDate: range, ...(customerScoped ? { customer: customerMatch } : {}) },
+      include: { product: { include: { unit: true } }, customer: true, dealer: true },
+    }),
+    db.grainLoanReturn.findMany({
+      where: {
+        shopId,
+        returnDate: range,
+        quantityReturned: { gt: 0 },
+        grainLoan: customerScoped ? { customer: customerMatch } : undefined,
+      },
+      include: { grainLoan: { include: { product: { include: { unit: true } }, customer: true, dealer: true } } },
+    }),
+  ]);
+  const grainRow = { paymentMethod: null, amount: 0, saleId: null, stockOnly: true } as const;
+  const qty = (n: unknown, unit: string, product: string) => `${Number(n)} ${unit} ${product}`;
+
+  for (const b of deposits) {
+    rows.push({
+      ...grainRow,
+      id: `dep:${b.id}`,
+      date: b.receivedAt,
+      side: "CREDIT",
+      label: "Grain kept (drop-off)",
+      counterpartyName: b.ownerCustomer!.name,
+      counterpartyHref: customerHref(b.ownerCustomer!.id),
+      detail: qty(b.quantityIn, b.product.unit.name, b.product.name),
+      deleteRef: { kind: "GRAIN_DEPOSIT", batchId: b.id },
+    });
+  }
+  for (const b of ownBatches) {
+    rows.push({
+      ...grainRow,
+      id: `own:${b.id}`,
+      date: b.receivedAt,
+      side: "CREDIT",
+      label: "Own stock added",
+      counterpartyName: "Own stock",
+      counterpartyHref: `/dashboard/grain?product=${b.productId}`,
+      detail: `${qty(b.quantityIn, b.product.unit.name, b.product.name)} @ ${Number(b.rate ?? 0)}`,
+      deleteRef: null,
+    });
+  }
+  for (const loan of grainLoans) {
+    const lent = loan.direction === "SHOP_LENT";
+    rows.push({
+      ...grainRow,
+      id: `loan:${loan.id}`,
+      date: loan.loanDate,
+      side: lent ? "DEBIT" : "CREDIT",
+      label: lent ? "Grain lent" : "Grain borrowed",
+      counterpartyName: loan.customer?.name ?? loan.dealer?.name ?? "Unknown",
+      counterpartyHref: loan.customer ? customerHref(loan.customer.id) : loan.dealer ? dealerHref(loan.dealer.id) : "#",
+      detail: `${qty(loan.quantity, loan.product.unit.name, loan.product.name)} · Ref: ${loan.reference}`,
+      deleteRef: { kind: "GRAIN_LOAN", loanId: loan.id },
+    });
+  }
+  for (const ret of grainReturns) {
+    const loan = ret.grainLoan;
+    const lent = loan.direction === "SHOP_LENT";
+    rows.push({
+      ...grainRow,
+      id: `ret:${ret.id}`,
+      date: ret.returnDate,
+      // Lent grain coming back = in; the shop giving borrowed grain back = out.
+      side: lent ? "CREDIT" : "DEBIT",
+      label: lent ? "Grain loan returned" : "Borrowed grain given back",
+      counterpartyName: loan.customer?.name ?? loan.dealer?.name ?? "Unknown",
+      counterpartyHref: loan.customer ? customerHref(loan.customer.id) : loan.dealer ? dealerHref(loan.dealer.id) : "#",
+      detail: `${qty(ret.quantityReturned, loan.product.unit.name, loan.product.name)}${ret.reference ? ` · Ref: ${ret.reference}` : ""}`,
       deleteRef: { kind: "GRAIN_LOAN_RETURN", returnId: ret.id },
     });
   }

@@ -304,24 +304,33 @@ function UdhaarPaymentPanel({
   );
 }
 
+type ModalExtras = {
+  triggerLabel?: string;
+  // e.g. "btn btn-primary" for a Pay now / Receive button on a balance card.
+  triggerClassName?: string;
+  // For a caller holding its own client-side data (refetch after a payment).
+  onRecorded?: () => void;
+};
+
 function UdhaarPaymentModal({
   side,
   customerId,
   customerName,
   bankAccounts,
   triggerLabel,
+  triggerClassName = "btn btn-ghost",
+  onRecorded,
 }: {
   side: Side;
   customerId: string;
   customerName: string;
   bankAccounts: { id: string; name: string }[];
-  triggerLabel: string;
-}) {
+} & ModalExtras & { triggerLabel: string }) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
-      <button type="button" className="btn btn-ghost" onClick={() => setOpen(true)}>
+      <button type="button" className={triggerClassName} onClick={() => setOpen(true)}>
         {triggerLabel}
       </button>
       {open && (
@@ -331,7 +340,12 @@ function UdhaarPaymentModal({
               {side === "CUSTOMER" ? "Udhaar" : "Shop owes"} — {customerName}
             </h2>
             <div style={{ marginTop: 12 }}>
-              <UdhaarPaymentPanel side={side} customerId={customerId} bankAccounts={bankAccounts} />
+              <UdhaarPaymentPanel
+                side={side}
+                customerId={customerId}
+                bankAccounts={bankAccounts}
+                onRecorded={onRecorded}
+              />
             </div>
             <div className="modal-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
@@ -364,19 +378,22 @@ export function ShopUdhaarPaymentPanel(props: {
 }
 
 // The Udhaar page's per-customer "Record repayment" buttons.
-export function CustomerUdhaarPaymentModal(props: {
-  customerId: string;
-  customerName: string;
-  bankAccounts: { id: string; name: string }[];
-}) {
-  return <UdhaarPaymentModal side="CUSTOMER" triggerLabel="Record repayment" {...props} />;
+export function CustomerUdhaarPaymentModal(
+  props: {
+    customerId: string;
+    customerName: string;
+    bankAccounts: { id: string; name: string }[];
+  } & ModalExtras
+) {
+  return <UdhaarPaymentModal side="CUSTOMER" {...props} triggerLabel={props.triggerLabel ?? "Record repayment"} />;
 }
 
-export function ShopUdhaarPaymentModal(props: {
-  customerId: string;
-  customerName: string;
-  bankAccounts: { id: string; name: string }[];
-  triggerLabel?: string;
-}) {
+export function ShopUdhaarPaymentModal(
+  props: {
+    customerId: string;
+    customerName: string;
+    bankAccounts: { id: string; name: string }[];
+  } & ModalExtras
+) {
   return <UdhaarPaymentModal side="SHOP" {...props} triggerLabel={props.triggerLabel ?? "Record repayment"} />;
 }

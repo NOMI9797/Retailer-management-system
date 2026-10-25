@@ -238,14 +238,37 @@ async function PersonCard({ person }: { person: Person }) {
         </Link>
       </div>
 
+      {/* Each balance carries the action that settles it, right there. */}
       <div className="stat-grid" style={{ margin: "0 16px 14px" }}>
         <div className="stat-card">
           <p className="stat-label">Owes the shop</p>
           <p className={`stat-value${theyOwe > 0.01 ? " tone-consigned" : ""}`}>{formatMoney(theyOwe)}</p>
+          {theyOwe > 0.01 && (
+            <Link
+              href={buildNewSaleHref({
+                tab: person.kind === "CUSTOMER" ? "udhaar-clearance" : "receive-dealer",
+                ...personParams,
+              })}
+              className="btn btn-primary stat-card-action"
+            >
+              Receive payment
+            </Link>
+          )}
         </div>
         <div className="stat-card">
           <p className="stat-label">Shop owes them</p>
           <p className={`stat-value${shopOwes > 0.01 ? " tone-consigned" : ""}`}>{formatMoney(shopOwes)}</p>
+          {shopOwes > 0.01 && (
+            <Link
+              href={buildNewSaleHref({
+                tab: person.kind === "CUSTOMER" ? "pay-shop-udhaar" : "pay-dealer",
+                ...personParams,
+              })}
+              className="btn btn-primary stat-card-action"
+            >
+              Pay now
+            </Link>
+          )}
         </div>
         {(lent || borrowed) && (
           <div className="stat-card">
@@ -254,6 +277,12 @@ async function PersonCard({ person }: { person: Person }) {
               {lent && <span style={{ display: "block" }}>Owes shop: {lent}</span>}
               {borrowed && <span style={{ display: "block" }}>Shop owes: {borrowed}</span>}
             </p>
+            <Link
+              href={buildNewSaleHref({ tab: "grain-loan-return", ...personParams })}
+              className="btn btn-primary stat-card-action"
+            >
+              Record return
+            </Link>
           </div>
         )}
       </div>
@@ -318,11 +347,19 @@ async function EntryBody({ tab, person }: { tab: string; person: Person | null }
       );
     }
     case "stock-from-customer": {
-      const [areas, grainProducts] = await Promise.all([
+      const [areas, grainProducts, bankAccounts] = await Promise.all([
         listAreas(),
         listProducts({ stockKind: "GRAIN", pageSize: 500 }),
+        listBankAccounts(),
       ]);
-      return <StockFromCustomerForm areas={areas} grainProducts={grainProducts.products} initialCustomer={customer} />;
+      return (
+        <StockFromCustomerForm
+          areas={areas}
+          grainProducts={grainProducts.products}
+          initialCustomer={customer}
+          bankAccounts={bankAccounts}
+        />
+      );
     }
     case "grain-loan-return": {
       const [loans, bankAccounts] = await Promise.all([

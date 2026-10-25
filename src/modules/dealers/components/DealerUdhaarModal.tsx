@@ -367,3 +367,47 @@ export function ReceiveDealerPaymentForm({
     </form>
   );
 }
+
+// "Receive payment" on the dealer page's "Dealer owes shop" card — the
+// same form as the Udhaar popup's clearance, opened straight away.
+export function ReceiveDealerPaymentModal({
+  dealerId,
+  dealerName,
+  amountOwed,
+  bankAccounts = [],
+  className = "btn btn-primary",
+}: {
+  dealerId: string;
+  dealerName: string;
+  amountOwed: number;
+  bankAccounts?: { id: string; name: string }[];
+  className?: string;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setOpen(true)}>
+        Receive payment
+      </button>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 600 }}>
+            <h2>Receive from {dealerName}</h2>
+            <ReceiveDealerPaymentForm
+              dealerId={dealerId}
+              amountOwed={amountOwed}
+              bankAccounts={bankAccounts}
+              onSaved={() => {
+                setOpen(false);
+                router.refresh();
+              }}
+              onCancel={() => setOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
