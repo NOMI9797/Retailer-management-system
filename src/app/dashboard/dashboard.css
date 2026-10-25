@@ -2865,3 +2865,395 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Dashboard ─────────────────────────────────────────────── */
+.shop-app .dash-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.shop-app .dash-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.shop-app .dash-kpi {
+  display: block;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.shop-app .dash-kpi:hover {
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 1px var(--primary-500);
+}
+
+.shop-app .dash-kpi.net.up {
+  background: var(--primary-50);
+}
+
+.shop-app .dash-kpi.net.down {
+  background: var(--consigned-50);
+}
+
+.shop-app .dash-kpi-label {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.shop-app .dash-kpi-value {
+  margin: 6px 0 4px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.shop-app .dash-kpi.net.up .dash-kpi-value {
+  color: var(--primary-600);
+}
+
+.shop-app .dash-kpi.net.down .dash-kpi-value {
+  color: var(--consigned-600);
+}
+
+.shop-app .dash-kpi-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.shop-app .dash-kpi-sub.good {
+  color: var(--primary-600);
+}
+
+.shop-app .dash-kpi-sub.bad {
+  color: var(--consigned-600);
+}
+
+.shop-app .dash-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 16px;
+  align-items: start;
+}
+
+.shop-app .dash-grid.two {
+  grid-template-columns: 1fr 1fr;
+}
+
+.shop-app .dash-panel {
+  padding: 16px 18px;
+}
+
+.shop-app .dash-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.shop-app .dash-panel-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.shop-app .dash-link {
+  font-size: 12.5px;
+  color: var(--primary-600);
+  text-decoration: none;
+}
+
+.shop-app .dash-week .cf-day-bars {
+  height: 120px;
+}
+
+.shop-app .dash-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 0.5px solid var(--border);
+  font-size: 13.5px;
+}
+
+.shop-app .dash-row:last-child {
+  border-bottom: none;
+}
+
+.shop-app .dash-row-amount {
+  margin-left: auto;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.shop-app .dash-row-amount.in {
+  color: var(--primary-600);
+}
+
+.shop-app .dash-row-amount.out {
+  color: var(--consigned-600);
+}
+
+.shop-app .dash-row-btn {
+  padding: 4px 12px;
+  font-size: 12.5px;
+}
+
+.shop-app .dash-sub {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+}
+
+.shop-app .dash-empty {
+  margin: 6px 0;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.shop-app .dash-grain {
+  display: block;
+  padding: 8px 0;
+  border-bottom: 0.5px solid var(--border);
+  color: inherit;
+  text-decoration: none;
+  font-size: 13.5px;
+}
+
+.shop-app .dash-grain:last-child {
+  border-bottom: none;
+}
+
+.shop-app .dash-grain-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.shop-app .dash-grain-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 5px;
+}
+
+.shop-app .dash-entry {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.shop-app .dash-entry-label {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+@media (max-width: 1100px) {
+  .shop-app .dash-kpis {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .shop-app .dash-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .shop-app .dash-kpis,
+  .shop-app .dash-grid,
+  .shop-app .dash-grid.two {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Dashboard: the shop's overall position */
+.shop-app .dash-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.shop-app .dash-summary-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  border-left: 4px solid var(--border);
+}
+
+.shop-app .dash-summary-card.has {
+  border-left-color: var(--primary-500);
+}
+
+.shop-app .dash-summary-card.owes {
+  border-left-color: var(--consigned-500);
+}
+
+.shop-app .dash-summary-card.net.up {
+  border-left-color: var(--primary-600);
+  background: var(--primary-50);
+}
+
+.shop-app .dash-summary-card.net.down {
+  border-left-color: var(--consigned-600);
+  background: var(--consigned-50);
+}
+
+.shop-app .dash-summary-value {
+  margin: 6px 0 4px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.shop-app .dash-summary-card.has .dash-summary-value,
+.shop-app .dash-summary-card.net.up .dash-summary-value {
+  color: var(--primary-600);
+}
+
+.shop-app .dash-summary-card.owes .dash-summary-value,
+.shop-app .dash-summary-card.net.down .dash-summary-value {
+  color: var(--consigned-600);
+}
+
+.shop-app .dash-group-label {
+  margin: 4px 0 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.shop-app .dash-group-label.has {
+  color: var(--primary-600);
+}
+
+.shop-app .dash-group-label.owes {
+  color: var(--consigned-600);
+}
+
+.shop-app .dash-tiles {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.shop-app .dash-tiles.owes {
+  grid-template-columns: repeat(4, 1fr);
+  margin-bottom: 22px;
+}
+
+.shop-app .dash-tile {
+  display: block;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: inherit;
+  text-decoration: none;
+  border-top: 3px solid var(--primary-500);
+  transition: box-shadow 0.12s;
+  min-width: 0;
+}
+
+.shop-app .dash-tile.owes {
+  border-top-color: var(--consigned-500);
+}
+
+.shop-app .dash-tile.grain {
+  border-top-color: var(--grain-500);
+}
+
+.shop-app .dash-tile:hover {
+  box-shadow: 0 2px 10px rgba(35, 35, 31, 0.08);
+}
+
+.shop-app .dash-tile-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.shop-app .dash-tile-value {
+  margin: 4px 0 8px;
+  font-size: 17px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shop-app .dash-tile.grain .dash-tile-value {
+  font-size: 13.5px;
+  white-space: normal;
+  display: flex;
+  flex-direction: column;
+  color: var(--grain-600);
+}
+
+.shop-app .dash-tile-bar {
+  height: 4px;
+  border-radius: 4px;
+  background: var(--neutral-50);
+  overflow: hidden;
+}
+
+.shop-app .dash-tile-bar span {
+  display: block;
+  height: 100%;
+  background: var(--primary-500);
+}
+
+.shop-app .dash-tile.owes .dash-tile-bar span {
+  background: var(--consigned-500);
+}
+
+.shop-app .dash-tile-note {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1200px) {
+  .shop-app .dash-tiles {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .shop-app .dash-tiles.owes {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .shop-app .dash-summary,
+  .shop-app .dash-tiles,
+  .shop-app .dash-tiles.owes {
+    grid-template-columns: 1fr;
+  }
+}
+
+.shop-app .dash-section-title {
+  margin: 4px 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
