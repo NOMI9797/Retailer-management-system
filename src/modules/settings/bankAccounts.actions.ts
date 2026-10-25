@@ -200,7 +200,9 @@ export type BankAccountTransactionRow = {
   amount: number;
   source: string;
   description: string;
-  deleteRef: BankAccountRowDeleteRef;
+  // Null where the app has no safe reversal (a grain purchase from a
+  // dealer — deleting its payment alone would leave the grain behind).
+  deleteRef: BankAccountRowDeleteRef | null;
 };
 
 // Every single row, across every feature in the app, where money
@@ -241,9 +243,12 @@ export async function listBankAccountTransactions(options?: {
     gte: options?.fromDate ? parseLocalDateStart(options.fromDate) : undefined,
     lte: options?.toDate ? parseLocalDateEnd(options.toDate) : undefined,
   };
+  // Only entries actually paid by Account moved bank money (the same
+  // rule postToBankAccount follows) — an older Cash entry that still
+  // carries a bank account id from its form isn't a bank movement.
   const bankAccountFilter = options?.bankAccountId
-    ? { bankAccountId: options.bankAccountId }
-    : { bankAccountId: { not: null } };
+    ? { bankAccountId: options.bankAccountId, paymentMethod: "ACCOUNT" as const }
+    : { bankAccountId: { not: null }, paymentMethod: "ACCOUNT" as const };
 
   const [
     accountTxns,
@@ -294,7 +299,10 @@ export async function listBankAccountTransactions(options?: {
       // movement).
       where: {
         ...bankAccountFilter,
-        isSettledPurchase: false,
+        // A products purchase's own payment row (linkedPurchaseId) is
+        // already the purchase row above; a grain purchase's (settled,
+        // no linked purchase) is its only bank record, so it's listed.
+        linkedPurchaseId: null,
         transactionDate: dateFilter,
         dealerAccount: { dealer: { shopId } },
       },
@@ -457,9 +465,13 @@ export async function listBankAccountTransactions(options?: {
       // money IN.
       direction: txn.isDealerSale ? "IN" : "OUT",
       amount: Number(txn.amount),
-      source: txn.isDealerSale ? "Received from dealer" : "Dealer Udhaar repayment",
+      source: txn.isDealerSale
+        ? "Received from dealer"
+        : txn.isSettledPurchase
+          ? "Grain bought from dealer"
+          : "Dealer Udhaar repayment",
       description: txn.dealerAccount.dealer.name,
-      deleteRef: { kind: "DEALER_TRANSACTION", transactionId: txn.id },
+      deleteRef: txn.isSettledPurchase ? null : { kind: "DEALER_TRANSACTION", transactionId: txn.id },
     });
   }
 

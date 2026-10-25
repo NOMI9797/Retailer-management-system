@@ -290,7 +290,7 @@ export async function createTransferPurchase(
       quantity: data.quantity,
       rate: data.rate,
       paymentMethod: data.paymentMethod,
-      bankAccountId: data.bankAccountId,
+      bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : undefined,
       notes: data.notes,
       newShopBatchId: newShopBatch.id,
     });
@@ -369,7 +369,7 @@ export async function createDepositWithSettlement(
       quantity: data.quantity,
       rate: data.rate,
       paymentMethod: data.paymentMethod,
-      bankAccountId: data.bankAccountId,
+      bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : undefined,
       notes: data.notes,
       newShopBatchId: newShopBatch.id,
     });
@@ -682,7 +682,7 @@ export async function updateGrainSettlement(
         quantity: data.quantity,
         rate: data.rate,
         paymentMethod: data.paymentMethod,
-        bankAccountId: data.bankAccountId,
+        bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : undefined,
         notes: data.notes,
         newShopBatchId: newShopBatch.id,
       });

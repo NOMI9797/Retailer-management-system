@@ -3,36 +3,30 @@ import { PageLoader } from "@/components/shared/PageLoader";
 import { CashFlowDatePicker } from "./CashFlowDatePicker";
 import { CashFlowDayView } from "./CashFlowDayView";
 import { todayDateString, type CashFlowSearchParams } from "./searchParamsHref";
+import type { CashFlowPeriod } from "@/modules/cash-flow/actions";
 
-// A single day's full cash-flow dashboard — opening/cash in/cash out/
-// expected/actual/variance, plus Account & Credit visibility and the
-// day-close form. Register history now lives on its own page
-// (/dashboard/register-history) so browsing past days doesn't compete
-// with today's live entry screen; a history row links back here with
-// ?date=... to inspect that specific day's full detail.
-export default async function CashFlowPage({
-  searchParams,
-}: {
-  searchParams: Promise<CashFlowSearchParams>;
-}) {
+// Cash flow for a day, week or month: money in, money out and the net
+// up/down at a glance, then where it moved, what it was for, and — for
+// a day — the cash drawer count. Register history lives on its own
+// page (/dashboard/register-history); a row there links back here.
+export default async function CashFlowPage({ searchParams }: { searchParams: Promise<CashFlowSearchParams> }) {
   const params = await searchParams;
   const date = params.date || todayDateString();
+  const period: CashFlowPeriod = params.period === "week" || params.period === "month" ? params.period : "day";
 
   return (
     <div>
       <div className="page-head">
         <div>
           <h1>Cash flow</h1>
-          <p>The daily cash register — what&apos;s expected in hand, what&apos;s actually there, and the difference.</p>
+          <p>Money in, money out, and whether the shop is up or down.</p>
         </div>
       </div>
 
-      <div className="filter-bar">
-        <CashFlowDatePicker activeDate={date} />
-      </div>
+      <CashFlowDatePicker activeDate={date} period={period} />
 
-      <Suspense key={date} fallback={<PageLoader label="Loading register…" />}>
-        <CashFlowDayView date={date} />
+      <Suspense key={`${date}:${period}`} fallback={<PageLoader label="Loading cash flow…" />}>
+        <CashFlowDayView date={date} period={period} />
       </Suspense>
     </div>
   );

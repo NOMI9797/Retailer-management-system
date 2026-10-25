@@ -51,7 +51,7 @@ export async function createExpense(input: ExpenseInput) {
         amount: data.amount,
         expenseDate: resolveExpenseDateTime(data.expenseDate),
         paymentMethod: data.paymentMethod,
-        bankAccountId: data.bankAccountId,
+        bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
         expenseType: "DAILY",
       },
     });
@@ -88,7 +88,7 @@ export async function updateExpense(
         amount: data.amount,
         expenseDate: resolveExpenseDateTime(data.expenseDate),
         paymentMethod: data.paymentMethod,
-        bankAccountId: data.bankAccountId ?? null,
+        bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
       },
     });
     if (data.paymentMethod === "ACCOUNT" && data.bankAccountId) {
@@ -244,7 +244,7 @@ export async function payExpenseDebt(input: PayExpenseDebtInput): Promise<Action
         expenseId: expense.id,
         amount: data.amount,
         paymentMethod: data.paymentMethod,
-        bankAccountId: data.bankAccountId,
+        bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
         notes: data.notes,
       },
     });
@@ -357,7 +357,7 @@ export async function createMonthlyExpense(
         amount: data.amount,
         expenseDate: resolveExpenseDateTime(data.expenseDate),
         paymentMethod: data.paymentMethod,
-        bankAccountId: data.bankAccountId,
+        bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
         expenseType: "MONTHLY",
         monthlyExpenseTypeId: type.id,
       },
@@ -393,7 +393,7 @@ export async function updateMonthlyExpense(
         amount: data.amount,
         expenseDate: resolveExpenseDateTime(data.expenseDate),
         paymentMethod: data.paymentMethod,
-        bankAccountId: data.bankAccountId ?? null,
+        bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
         monthlyExpenseTypeId: type.id,
       },
     });

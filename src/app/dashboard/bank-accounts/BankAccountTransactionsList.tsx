@@ -36,6 +36,7 @@ export function BankAccountTransactionsList({
   async function handleDelete(row: Result["rows"][number]) {
     setIsDeleting(true);
     try {
+      if (!row.deleteRef) return;
       const result = await deleteBankAccountRow(row.deleteRef);
       if (!result.success) {
         showToast(result.error, "error");
@@ -101,7 +102,7 @@ export function BankAccountTransactionsList({
                         {formatMoney(row.amount)}
                       </td>
                       <td style={{ textAlign: "right" }}>
-                        {confirmingId === row.id ? (
+                        {!row.deleteRef ? null : confirmingId === row.id ? (
                           <div className="row-actions" style={{ justifyContent: "flex-end" }}>
                             <button className="btn btn-primary" onClick={() => handleDelete(row)} disabled={isDeleting}>
                               {isDeleting ? "Deleting…" : "Yes, delete"}
