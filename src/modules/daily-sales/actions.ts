@@ -24,6 +24,29 @@ type Result<T> = { success: true; data: T } | { success: false; error: string };
 
 const PAYMENT_SPLIT_EPSILON = 0.01; // guards against float rounding, not real mismatches
 
+// A sale write refused partway (payments not adding up, a bad discount,
+// a missing product…) must change NOTHING. Returning { success: false }
+// from inside db.$transaction would still commit whatever ran before it
+// — stock taken, lines written, an edit's reversal — so a refusal is
+// thrown to roll the transaction back, then handed back as the result.
+class SaleRollback {
+  constructor(readonly result: unknown) {}
+}
+async function saleTransaction<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  try {
+    return await db.$transaction(async (tx) => {
+      const result = await fn(tx);
+      if (result && typeof result === "object" && (result as { success?: unknown }).success === false) {
+        throw new SaleRollback(result);
+      }
+      return result;
+    });
+  } catch (err) {
+    if (err instanceof SaleRollback) return err.result as T;
+    throw err;
+  }
+}
+
 // The core "make this sale real" logic for the ITEMS side — decrement
 // stock/batches, post Stock Udhaar when a sale draws on a customer's
 // deposited (not-yet-purchased) batch. Completely independent of how
@@ -37,12 +60,31 @@ async function applySaleItems(
   shopId: string,
   saleId: string,
   items: DailySaleItemInput[],
-  visitAt: Date
+  visitAt: Date,
+  discount = 0
 ): Promise<Result<{ itemTotal: number; grainItems: { id: string; creditAmount: Prisma.Decimal | null }[] }>> {
   let itemTotal = 0;
   const grainItems: { id: string; creditAmount: Prisma.Decimal | null }[] = [];
 
-  for (const item of items) {
+  // The bill's discount, spread over its lines by amount (rounded to
+  // paisa, the last line taking what rounding leaves) — so each line's
+  // own figure (line amount − its share) is what it really brought in.
+  const grossOf = (i: DailySaleItemInput) => i.quantity * i.actualPrice;
+  const grossTotal = items.reduce((sum, i) => sum + grossOf(i), 0);
+  if (discount > grossTotal + PAYMENT_SPLIT_EPSILON) {
+    return { success: false, error: `The discount (${discount}) can't be more than the bill (${grossTotal}).` };
+  }
+  let discountLeft = Math.round(discount * 100) / 100;
+  const discountShares = items.map((item, index) => {
+    if (index === items.length - 1) return discountLeft;
+    const share = grossTotal > 0 ? Math.round(((discount * grossOf(item)) / grossTotal) * 100) / 100 : 0;
+    discountLeft = Math.round((discountLeft - share) * 100) / 100;
+    return share;
+  });
+
+  for (const [index, item] of items.entries()) {
+    const lineDiscount = discountShares[index];
+    const lineNet = grossOf(item) - lineDiscount;
     const product = await tx.product.findFirst({ where: { id: item.productId, shopId } });
     if (!product) return { success: false, error: "Product not found" };
 
@@ -65,6 +107,7 @@ async function applySaleItems(
         quantity: item.quantity,
         stockDeducted,
         actualPrice: item.actualPrice,
+        discount: lineDiscount,
         // Snapshot cost at sale time — only meaningful for SIMPLE
         // stock (grain COGS is derived later from batch rate ×
         // quantity via DailySaleItemBatch, since each batch already
@@ -142,10 +185,10 @@ async function applySaleItems(
       // REVENUE (not cost — deliberate, see postToPooledGrainStock's
       // comment), regardless of how many batches the FIFO loop above
       // actually drew from.
-      await postToPooledGrainStock(tx, product.id, -item.quantity, -(item.actualPrice * item.quantity));
+      await postToPooledGrainStock(tx, product.id, -item.quantity, -lineNet);
     }
 
-    itemTotal += item.actualPrice * item.quantity;
+    itemTotal += lineNet;
   }
 
   return { success: true, data: { itemTotal, grainItems } };
@@ -392,7 +435,7 @@ async function reverseSaleContents(
         tx,
         product.id,
         Number(item.quantity),
-        Number(item.actualPrice) * Number(item.quantity)
+        Number(item.actualPrice) * Number(item.quantity) - Number(item.discount)
       );
     }
   }
@@ -579,7 +622,7 @@ async function reverseVisitContents(
         tx,
         product.id,
         Number(item.quantity),
-        Number(item.actualPrice) * Number(item.quantity)
+        Number(item.actualPrice) * Number(item.quantity) - Number(item.discount)
       );
     }
   }
@@ -718,7 +761,7 @@ export async function createDailySale(input: CreateDailySaleInput) {
   // shape every buyer-scoped helper below expects.
   const buyer = data.customerId ? { customerId: data.customerId } : { dealerId: data.dealerId! };
 
-  return db.$transaction(async (tx) => {
+  return saleTransaction(async (tx) => {
     if ("customerId" in buyer) {
       const customer = await tx.customer.findFirst({ where: { id: buyer.customerId, shopId } });
       if (!customer) return { success: false, error: "Customer not found" };
@@ -744,7 +787,7 @@ export async function createDailySale(input: CreateDailySaleInput) {
     // the same target date/time as the sale itself, so a backdated
     // entry's visit groups under the picked date, not under today.
     const visitAt = targetDateTime;
-    const itemsResult = await applySaleItems(tx, shopId, sale.id, data.items, visitAt);
+    const itemsResult = await applySaleItems(tx, shopId, sale.id, data.items, visitAt, data.discount ?? 0);
     if (!itemsResult.success) return itemsResult;
     const { itemTotal, grainItems } = itemsResult.data;
 
@@ -809,7 +852,7 @@ export async function updateDailySale(input: UpdateDailySaleInput) {
   const data = updateDailySaleSchema.parse(input);
 
   try {
-    return await db.$transaction(async (tx) => {
+    return await saleTransaction(async (tx) => {
       const existingSale = await tx.dailySale.findFirstOrThrow({ where: { id: data.saleId, shopId } });
       const reverseResult = await reverseSaleContents(tx, shopId, data.saleId);
       if (!reverseResult.success) return reverseResult;
@@ -822,7 +865,7 @@ export async function updateDailySale(input: UpdateDailySaleInput) {
       const buyer = existingSale.customerId
         ? { customerId: existingSale.customerId }
         : { dealerId: existingSale.dealerId! };
-      const itemsResult = await applySaleItems(tx, shopId, data.saleId, data.items, visitAt);
+      const itemsResult = await applySaleItems(tx, shopId, data.saleId, data.items, visitAt, data.discount ?? 0);
       if (!itemsResult.success) return itemsResult;
       const { itemTotal, grainItems } = itemsResult.data;
 
@@ -880,7 +923,7 @@ export async function deleteDailySale(saleId: string) {
   const shopId = await getCurrentShopId();
 
   try {
-    return await db.$transaction(async (tx) => {
+    return await saleTransaction(async (tx) => {
       const reverseResult = await reverseSaleContents(tx, shopId, saleId);
       if (!reverseResult.success) return reverseResult;
       await tx.dailySale.delete({ where: { id: saleId } });
@@ -916,7 +959,7 @@ export async function updateReceipt(
   const data = updateReceiptSchema.parse(input);
 
   try {
-    return await db.$transaction(async (tx) => {
+    return await saleTransaction(async (tx) => {
       const existingReceipt = await tx.receipt.findFirst({
         where: { dailySaleId: data.dailySaleId, visitAt: data.visitAt, shopId },
       });
@@ -930,7 +973,7 @@ export async function updateReceipt(
       const buyer = existingSale.customerId
         ? { customerId: existingSale.customerId }
         : { dealerId: existingSale.dealerId! };
-      const itemsResult = await applySaleItems(tx, shopId, data.dailySaleId, data.items, visitAt);
+      const itemsResult = await applySaleItems(tx, shopId, data.dailySaleId, data.items, visitAt, data.discount ?? 0);
       if (!itemsResult.success) return itemsResult;
       const { itemTotal, grainItems } = itemsResult.data;
 
@@ -997,7 +1040,7 @@ export async function deleteReceipt(
   const shopId = await getCurrentShopId();
 
   try {
-    return await db.$transaction(async (tx) => {
+    return await saleTransaction(async (tx) => {
       const reverseResult = await reverseVisitContents(tx, shopId, dailySaleId, visitAt, true);
       if (!reverseResult.success) return reverseResult;
       return { success: true, data: undefined };
@@ -1140,6 +1183,7 @@ export async function getCustomerPurchaseHistory(customerId: string) {
         quantity: Number(item.quantity),
         actualPrice: Number(item.actualPrice),
       }));
+      const discount = visitItems.reduce((sum, i) => sum + Number(i.discount), 0);
       return {
         visitAt: new Date(time),
         items,
@@ -1147,7 +1191,9 @@ export async function getCustomerPurchaseHistory(customerId: string) {
           paymentMethod: p.paymentMethod,
           amount: Number(p.amount),
         })),
-        total: items.reduce((sum, i) => sum + i.quantity * i.actualPrice, 0),
+        discount,
+        // What the bill came to after its discount.
+        total: items.reduce((sum, i) => sum + i.quantity * i.actualPrice, 0) - discount,
       };
     });
 
@@ -1390,6 +1436,7 @@ export async function getDailySaleForEdit(saleId: string) {
       credit: paymentsByMethod.CREDIT ?? 0,
       bankAccountId: accountPayment?.bankAccountId ?? undefined,
     },
+    discount: sale.items.reduce((sum, item) => sum + Number(item.discount), 0),
   };
 }
 
@@ -1542,6 +1589,9 @@ export async function getReceiptDetail(dailySaleId: string, visitAt: Date) {
       bankAccountId: p.bankAccountId,
       bankAccountName: p.bankAccount?.name ?? null,
     })),
-    total: items.reduce((sum, i) => sum + Number(i.quantity) * Number(i.actualPrice), 0),
+    // Items before the discount, the discount, and what the bill came to.
+    subtotal: items.reduce((sum, i) => sum + Number(i.quantity) * Number(i.actualPrice), 0),
+    discount: items.reduce((sum, i) => sum + Number(i.discount), 0),
+    total: items.reduce((sum, i) => sum + Number(i.quantity) * Number(i.actualPrice) - Number(i.discount), 0),
   };
 }

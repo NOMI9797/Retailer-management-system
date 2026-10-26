@@ -290,7 +290,9 @@ export async function deleteCustomer(id: string): Promise<ActionResult<null>> {
   if (owes > 0.01) return fail(`${customer.name} still owes the shop Rs ${owes.toLocaleString()} — clear it before deleting.`);
   const owed = shopOwes.get(id)?.balance ?? 0;
   if (owed > 0.01) return fail(`The shop still owes ${customer.name} Rs ${owed.toLocaleString()} — clear it before deleting.`);
-  const held = deposits.find((b) => Number(b.quantityIn) - Number(b.quantityTransferred) > 0.0001);
+  const held = deposits.find(
+    (b) => Number(b.quantityIn) - Number(b.quantityTransferred) - Number(b.quantityReturned) > 0.0001
+  );
   if (held) {
     return fail(`${customer.name} still has ${held.product.name} deposited with the shop — settle or return it before deleting.`);
   }

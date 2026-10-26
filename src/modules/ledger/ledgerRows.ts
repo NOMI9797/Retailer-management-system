@@ -164,9 +164,14 @@ export async function collectLedgerRows(
         label: "Sale",
         counterpartyName: buyer.name,
         counterpartyHref: buyer.href,
-        detail: `${items.length} item${items.length === 1 ? "" : "s"}`,
+        detail: (() => {
+          const discount = items.reduce((sum, i) => sum + Number(i.discount), 0);
+          const count = `${items.length} item${items.length === 1 ? "" : "s"}`;
+          return discount > 0.005 ? `${count} · Discount ${Math.round(discount).toLocaleString("en-US")}` : count;
+        })(),
         paymentMethod: methods.length === 0 ? null : methods.length > 1 ? "MIXED" : methods[0],
-        amount: items.reduce((sum, i) => sum + Number(i.actualPrice) * Number(i.quantity), 0),
+        // After the bill's discount (each line carries its share).
+        amount: items.reduce((sum, i) => sum + Number(i.actualPrice) * Number(i.quantity) - Number(i.discount), 0),
         splits: payments.map((p) => ({ method: p.paymentMethod, amount: Number(p.amount) })),
         saleId: sale.id,
         visitAt: new Date(time),

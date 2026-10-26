@@ -6,6 +6,7 @@ import { CustomerPicker, type CustomerSelection } from "./CustomerPicker";
 import { DealerPicker } from "@/modules/dealers/components/DealerPicker";
 import { LineItemsEditor, type LineItemDraft } from "./LineItemsEditor";
 import { GrainItemsEditor, type GrainItemDraft } from "./GrainItemsEditor";
+import { BillSummary } from "./BillSummary";
 import { PaymentSplitEditor, type PaymentSplitDraft } from "./PaymentSplitEditor";
 import { createCustomer } from "@/modules/customers/actions";
 import { createDailySale } from "../actions";
@@ -69,6 +70,8 @@ export function NewSaleForm({
   const [grainItems, setGrainItems] = useState<GrainItemDraft[]>([{ productId: "", quantity: "", actualPrice: "" }]);
   const items = saleKind === "PRODUCT" ? productItems : grainItems;
   const [payments, setPayments] = useState<PaymentSplitDraft>({ cash: "", account: "", credit: "" });
+  // Optional discount off the whole bill (Rs), typed into BillSummary.
+  const [discount, setDiscount] = useState("");
 
   const simpleProducts = useMemo(() => products.filter((p) => p.stockKind === "SIMPLE"), [products]);
   const grainProducts = useMemo(() => products.filter((p) => p.stockKind === "GRAIN"), [products]);
@@ -101,6 +104,9 @@ export function NewSaleForm({
     () => items.reduce((sum, i) => sum + (Number(i.quantity) || 0) * (Number(i.actualPrice) || 0), 0),
     [items]
   );
+  const discountAmount = Number(discount) || 0;
+  // What the customer pays — the payment split must add up to this.
+  const billToPay = Math.round((itemTotal - discountAmount) * 100) / 100;
 
   // Once a "new" customer pick has actually been created, this holds
   // their real id so a second submitSale() call never creates them
@@ -153,6 +159,7 @@ export function NewSaleForm({
               creditDueDate: i.creditDueDate,
             })),
       payments: { cash, account, credit, bankAccountId: payments.bankAccountId },
+      discount: discountAmount > 0 ? discountAmount : undefined,
     });
   }
 
@@ -176,8 +183,16 @@ export function NewSaleForm({
     const cash = Number(payments.cash) || 0;
     const account = Number(payments.account) || 0;
     const credit = Number(payments.credit) || 0;
-    if (Math.abs(cash + account + credit - itemTotal) > 0.01) {
-      setError("Cash + Account + Credit must add up to the bill total");
+    if (discountAmount < 0 || discountAmount > itemTotal + 0.005) {
+      setError("The discount can't be more than the bill total");
+      return;
+    }
+    if (Math.abs(cash + account + credit - billToPay) > 0.01) {
+      setError(
+        discountAmount > 0
+          ? "Cash + Account + Credit must add up to the bill total after the discount"
+          : "Cash + Account + Credit must add up to the bill total"
+      );
       return;
     }
 
@@ -204,7 +219,7 @@ export function NewSaleForm({
       setIsSaving(false);
       return;
     }
-    showToast(`Sale recorded — ${formatMoney(itemTotal)}`);
+    showToast(`Sale recorded — ${formatMoney(billToPay)}`);
 
     if (onSaved) {
       onSaved();
@@ -280,7 +295,9 @@ export function NewSaleForm({
         />
       )}
 
-      <PaymentSplitEditor total={itemTotal} payments={payments} bankAccounts={bankAccounts} onChange={setPayments} />
+      <BillSummary itemTotal={itemTotal} discount={discount} onDiscountChange={setDiscount} />
+
+      <PaymentSplitEditor total={billToPay} payments={payments} bankAccounts={bankAccounts} onChange={setPayments} />
 
       <div className="modal-actions">
         {!onSaved && (

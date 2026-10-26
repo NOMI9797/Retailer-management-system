@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { getCustomerGrainDeposits } from "../actions";
 import type { getCustomerGrainCreditPurchases } from "@/modules/daily-sales/actions";
 import { BuyFromCustomerModal } from "./BuyFromCustomerModal";
+import { GiveBackGrainModal } from "./GiveBackGrainModal";
 import { EditGrainSettlementModal } from "./EditGrainSettlementModal";
 import { DeleteGrainSettlementButton } from "./DeleteGrainSettlementButton";
 import { EditGrainDepositModal } from "./EditGrainDepositModal";
@@ -31,6 +32,23 @@ type Product = Awaited<ReturnType<typeof listProducts>>["products"][number];
 // — "Deposits" now covers every grain event involving this customer,
 // whichever direction the money/stock moved.
 type Row =
+  | {
+      // Unsettled grain given back to the customer as it is (no money).
+      kind: "returned";
+      key: string;
+      id: string;
+      batchId: string;
+      // The deposit's unsettled grain now — with this give-back's own
+      // quantity, the most an edit can raise it to.
+      batchUnsettled: number;
+      notes: string | null;
+      date: Date;
+      productId: string;
+      productName: string;
+      unitName: string;
+      quantity: number;
+      reference: string;
+    }
   | {
       kind: "settlement";
       key: string;
@@ -167,7 +185,7 @@ export function CustomerGrainSection({
   // this needs every one of them summed, not just the latest.
   const quantityByProduct = new Map<
     string,
-    { productName: string; unitName: string; deposited: number; settled: number; unsettled: number }
+    { productName: string; unitName: string; deposited: number; settled: number; unsettled: number; returned: number }
   >();
   for (const batch of deposits.batches) {
     const existing = quantityByProduct.get(batch.product.id) ?? {
@@ -176,11 +194,13 @@ export function CustomerGrainSection({
       deposited: 0,
       settled: 0,
       unsettled: 0,
+      returned: 0,
     };
     const settledQty = batch.settlements.reduce((sum, s) => sum + s.quantity, 0);
-    existing.deposited += settledQty + batch.unsettledQuantity;
+    existing.deposited += settledQty + batch.unsettledQuantity + batch.returnedQuantity;
     existing.settled += settledQty;
     existing.unsettled += batch.unsettledQuantity;
+    existing.returned += batch.returnedQuantity;
     quantityByProduct.set(batch.product.id, existing);
   }
 
@@ -211,6 +231,22 @@ export function CustomerGrainSection({
         paymentMethod: s.paymentMethod,
       });
     }
+    for (const r of batch.returns) {
+      rows.push({
+        kind: "returned",
+        key: r.id,
+        id: r.id,
+        batchId: batch.id,
+        batchUnsettled: batch.unsettledQuantity,
+        notes: r.notes,
+        date: r.returnDate,
+        productId: batch.product.id,
+        productName: batch.product.name,
+        unitName: batch.product.unitName,
+        quantity: r.quantity,
+        reference: r.reference,
+      });
+    }
     if (batch.unsettledQuantity > 0) {
       rows.push({
         kind: "unsettled",
@@ -221,7 +257,8 @@ export function CustomerGrainSection({
         productName: batch.product.name,
         unitName: batch.product.unitName,
         quantity: batch.unsettledQuantity,
-        hasBeenSold: batch.quantitySold > 0,
+        // Sold from or partly given back — edit/delete the deposit is then locked.
+        hasBeenSold: batch.quantitySold > 0 || batch.returnedQuantity > 0,
       });
     }
   }
@@ -304,6 +341,14 @@ export function CustomerGrainSection({
                     {q.settled} {q.unitName}
                   </p>
                 </div>
+                {q.returned > 0 && (
+                  <div className="stat-card">
+                    <p className="stat-label">Given back (no rate)</p>
+                    <p className="stat-value tone-grain">
+                      {q.returned} {q.unitName}
+                    </p>
+                  </div>
+                )}
                 {q.unsettled > 0 && (
                   <div className="stat-card">
                     <p className="stat-label">Rate not settled</p>
@@ -411,6 +456,42 @@ export function CustomerGrainSection({
                             )}
                           </td>
                         </>
+                      ) : row.kind === "returned" ? (
+                        <>
+                          <td className="num" style={{ textAlign: "right" }}>
+                            —
+                          </td>
+                          <td className="num" style={{ textAlign: "right" }}>
+                            —
+                          </td>
+                          <td>
+                            <span className="pay-badge pay-mixed" style={{ color: "var(--grain-600)" }}>
+                              Given back — no rate
+                            </span>
+                            <span style={{ marginLeft: 8, fontSize: 12.5, color: "var(--ink-muted)" }}>
+                              Ref: {row.reference}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="row-actions">
+                              <GiveBackGrainModal
+                                grainBatchId={row.batchId}
+                                customerName={customerName}
+                                productName={row.productName}
+                                unsettledQuantity={row.batchUnsettled}
+                                unitName={row.unitName}
+                                existing={{
+                                  id: row.id,
+                                  quantity: row.quantity,
+                                  returnDate: row.date,
+                                  reference: row.reference,
+                                  notes: row.notes,
+                                }}
+                                onDone={onSettle}
+                              />
+                            </div>
+                          </td>
+                        </>
                       ) : row.kind === "unsettled" ? (
                         <>
                           <td className="num" style={{ textAlign: "right" }}>
@@ -420,8 +501,20 @@ export function CustomerGrainSection({
                             —
                           </td>
                           <td>
-                            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                              <span className="pay-badge pay-mixed">Rate not settled</span>
+                            <span className="pay-badge pay-mixed">Rate not settled</span>
+                          </td>
+                          <td>
+                            {/* Actions sit at the row's right end: Buy from
+                                customer, Give back, then edit/delete. */}
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "flex-end",
+                                gap: 8,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
                               {onSettle && (
                                 <BuyFromCustomerModal
                                   grainBatchId={row.batchId}
@@ -431,19 +524,26 @@ export function CustomerGrainSection({
                                   onDone={onSettle}
                                 />
                               )}
+                              {/* Everywhere this list shows, incl. the customer page. */}
+                              <GiveBackGrainModal
+                                grainBatchId={row.batchId}
+                                customerName={customerName}
+                                productName={row.productName}
+                                unsettledQuantity={row.quantity}
+                                unitName={row.unitName}
+                                onDone={onSettle}
+                              />
+                              {!row.hasBeenSold && (
+                                <div className="row-actions">
+                                  <button className="icon-btn" onClick={() => setEditingDeposit(row)} title="Edit">
+                                    <svg className="icon" viewBox="0 0 24 24">
+                                      <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />
+                                    </svg>
+                                  </button>
+                                  <DeleteGrainDepositButton batchId={row.batchId} />
+                                </div>
+                              )}
                             </div>
-                          </td>
-                          <td>
-                            {!row.hasBeenSold && (
-                              <div className="row-actions">
-                                <button className="icon-btn" onClick={() => setEditingDeposit(row)} title="Edit">
-                                  <svg className="icon" viewBox="0 0 24 24">
-                                    <path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" />
-                                  </svg>
-                                </button>
-                                <DeleteGrainDepositButton batchId={row.batchId} />
-                              </div>
-                            )}
                           </td>
                         </>
                       ) : (

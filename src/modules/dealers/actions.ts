@@ -246,7 +246,11 @@ export async function getDealer(id: string) {
       const visitTimes = [...new Set(sale.items.map((i) => i.visitAt.getTime()))];
       return visitTimes.map((time) => {
         const items = sale.items.filter((i) => i.visitAt.getTime() === time);
-        const amount = items.reduce((sum, i) => sum + Number(i.quantity) * Number(i.actualPrice), 0);
+        // After the bill's discount (each line carries its share).
+        const amount = items.reduce(
+          (sum, i) => sum + Number(i.quantity) * Number(i.actualPrice) - Number(i.discount),
+          0
+        );
         return {
           id: `${sale.id}:${time}`,
           date: new Date(time),
@@ -866,7 +870,8 @@ export async function listDealerSales(stockKind: "SIMPLE" | "GRAIN"): Promise<De
   return items.map((item) => {
     const quantity = Number(item.quantity);
     const rate = Number(item.actualPrice);
-    const amount = quantity * rate;
+    // After the line's share of any bill discount.
+    const amount = quantity * rate - Number(item.discount);
     const creditAmount = item.creditAmount !== null ? Number(item.creditAmount) : 0;
     const methods = [
       ...new Set(

@@ -42,7 +42,13 @@ export async function drawGrainFifo(
     // createTransferPurchase) and must not be taken again from here —
     // that stock is now that other batch's row to deplete. Always 0
     // for shop-owned batches, so this is a no-op there.
-    const available = Number(batch.quantityIn) - Number(batch.quantitySold) - Number(batch.quantityTransferred);
+    // Grain given back to a depositor unsettled (quantityReturned) has
+    // left the shop too.
+    const available =
+      Number(batch.quantityIn) -
+      Number(batch.quantitySold) -
+      Number(batch.quantityTransferred) -
+      Number(batch.quantityReturned);
     if (available <= 0) continue;
 
     const take = Math.min(available, remaining);
@@ -172,4 +178,101 @@ export async function coverStockUdhaarFromBatch(tx: Prisma.TransactionClient, pr
   // Clean up allocation rows emptied by the moves.
   await tx.dailySaleItemBatch.deleteMany({ where: { grainBatchId: { in: [...deposits.keys()] }, quantity: { lte: 0 } } });
   await tx.grainLoanDraw.deleteMany({ where: { grainBatchId: { in: [...deposits.keys()] }, quantity: { lte: 0 } } });
+}
+
+// Before a depositor takes back grain the shop had already sold from
+// their deposit (Stock Udhaar), the shop puts that much back from its
+// OWN stock: the sales / loan draws that took it are moved off the
+// deposit onto the shop's own batches (oldest first), the deposit's
+// quantitySold drops back, and a compensating Stock Udhaar entry with
+// the same sale / loan link cancels the shortfall — the same moves as
+// coverStockUdhaarFromBatch, from existing own stock instead of a new
+// purchase. The caller checks there's enough own stock first; returns
+// how much was covered.
+export async function coverDepositFromOwnStock(
+  tx: Prisma.TransactionClient,
+  params: { productId: string; depositId: string; quantity: number }
+): Promise<number> {
+  const deposit = await tx.grainBatch.findUniqueOrThrow({ where: { id: params.depositId } });
+  const owedEntries = await tx.stockUdhaarEntry.findMany({ where: { grainBatchId: deposit.id } });
+  let owed = owedEntries.reduce((s, e) => s + Number(e.quantity), 0);
+
+  const ownBatches = (
+    await tx.grainBatch.findMany({
+      where: { productId: params.productId, ownerCustomerId: null },
+      orderBy: { receivedAt: "asc" },
+    })
+  ).map((b) => ({ id: b.id, free: Number(b.quantityIn) - Number(b.quantitySold) }));
+
+  const saleAllocs = await tx.dailySaleItemBatch.findMany({
+    where: { grainBatchId: deposit.id },
+    include: { dailySaleItem: true },
+  });
+  const loanDraws = await tx.grainLoanDraw.findMany({
+    where: { grainBatchId: deposit.id },
+    include: { grainLoan: true, grainLoanReturn: true },
+  });
+  const takes = [
+    ...saleAllocs.map((a) => ({ kind: "SALE" as const, row: a, left: Number(a.quantity), at: a.dailySaleItem.visitAt })),
+    ...loanDraws.map((d) => ({
+      kind: "LOAN" as const,
+      row: d,
+      left: Number(d.quantity),
+      at: d.grainLoan?.loanDate ?? d.grainLoanReturn?.returnDate ?? new Date(0),
+    })),
+  ].sort((a, b) => a.at.getTime() - b.at.getTime());
+
+  let needed = params.quantity;
+  for (const take of takes) {
+    for (const own of ownBatches) {
+      if (needed <= 0.0001 || owed <= 0.0001 || take.left <= 0.0001) break;
+      if (own.free <= 0.0001) continue;
+      const q = Math.round(Math.min(take.left, own.free, needed, owed) * 1000) / 1000;
+      if (q <= 0) continue;
+
+      if (take.kind === "SALE") {
+        await tx.dailySaleItemBatch.update({ where: { id: take.row.id }, data: { quantity: { decrement: q } } });
+        await tx.dailySaleItemBatch.create({
+          data: { dailySaleItemId: take.row.dailySaleItemId, grainBatchId: own.id, quantity: q },
+        });
+      } else {
+        await tx.grainLoanDraw.update({ where: { id: take.row.id }, data: { quantity: { decrement: q } } });
+        await tx.grainLoanDraw.create({
+          data: {
+            grainBatchId: own.id,
+            quantity: q,
+            grainLoanId: take.row.grainLoanId,
+            grainLoanReturnId: take.row.grainLoanReturnId,
+          },
+        });
+      }
+      await tx.grainBatch.update({ where: { id: deposit.id }, data: { quantitySold: { decrement: q } } });
+      await tx.grainBatch.update({ where: { id: own.id }, data: { quantitySold: { increment: q } } });
+
+      const link =
+        take.kind === "SALE"
+          ? { linkedSaleId: take.row.dailySaleItem.dailySaleId, visitAt: take.row.dailySaleItem.visitAt }
+          : take.row.grainLoanId
+            ? { linkedGrainLoanId: take.row.grainLoanId }
+            : { linkedGrainLoanReturnId: take.row.grainLoanReturnId };
+      await tx.stockUdhaarEntry.create({
+        data: {
+          customerId: deposit.ownerCustomerId!,
+          productId: params.productId,
+          grainBatchId: deposit.id,
+          quantity: -q,
+          notes: "Given back from shop's own stock",
+          ...link,
+        },
+      });
+
+      take.left -= q;
+      own.free -= q;
+      owed -= q;
+      needed -= q;
+    }
+  }
+  await tx.dailySaleItemBatch.deleteMany({ where: { grainBatchId: deposit.id, quantity: { lte: 0 } } });
+  await tx.grainLoanDraw.deleteMany({ where: { grainBatchId: deposit.id, quantity: { lte: 0 } } });
+  return Math.round((params.quantity - needed) * 1000) / 1000;
 }

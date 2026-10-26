@@ -75,6 +75,7 @@ export function GrainBatchList({
         ledger={ledger}
         customerBatches={customerBatches}
         unitName={unit}
+        productName={product.name}
         loans={loans}
         loanOptions={loanOptions}
       />

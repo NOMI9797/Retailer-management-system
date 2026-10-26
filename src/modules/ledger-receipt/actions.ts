@@ -51,6 +51,9 @@ export type LedgerReceiptEntry = {
     quantity: number;
     unitName: string;
     price: number;
+    // This line's share of the bill's discount (absent on receipts
+    // saved before discounts existed).
+    discount?: number;
   }[];
 };
 
@@ -182,6 +185,7 @@ async function buildLedgerReceipt(
       quantity: Number(item.quantity),
       unitName: item.product.unit.name,
       price: Number(item.actualPrice),
+      discount: Number(item.discount),
     });
     itemsByVisit.set(key, list);
   }

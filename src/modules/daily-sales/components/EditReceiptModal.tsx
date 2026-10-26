@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { LineItemsEditor, type LineItemDraft } from "./LineItemsEditor";
 import { GrainItemsEditor, type GrainItemDraft } from "./GrainItemsEditor";
 import { PaymentSplitEditor, type PaymentSplitDraft } from "./PaymentSplitEditor";
+import { BillSummary } from "./BillSummary";
 import { updateReceipt } from "../actions";
 import { showToast } from "@/components/shared/toastStore";
 import type { listProducts } from "@/modules/products/actions";
@@ -69,6 +70,7 @@ export function EditReceiptModal({
       bankAccountId: accountPayment?.bankAccountId ?? undefined,
     };
   });
+  const [discount, setDiscount] = useState(receipt.discount > 0 ? String(receipt.discount) : "");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -77,6 +79,9 @@ export function EditReceiptModal({
     () => items.reduce((sum, i) => sum + (Number(i.quantity) || 0) * (Number(i.actualPrice) || 0), 0),
     [items]
   );
+  const discountAmount = Number(discount) || 0;
+  // What the customer pays — the payment split must add up to this.
+  const billToPay = Math.round((itemTotal - discountAmount) * 100) / 100;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -90,8 +95,12 @@ export function EditReceiptModal({
     const cash = Number(payments.cash) || 0;
     const account = Number(payments.account) || 0;
     const credit = Number(payments.credit) || 0;
-    if (Math.abs(cash + account + credit - itemTotal) > 0.01) {
-      setSaveError("Cash + Account + Credit must add up to the bill total");
+    if (discountAmount > itemTotal + 0.005) {
+      setSaveError("The discount can't be more than the bill total");
+      return;
+    }
+    if (Math.abs(cash + account + credit - billToPay) > 0.01) {
+      setSaveError("Cash + Account + Credit must add up to the bill total after the discount");
       return;
     }
 
@@ -124,6 +133,7 @@ export function EditReceiptModal({
             actualPrice: Number(i.actualPrice),
           })),
       payments: { cash, account, credit, bankAccountId: payments.bankAccountId },
+      discount: discountAmount,
     });
     if (!response.success) {
       setSaveError(response.error);
@@ -159,7 +169,8 @@ export function EditReceiptModal({
             <LineItemsEditor products={simpleProducts} items={productItems} onChange={setProductItems} />
           )}
 
-          <PaymentSplitEditor total={itemTotal} payments={payments} bankAccounts={bankAccounts} onChange={setPayments} />
+          <BillSummary itemTotal={itemTotal} discount={discount} onDiscountChange={setDiscount} />
+          <PaymentSplitEditor total={billToPay} payments={payments} bankAccounts={bankAccounts} onChange={setPayments} />
 
           <div className="modal-actions">
             <button type="button" className="btn btn-ghost" onClick={onClose}>

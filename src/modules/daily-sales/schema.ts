@@ -83,6 +83,9 @@ export const createDailySaleSchema = z
     season: z.string().optional(),
     items: z.array(dailySaleItemSchema).min(1, "At least one item is required"),
     payments: paymentSplitSchema,
+    // Discount off the whole bill (Rs), optional. The payments then add
+    // up to the bill total less this.
+    discount: z.number().nonnegative("Discount can't be negative").optional(),
     // "YYYY-MM-DD" — lets a shopkeeper record a sale they forgot to
     // enter on the day it actually happened (e.g. remembered the next
     // morning). Defaults to today when omitted, so every existing caller
@@ -107,6 +110,7 @@ export const updateDailySaleSchema = z.object({
   saleId: z.string().uuid(),
   items: z.array(dailySaleItemSchema).min(1, "At least one item is required"),
   payments: paymentSplitSchema,
+  discount: z.number().nonnegative("Discount can't be negative").optional(),
 });
 export type UpdateDailySaleInput = z.infer<typeof updateDailySaleSchema>;
 
@@ -122,6 +126,7 @@ export const updateReceiptSchema = z.object({
   visitAt: z.coerce.date(),
   items: z.array(dailySaleItemSchema).min(1, "At least one item is required"),
   payments: paymentSplitSchema,
+  discount: z.number().nonnegative("Discount can't be negative").optional(),
 });
 export type UpdateReceiptInput = z.infer<typeof updateReceiptSchema>;
 

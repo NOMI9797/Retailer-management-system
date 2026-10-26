@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 
 export type PaymentSplitDraft = {
@@ -61,10 +61,21 @@ export function PaymentSplitEditor({
   // changes (e.g. shopkeeper adds another line item after already
   // ticking "All cash") so the tick stays correct instead of going
   // stale at the old total.
+  // The tick is matched against the PREVIOUS total — by the time this
+  // runs the amounts still hold the old figure, so matching the new one
+  // would never find it (a discount typed after "All cash" must still
+  // move the cash amount to the new total).
+  const previousTotal = useRef(total);
   useEffect(() => {
-    if (!customMode && activeQuickMethod) {
-      onChange(singleMethodSplit(activeQuickMethod, total));
-    }
+    const before = previousTotal.current;
+    previousTotal.current = total;
+    if (customMode || before === total) return;
+    const ticked = (["cash", "account", "credit"] as const).find(
+      (m) =>
+        Math.abs((Number(payments[m]) || 0) - before) <= EPSILON &&
+        (["cash", "account", "credit"] as const).every((other) => other === m || !(Number(payments[other]) || 0))
+    );
+    if (ticked) onChange({ ...singleMethodSplit(ticked, total), bankAccountId: payments.bankAccountId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [total]);
 
@@ -150,7 +161,7 @@ export function PaymentSplitEditor({
       )}
 
       <p style={{ fontSize: 13, marginTop: 6, color: isBalanced ? "var(--ink-muted)" : "var(--consigned-600)" }}>
-        Bill total: Rs {total.toFixed(2)} · Split: Rs {splitTotal.toFixed(2)}
+        To pay: Rs {total.toFixed(2)} · Split: Rs {splitTotal.toFixed(2)}
         {!isBalanced && (remaining > 0 ? ` · Rs ${remaining.toFixed(2)} left to assign` : ` · Rs ${Math.abs(remaining).toFixed(2)} over the total`)}
       </p>
 

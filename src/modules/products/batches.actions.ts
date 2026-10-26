@@ -87,8 +87,8 @@ export async function updateGrainBatch(input: UpdateGrainBatchInput): Promise<Ac
   if (!batch) return fail("Deposit not found");
   if (!batch.ownerCustomerId) return fail("This is a shop-owned batch — edit it from the Grain stock page instead.");
   if (batch.rate !== null) return fail("This deposit has already been priced — edit the settlement instead.");
-  if (Number(batch.quantitySold) > 0 || Number(batch.quantityTransferred) > 0) {
-    return fail("Some of this deposit has already been settled or sold — it can't be edited until that's resolved.");
+  if (Number(batch.quantitySold) > 0 || Number(batch.quantityTransferred) > 0 || Number(batch.quantityReturned) > 0) {
+    return fail("Some of this deposit has already been settled, sold or given back — it can't be edited until that's resolved.");
   }
 
   const updated = await db.grainBatch.update({
@@ -111,8 +111,8 @@ export async function deleteGrainBatch(id: string): Promise<ActionResult<null>> 
   if (!batch) return fail("Deposit not found");
   if (!batch.ownerCustomerId) return fail("This is a shop-owned batch — delete it from the Grain stock page instead.");
   if (batch.rate !== null) return fail("This deposit has already been priced — delete the settlement instead.");
-  if (Number(batch.quantitySold) > 0 || Number(batch.quantityTransferred) > 0) {
-    return fail("Some of this deposit has already been settled or sold — it can't be deleted until that's resolved.");
+  if (Number(batch.quantitySold) > 0 || Number(batch.quantityTransferred) > 0 || Number(batch.quantityReturned) > 0) {
+    return fail("Some of this deposit has already been settled, sold or given back — it can't be deleted until that's resolved.");
   }
 
   // Stock Udhaar history left by sales that were since reversed (each
@@ -132,7 +132,12 @@ export async function deleteGrainBatch(id: string): Promise<ActionResult<null>> 
 }
 
 function summarizeBatches(
-  batches: { quantityIn: Prisma.Decimal; quantitySold: Prisma.Decimal; quantityTransferred: Prisma.Decimal }[]
+  batches: {
+    quantityIn: Prisma.Decimal;
+    quantitySold: Prisma.Decimal;
+    quantityTransferred: Prisma.Decimal;
+    quantityReturned: Prisma.Decimal;
+  }[]
 ) {
   const totalIn = batches.reduce((sum, b) => sum + Number(b.quantityIn), 0);
   const totalSold = batches.reduce((sum, b) => sum + Number(b.quantitySold), 0);
@@ -142,12 +147,14 @@ function summarizeBatches(
   // createTransferPurchase) — subtracted here too, or it double-counts
   // across both batch rows. Always 0 for shop-owned batches.
   const totalTransferred = batches.reduce((sum, b) => sum + Number(b.quantityTransferred), 0);
+  // Given back to the customer unsettled — left the shop.
+  const totalReturned = batches.reduce((sum, b) => sum + Number(b.quantityReturned), 0);
 
   return {
     batchCount: batches.length,
     totalIn,
     totalSold,
-    totalRemaining: totalIn - totalSold - totalTransferred,
+    totalRemaining: totalIn - totalSold - totalTransferred - totalReturned,
   };
 }
 

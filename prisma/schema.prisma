@@ -38,6 +38,7 @@ model Shop {
   receipts            Receipt[]
   grainLoans          GrainLoan[]
   ledgerReceipts      SavedLedgerReceipt[]
+  grainDepositReturns GrainDepositReturn[]
   grainLoanReturns    GrainLoanReturn[]
 }
 
@@ -155,6 +156,7 @@ model Customer {
   stockUdhaars StockUdhaarEntry[]
   grainLoans   GrainLoan[]
   ledgerReceipts SavedLedgerReceipt[]
+  grainDepositReturns GrainDepositReturn[]
 }
 
 // ── Dealer ───────────────────────────────────────────────
@@ -631,6 +633,7 @@ model Product {
   grainDebtPayments AccountTransaction[]
   dealerPurchases   DealerProductPurchase[]
   grainLoans        GrainLoan[]
+  grainDepositReturns GrainDepositReturn[]
 }
 
 // Batches let one product (e.g. "Wheat") hold both shop-owned and
@@ -668,6 +671,11 @@ model GrainBatch {
   // claim is quantityIn - quantityTransferred (never quantityIn -
   // quantitySold). Always 0 for shop-owned batches.
   quantityTransferred Decimal          @default(0) @db.Decimal(14, 3)
+  // Customer deposits only: unsettled grain given back to the customer
+  // as it is, with no rate (GrainDepositReturn). Shrinks their claim
+  // and, like quantityTransferred, what's left of this batch.
+  quantityReturned    Decimal          @default(0) @db.Decimal(14, 3)
+  depositReturns      GrainDepositReturn[]
   // Null means "not yet priced" — either a customer's store-for-later
   // deposit awaiting settlement (createGrainBatch with no rate given),
   // or grain sold via Stock Udhaar before its sale-time cost rate was
@@ -911,6 +919,30 @@ model SavedLedgerReceipt {
   @@index([shopId, createdAt])
 }
 
+// A customer taking back grain they deposited without ever settling a
+// rate — no money either way, just their unsettled grain leaving the
+// shop. fromShopStock: the part the shop had already sold (Stock
+// Udhaar) and so gave from its own stock instead.
+model GrainDepositReturn {
+  id            String     @id @default(uuid())
+  shopId        String
+  shop          Shop       @relation(fields: [shopId], references: [id])
+  grainBatchId  String
+  grainBatch    GrainBatch @relation(fields: [grainBatchId], references: [id])
+  customerId    String
+  customer      Customer   @relation(fields: [customerId], references: [id])
+  productId     String
+  product       Product    @relation(fields: [productId], references: [id])
+  quantity      Decimal    @db.Decimal(14, 3)
+  fromShopStock Decimal    @default(0) @db.Decimal(14, 3)
+  returnDate    DateTime
+  reference     String
+  notes         String?
+  createdAt     DateTime   @default(now())
+
+  @@index([shopId, returnDate])
+}
+
 model DailySaleItem {
   id              String    @id @default(uuid())
   dailySaleId     String
@@ -924,6 +956,10 @@ model DailySaleItem {
   // back exactly this. Null on rows from before it existed (= quantity).
   stockDeducted   Decimal?  @db.Decimal(14, 3)
   actualPrice     Decimal   @db.Decimal(12, 2)
+  // This line's share of the bill's discount (the visit's discount is
+  // spread over its lines by amount). What the line really brought in
+  // is actualPrice × quantity − discount; every total uses that.
+  discount        Decimal   @default(0) @db.Decimal(12, 2)
   // Snapshot of Product.costPrice at the moment this sale happened —
   // only ever set for SIMPLE stock items (null for GRAIN). Without
   // this, a later change to a product's cost price would silently

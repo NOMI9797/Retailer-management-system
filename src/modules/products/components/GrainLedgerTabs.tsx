@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { formatMoney, formatDate, matchesSearch } from "@/lib/utils";
 import { BuyFromCustomerModal } from "@/modules/stock/components/BuyFromCustomerModal";
+import { GiveBackGrainModal } from "@/modules/stock/components/GiveBackGrainModal";
 import { GrainLoanRecords } from "@/modules/grain-loans/components/GrainLoanRecords";
 import type { GrainLoanRow } from "@/modules/grain-loans/actions";
 import type { listAreas } from "@/modules/settings/areas.actions";
@@ -36,18 +37,20 @@ const PAY_CLASS = {
 // it — money in — and own stock added), Debit (the shop buying it — money out), each row
 // tagged Customer or Dealer; and Rate (not settled) — customer deposits
 // with grain the shop hasn't agreed a rate for yet, each with Buy from
-// customer. Pure display; the data comes from the Grain page's server
+// customer or Give back (returned as it is, no money). Pure display; the data comes from the Grain page's server
 // fetch — the tab is just local UI state.
 export function GrainLedgerTabs({
   ledger,
   customerBatches,
   unitName,
+  productName,
   loans,
   loanOptions,
 }: {
   ledger: Ledger;
   customerBatches: CustomerBatch[];
   unitName: string;
+  productName: string;
   loans: GrainLoanRow[];
   loanOptions: LoanOptions;
 }) {
@@ -119,6 +122,7 @@ export function GrainLedgerTabs({
                 <th>Customer</th>
                 <th style={{ textAlign: "right" }}>Deposited</th>
                 <th style={{ textAlign: "right" }}>Bought by shop</th>
+                <th style={{ textAlign: "right" }}>Given back</th>
                 <th style={{ textAlign: "right" }}>Rate not settled</th>
                 <th style={{ textAlign: "right" }}>Amount</th>
                 <th></th>
@@ -127,7 +131,7 @@ export function GrainLedgerTabs({
             <tbody>
               {unsettled.length === 0 ? (
                 <tr className="empty-row">
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     {search
                       ? `No matches for "${search}".`
                       : "Every customer deposit of this grain has a settled rate."}
@@ -160,6 +164,13 @@ export function GrainLedgerTabs({
                         <span className="dash">—</span>
                       )}
                     </td>
+                    <td className="num" style={{ textAlign: "right" }}>
+                      {batch.returnedQuantity > 0 ? (
+                        `${batch.returnedQuantity} ${unitName}`
+                      ) : (
+                        <span className="dash">—</span>
+                      )}
+                    </td>
                     <td
                       className="num"
                       style={{
@@ -181,12 +192,21 @@ export function GrainLedgerTabs({
                       )}
                     </td>
                     <td style={{ textAlign: "right" }}>
-                      <BuyFromCustomerModal
-                        grainBatchId={batch.id}
-                        customerName={batch.customerName}
-                        remainingClaim={batch.unsettledQuantity}
-                        unitName={unitName}
-                      />
+                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", whiteSpace: "nowrap" }}>
+                        <BuyFromCustomerModal
+                          grainBatchId={batch.id}
+                          customerName={batch.customerName}
+                          remainingClaim={batch.unsettledQuantity}
+                          unitName={unitName}
+                        />
+                        <GiveBackGrainModal
+                          grainBatchId={batch.id}
+                          customerName={batch.customerName}
+                          productName={productName}
+                          unsettledQuantity={batch.unsettledQuantity}
+                          unitName={unitName}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))

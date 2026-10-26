@@ -121,6 +121,14 @@ export default async function ReceiptDetailPage({
                     </td>
                   </tr>
                 ))}
+                {receipt.discount > 0.005 && (
+                  <tr>
+                    <td>Discount (bill {formatMoney(receipt.subtotal)})</td>
+                    <td className="num" style={{ textAlign: "right" }}>
+                      − {formatMoney(receipt.discount)}
+                    </td>
+                  </tr>
+                )}
                 <tr>
                   <td style={{ fontWeight: 600 }}>Total</td>
                   <td className="num" style={{ textAlign: "right", fontWeight: 600 }}>

@@ -3257,3 +3257,46 @@
   font-weight: 600;
 }
 
+
+/* Sale form: the bill — total, optional discount, and what's to pay. */
+.shop-app .bill-summary {
+  margin: 8px 0 18px;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--primary-50);
+  max-width: 460px;
+}
+.shop-app .bill-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+  font-size: 14px;
+}
+.shop-app .bill-summary-row label {
+  font-weight: 500;
+  margin: 0;
+}
+.shop-app .bill-summary-row input {
+  width: 150px;
+  text-align: right;
+}
+.shop-app .bill-summary-total {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.shop-app .bill-summary-total span {
+  font-weight: 600;
+}
+.shop-app .bill-summary-total strong {
+  font-size: 24px;
+  color: var(--primary-600);
+}
+.shop-app .bill-summary-error {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--consigned-600);
+}

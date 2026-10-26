@@ -88,3 +88,22 @@ export const updateGrainSettlementSchema = z
     path: ["bankAccountId"],
   });
 export type UpdateGrainSettlementInput = z.infer<typeof updateGrainSettlementSchema>;
+
+// Giving a customer back grain they deposited but never settled a
+// rate for — as it is, no money either way. Up to their unsettled
+// quantity on that deposit.
+export const depositReturnSchema = z.object({
+  grainBatchId: z.string().uuid(),
+  quantity: z.number().positive("Quantity must be positive"),
+  // "YYYY-MM-DD" — defaults to today.
+  returnDate: z.string().optional(),
+  reference: z.string().trim().min(1, "Enter a reference"),
+  notes: z.string().optional(),
+});
+export type DepositReturnInput = z.infer<typeof depositReturnSchema>;
+
+// Editing a give-back: its quantity, date, reference and notes.
+export const updateDepositReturnSchema = depositReturnSchema.omit({ grainBatchId: true }).extend({
+  id: z.string().uuid(),
+});
+export type UpdateDepositReturnInput = z.infer<typeof updateDepositReturnSchema>;

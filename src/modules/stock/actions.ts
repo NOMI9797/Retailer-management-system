@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import { getCurrentShopId } from "@/lib/tenant";
 import { serializeDecimals } from "@/lib/serialize";
+import { ok, fail, type ActionResult } from "@/lib/actionResult";
+import { parseLocalDateStart } from "@/lib/utils";
 import { postToBankAccount } from "@/modules/settings/bankAccounts.actions";
 import { loadShopOwesCustomer } from "@/modules/debts/udhaarLedger";
 import {
@@ -13,8 +15,12 @@ import {
   type TransferPurchaseInput,
   type DepositWithSettlementInput,
   type UpdateGrainSettlementInput,
+  depositReturnSchema,
+  type DepositReturnInput,
+  updateDepositReturnSchema,
+  type UpdateDepositReturnInput,
 } from "./schema";
-import { coverStockUdhaarFromBatch } from "./grainFifo";
+import { coverDepositFromOwnStock, coverStockUdhaarFromBatch } from "./grainFifo";
 
 type Result<T> = { success: true; data: T } | { success: false; error: string };
 
@@ -254,7 +260,8 @@ export async function createTransferPurchase(
       return { success: false, error: "Only a customer-deposited batch can be transfer-purchased — this batch is shop-owned." };
     }
 
-    const remainingClaim = Number(sourceBatch.quantityIn) - Number(sourceBatch.quantityTransferred);
+    const remainingClaim =
+      Number(sourceBatch.quantityIn) - Number(sourceBatch.quantityTransferred) - Number(sourceBatch.quantityReturned);
     if (data.quantity > remainingClaim) {
       return {
         success: false,
@@ -575,14 +582,16 @@ export async function updateGrainSettlement(
       // shrinking the deposit.
       const otherSettled = Number(sourceBatch.quantityTransferred) - Number(newShopBatch.quantityIn);
       const soldFromDeposit = Number(sourceBatch.quantitySold);
-      const remainingClaim = depositQuantity - otherSettled;
+      // Given back to the customer unsettled — gone, like the above.
+      const givenBack = Number(sourceBatch.quantityReturned);
+      const remainingClaim = depositQuantity - otherSettled - givenBack;
       if (data.quantity > remainingClaim) {
         return {
           success: false,
           error: `Only ${remainingClaim} of this ${depositQuantity} deposit is left to buy (requested ${data.quantity}).`,
         };
       }
-      const minDeposit = Math.max(soldFromDeposit, otherSettled + data.quantity);
+      const minDeposit = Math.max(soldFromDeposit, otherSettled + givenBack + data.quantity);
       if (depositQuantity < minDeposit) {
         return {
           success: false,
@@ -775,7 +784,7 @@ type SettlementEntry = {
   paymentMethod: "CASH" | "ACCOUNT" | "CREDIT" | null;
 };
 function summarizeSettlements(
-  batch: { quantityIn: Prisma.Decimal; quantityTransferred: Prisma.Decimal },
+  batch: { quantityIn: Prisma.Decimal; quantityTransferred: Prisma.Decimal; quantityReturned: Prisma.Decimal },
   transferredBatches: {
     id: string;
     quantityIn: Prisma.Decimal;
@@ -796,8 +805,10 @@ function summarizeSettlements(
     }));
   const settledQuantity = settlements.reduce((sum, s) => sum + s.quantity, 0);
   const settledTotalAmount = settlements.reduce((sum, s) => sum + s.quantity * s.rate, 0);
-  const unsettledQuantity = Number(batch.quantityIn) - Number(batch.quantityTransferred);
-  return { settlements, settledQuantity, settledTotalAmount, unsettledQuantity };
+  // Grain given back unsettled is no longer the customer's to settle.
+  const returnedQuantity = Number(batch.quantityReturned);
+  const unsettledQuantity = Number(batch.quantityIn) - Number(batch.quantityTransferred) - returnedQuantity;
+  return { settlements, settledQuantity, settledTotalAmount, unsettledQuantity, returnedQuantity };
 }
 
 // Outstanding Stock Udhaar (a QUANTITY obligation, never money) for
@@ -990,6 +1001,7 @@ export async function getStockOverview(productId: string) {
     const quantityIn = Number(batch.quantityIn);
     const quantitySold = Number(batch.quantitySold);
     const quantityTransferred = Number(batch.quantityTransferred);
+    const quantityReturned = Number(batch.quantityReturned);
 
     if (batch.ownerCustomerId) {
       // A customer batch's quantityTransferred portion was bought by
@@ -1001,11 +1013,11 @@ export async function getStockOverview(productId: string) {
       // (drawGrainFifo). It can dip below 0 when the shop bought grain
       // that had already been sold: the new shop batch then holds that
       // already-gone quantity, and the negative here cancels it out.
-      const remaining = quantityIn - quantitySold - quantityTransferred;
+      const remaining = quantityIn - quantitySold - quantityTransferred - quantityReturned;
       totalPhysical += remaining;
       if (remaining < 0) ownAvailable += remaining;
       // The customer's ownership claim, whatever has physically moved.
-      customerClaim += quantityIn - quantityTransferred;
+      customerClaim += quantityIn - quantityTransferred - quantityReturned;
     } else {
       const available = quantityIn - quantitySold;
       totalPhysical += available;
@@ -1087,6 +1099,7 @@ export async function getCustomerGrainDeposits(customerId: string) {
     include: {
       product: { include: { unit: true } },
       transferredBatches: { include: { paymentTransactions: true } },
+      depositReturns: { orderBy: { returnDate: "asc" } },
     },
     // Newest deposit first (desc) — matches Sales History's ordering;
     // the UI groups these rows into date headers by receivedAt.
@@ -1134,6 +1147,14 @@ export async function getCustomerGrainDeposits(customerId: string) {
         receivedAt: batch.receivedAt,
         product: { id: batch.product.id, name: batch.product.name, unitName: batch.product.unit.name },
         ...summarizeSettlements(batch, batch.transferredBatches),
+        // Unsettled grain given back to the customer as it is.
+        returns: batch.depositReturns.map((r) => ({
+          id: r.id,
+          quantity: Number(r.quantity),
+          returnDate: r.returnDate,
+          reference: r.reference,
+          notes: r.notes,
+        })),
       })),
       ...settleNowPayments
         .filter((txn) => txn.linkedGrainBatch !== null)
@@ -1162,6 +1183,8 @@ export async function getCustomerGrainDeposits(customerId: string) {
             settledQuantity: quantity,
             settledTotalAmount: quantity * rate,
             unsettledQuantity: 0,
+            returnedQuantity: 0,
+            returns: [],
           };
         }),
       // The two arrays above are each individually sorted (the DB
@@ -1247,6 +1270,7 @@ export async function listCustomerBatchesForProduct(productId: string) {
           settledQuantity: quantity,
           settledTotalAmount: quantity * rate,
           unsettledQuantity: 0,
+          returnedQuantity: 0,
         };
       }),
     // Re-sort after merging — see getCustomerGrainDeposits' identical
@@ -1325,7 +1349,8 @@ export async function listGrainLedger(productId: string) {
     const sale = item.dailySale;
     const quantity = Number(item.quantity);
     const rate = Number(item.actualPrice);
-    const amount = quantity * rate;
+    // After the line's share of any bill discount.
+    const amount = quantity * rate - Number(item.discount);
     const creditAmount = item.creditAmount !== null ? Number(item.creditAmount) : 0;
     const visitMethods = [
       ...new Set(
@@ -1439,4 +1464,143 @@ export async function listGrainLedger(productId: string) {
     debitTotal: sum(debit, "amount"),
     debitQuantity: sum(debit, "quantity"),
   };
+}
+
+// Takes `quantity` of a deposit's unsettled grain out of the shop for
+// its customer (no rate, no money): whatever of it is still on the
+// shelf goes first; if the shop had already sold some of their grain
+// (Stock Udhaar), that part comes from the shop's own stock instead
+// (coverDepositFromOwnStock). Throws with a message the shopkeeper can
+// read when it can't be done. Returns how much came from own stock.
+async function takeUnsettledGrain(
+  tx: Prisma.TransactionClient,
+  batch: { id: string; productId: string; quantityIn: Prisma.Decimal; quantityTransferred: Prisma.Decimal; quantityReturned: Prisma.Decimal },
+  quantity: number,
+  names: { unit: string; product: string }
+): Promise<number> {
+  const round3 = (n: number) => Math.round(n * 1000) / 1000;
+  const unsettled = round3(Number(batch.quantityIn) - Number(batch.quantityTransferred) - Number(batch.quantityReturned));
+  if (quantity > unsettled + 0.0001) {
+    throw new Error(`Only ${unsettled} ${names.unit} of this deposit is unsettled — that's the most that can be given back.`);
+  }
+
+  // What the shop still owes this deposit in grain (sold before a rate
+  // was settled); the rest of the unsettled grain is still here.
+  const suEntries = await tx.stockUdhaarEntry.findMany({ where: { grainBatchId: batch.id } });
+  const soldUnsettled = Math.max(round3(suEntries.reduce((s, e) => s + Number(e.quantity), 0)), 0);
+  const onShelf = Math.max(round3(unsettled - soldUnsettled), 0);
+  const fromShopStock = round3(quantity - Math.min(quantity, onShelf));
+
+  if (fromShopStock > 0) {
+    const own = await tx.grainBatch.findMany({ where: { productId: batch.productId, ownerCustomerId: null } });
+    const ownFree = round3(own.reduce((s, b) => s + Math.max(Number(b.quantityIn) - Number(b.quantitySold), 0), 0));
+    if (ownFree + 0.0001 < fromShopStock) {
+      throw new Error(
+        `${fromShopStock} ${names.unit} of this grain was already sold, so the shop must give it from its own ${names.product} — but it has only ${ownFree} ${names.unit} of its own.`
+      );
+    }
+    const covered = await coverDepositFromOwnStock(tx, { productId: batch.productId, depositId: batch.id, quantity: fromShopStock });
+    if (covered + 0.0001 < fromShopStock) {
+      throw new Error(`Could only cover ${covered} of ${fromShopStock} ${names.unit} from the shop's own stock.`);
+    }
+    // The shop's own grain left the shop (no money) — same as lending grain.
+    await postToPooledGrainStock(tx, batch.productId, -fromShopStock, 0);
+  }
+
+  await tx.grainBatch.update({ where: { id: batch.id }, data: { quantityReturned: { increment: quantity } } });
+  return fromShopStock;
+}
+
+// A customer taking back grain they deposited without settling a rate
+// — as it is: no money, no rate, only their unsettled quantity on this
+// deposit goes down (quantityReturned) and the grain leaves the shop
+// (see takeUnsettledGrain for where it comes from).
+export async function giveBackUnsettledGrain(input: DepositReturnInput): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+  const parsed = depositReturnSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the details");
+  const data = parsed.data;
+
+  try {
+    return await db.$transaction(async (tx) => {
+      const batch = await tx.grainBatch.findFirst({
+        where: { id: data.grainBatchId, product: { shopId } },
+        include: { product: { include: { unit: true } } },
+      });
+      if (!batch || !batch.ownerCustomerId) return fail("Deposit not found.");
+
+      const fromShopStock = await takeUnsettledGrain(tx, batch, data.quantity, {
+        unit: batch.product.unit.name,
+        product: batch.product.name,
+      });
+      await tx.grainDepositReturn.create({
+        data: {
+          shopId,
+          grainBatchId: batch.id,
+          customerId: batch.ownerCustomerId,
+          productId: batch.productId,
+          quantity: data.quantity,
+          fromShopStock,
+          returnDate: data.returnDate ? parseLocalDateStart(data.returnDate) : new Date(),
+          reference: data.reference,
+          notes: data.notes || null,
+        },
+      });
+      return ok(null);
+    });
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : "Couldn't give the grain back.");
+  }
+}
+
+// Editing a give-back: date, reference and notes simply change. A
+// bigger quantity gives back the extra the same way as a new give-back
+// (up to what's unsettled, already-sold grain from own stock). A
+// smaller one puts the difference back as the customer's unsettled
+// grain, on the shelf again — the shop's own stock used earlier stays
+// used (the customer's grain it replaced is what's back on the shelf,
+// so the shop no longer owes them that grain either way).
+export async function updateGrainDepositReturn(input: UpdateDepositReturnInput): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+  const parsed = updateDepositReturnSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the details");
+  const data = parsed.data;
+
+  try {
+    return await db.$transaction(async (tx) => {
+      const existing = await tx.grainDepositReturn.findFirst({
+        where: { id: data.id, shopId },
+        include: { grainBatch: true, product: { include: { unit: true } } },
+      });
+      if (!existing) return fail("Give-back not found.");
+
+      const delta = Math.round((data.quantity - Number(existing.quantity)) * 1000) / 1000;
+      let fromShopStock = Number(existing.fromShopStock);
+      if (delta > 0) {
+        fromShopStock += await takeUnsettledGrain(tx, existing.grainBatch, delta, {
+          unit: existing.product.unit.name,
+          product: existing.product.name,
+        });
+      } else if (delta < 0) {
+        await tx.grainBatch.update({
+          where: { id: existing.grainBatchId },
+          data: { quantityReturned: { decrement: -delta } },
+        });
+      }
+
+      await tx.grainDepositReturn.update({
+        where: { id: existing.id },
+        data: {
+          quantity: data.quantity,
+          fromShopStock: Math.round(fromShopStock * 1000) / 1000,
+          returnDate: data.returnDate ? parseLocalDateStart(data.returnDate) : existing.returnDate,
+          reference: data.reference,
+          notes: data.notes || null,
+        },
+      });
+      return ok(null);
+    });
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : "Couldn't save the change.");
+  }
 }

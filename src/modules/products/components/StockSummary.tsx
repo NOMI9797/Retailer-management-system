@@ -74,10 +74,13 @@ export function StockSummary({
         <p className="stat-value">Rs {stockValue.toLocaleString()}</p>
       </div>
       <div className="stat-card">
-        <p className="stat-label">Lent out (loans)</p>
+        {/* The shop's own grain lent out on grain loans — still counted
+            in Own stock (it's coming back), but not in Total physical. */}
+        <p className="stat-label">Advance stock</p>
         <p className={`stat-value${lentOut ? " tone-grain" : ""}`}>
           {lentOut} {unitName}
         </p>
+        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>Shop&apos;s grain lent out</p>
       </div>
       <div className="stat-card">
         <p className="stat-label">Borrowed (loans)</p>

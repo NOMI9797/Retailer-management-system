@@ -27,6 +27,9 @@ export type PrintableReceipt = {
   buyerName: string;
   buyerKind: "CUSTOMER" | "DEALER";
   items: { productName: string; quantity: number; actualPrice: number }[];
+  // Before the discount, and the discount off the bill (total is after it).
+  subtotal?: number;
+  discount?: number;
   payments: { paymentMethod: "CASH" | "ACCOUNT" | "CREDIT"; amount: number; bankAccountName: string | null }[];
   total: number;
 };
@@ -109,6 +112,10 @@ export function buildReceiptEscPos(receipt: PrintableReceipt, header: ReceiptHea
   }
 
   out.push(`${divider}\n`);
+  if (receipt.discount && receipt.discount > 0.005) {
+    out.push(`${twoColumns("Subtotal", money(receipt.subtotal ?? receipt.total + receipt.discount))}\n`);
+    out.push(`${twoColumns("Discount", `- ${money(receipt.discount)}`)}\n`);
+  }
   out.push(BOLD_ON, `${twoColumns("TOTAL", money(receipt.total))}\n`, BOLD_OFF);
   for (const payment of receipt.payments) {
     out.push(`${twoColumns(PAYMENT_LABEL[payment.paymentMethod], money(payment.amount))}\n`);
@@ -192,6 +199,8 @@ export function buildLedgerReceiptEscPos(receipt: LedgerReceipt, header: Receipt
     for (const item of entry.items) {
       wrapped(`${item.productName.trim()}: ${quantity(item.quantity)} ${item.unitName} x ${money(item.price)}`, "   ");
     }
+    const discount = entry.items.reduce((sum, item) => sum + (item.discount ?? 0), 0);
+    if (discount > 0.005) wrapped(`Discount: - ${money(discount)}`, "   ");
     for (const detail of receiptDetailLines(entry.detail)) wrapped(detail, "   ");
     const payment = receiptPayment(entry);
     if (payment) wrapped(payment, "   ");

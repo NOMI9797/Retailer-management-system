@@ -66,7 +66,8 @@ export async function getPnlReport(input: ReportPeriodInput): Promise<PnlReport>
   for (const item of items) {
     const quantity = Number(item.quantity);
     const actualPrice = Number(item.actualPrice);
-    revenue += quantity * actualPrice;
+    // Net of the line's share of any bill discount.
+    revenue += quantity * actualPrice - Number(item.discount);
 
     if (item.product.stockKind === "SIMPLE") {
       if (item.costPriceAtSale === null) {

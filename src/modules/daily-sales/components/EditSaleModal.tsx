@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { LineItemsEditor, type LineItemDraft } from "./LineItemsEditor";
 import { GrainItemsEditor, type GrainItemDraft } from "./GrainItemsEditor";
 import { PaymentSplitEditor, type PaymentSplitDraft } from "./PaymentSplitEditor";
+import { BillSummary } from "./BillSummary";
 import { getDailySaleForEdit, updateDailySale } from "../actions";
 import { showToast } from "@/components/shared/toastStore";
 import type { listProducts } from "@/modules/products/actions";
@@ -42,6 +43,7 @@ export function EditSaleModal({
   const [productItems, setProductItems] = useState<LineItemDraft[]>([]);
   const [grainItems, setGrainItems] = useState<GrainItemDraft[]>([]);
   const [payments, setPayments] = useState<PaymentSplitDraft>({ cash: "", account: "", credit: "" });
+  const [discount, setDiscount] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -81,6 +83,7 @@ export function EditSaleModal({
           credit: sale.payments.credit ? String(sale.payments.credit) : "",
           bankAccountId: sale.payments.bankAccountId,
         });
+        setDiscount(sale.discount > 0 ? String(sale.discount) : "");
       })
       .catch((err) => {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Failed to load sale");
@@ -96,6 +99,9 @@ export function EditSaleModal({
     () => items.reduce((sum, i) => sum + (Number(i.quantity) || 0) * (Number(i.actualPrice) || 0), 0),
     [items]
   );
+  const discountAmount = Number(discount) || 0;
+  // What the customer pays — the payment split must add up to this.
+  const billToPay = Math.round((itemTotal - discountAmount) * 100) / 100;
 
   async function submitUpdate() {
     if (!saleKind) return { success: false, error: "Sale kind not loaded" };
@@ -120,6 +126,7 @@ export function EditSaleModal({
               creditDueDate: i.creditDueDate,
             })),
       payments: { cash, account, credit, bankAccountId: payments.bankAccountId },
+      discount: discountAmount,
     });
   }
 
@@ -136,8 +143,12 @@ export function EditSaleModal({
     const cash = Number(payments.cash) || 0;
     const account = Number(payments.account) || 0;
     const credit = Number(payments.credit) || 0;
-    if (Math.abs(cash + account + credit - itemTotal) > 0.01) {
-      setSaveError("Cash + Account + Credit must add up to the bill total");
+    if (discountAmount > itemTotal + 0.005) {
+      setSaveError("The discount can't be more than the bill total");
+      return;
+    }
+    if (Math.abs(cash + account + credit - billToPay) > 0.01) {
+      setSaveError("Cash + Account + Credit must add up to the bill total after the discount");
       return;
     }
 
@@ -193,7 +204,8 @@ export function EditSaleModal({
               />
             )}
 
-            <PaymentSplitEditor total={itemTotal} payments={payments} bankAccounts={bankAccounts} onChange={setPayments} />
+            <BillSummary itemTotal={itemTotal} discount={discount} onDiscountChange={setDiscount} />
+            <PaymentSplitEditor total={billToPay} payments={payments} bankAccounts={bankAccounts} onChange={setPayments} />
 
             <div className="modal-actions">
               <button type="button" className="btn btn-ghost" onClick={onClose}>
