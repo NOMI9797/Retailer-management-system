@@ -39,6 +39,7 @@ model Shop {
   grainLoans          GrainLoan[]
   ledgerReceipts      SavedLedgerReceipt[]
   grainDepositReturns GrainDepositReturn[]
+  grainSeasons        GrainSeason[]
   grainLoanReturns    GrainLoanReturn[]
 }
 
@@ -634,6 +635,7 @@ model Product {
   dealerPurchases   DealerProductPurchase[]
   grainLoans        GrainLoan[]
   grainDepositReturns GrainDepositReturn[]
+  grainSeasons        GrainSeason[]
 }
 
 // Batches let one product (e.g. "Wheat") hold both shop-owned and
@@ -941,6 +943,34 @@ model GrainDepositReturn {
   createdAt     DateTime   @default(now())
 
   @@index([shopId, returnDate])
+}
+
+// A closed grain season: one grain's profit or loss from the day its
+// last season closed to the day this one was closed (Grain → Profit /
+// Loss → Close season, only possible once the shop holds none of that
+// grain). Kept as it stood at closing. The open season isn't stored —
+// it's everything since, worked out from the records.
+model GrainSeason {
+  id            String   @id @default(uuid())
+  shopId        String
+  shop          Shop     @relation(fields: [shopId], references: [id])
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id])
+  seasonNumber  Int
+  startedAt     DateTime?
+  closedAt      DateTime @default(now())
+  // Money paid for this grain (purchases, borrowed bags paid for) and
+  // money received for it (sales after discount, lent bags paid for).
+  moneyPaid     Decimal  @db.Decimal(14, 2)
+  moneyReceived Decimal  @db.Decimal(14, 2)
+  // moneyReceived − moneyPaid: above 0 profit, below 0 loss.
+  result        Decimal  @db.Decimal(14, 2)
+  kgBought      Decimal  @db.Decimal(14, 3)
+  kgSold        Decimal  @db.Decimal(14, 3)
+  notes         String?
+
+  @@unique([productId, seasonNumber])
+  @@index([shopId, productId])
 }
 
 model DailySaleItem {

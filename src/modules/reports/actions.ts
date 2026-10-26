@@ -5,10 +5,22 @@ import { getCurrentShopId } from "@/lib/tenant";
 import { parseLocalDateStart, parseLocalDateEnd, toLocalDateString } from "@/lib/utils";
 import { reportPeriodSchema, type ReportPeriodInput } from "./schema";
 import { getStockUdhaarSummary } from "@/modules/stock/actions";
+import { collectGrainMoves, totalGrainMoves } from "@/modules/grain-account/grainMoves";
 
 export type PnlReport = {
+  // Products (cost-based) + grain (running account) together.
   revenue: number;
   cogs: number;
+  // Products: what they sold for, and what those units cost.
+  productRevenue: number;
+  productCogs: number;
+  // Grain, the way its season account works it (Grain → Profit /
+  // Loss): money received for grain in the period, less money paid for
+  // grain in the period. Not available for a seasonal view (purchases
+  // have no sale season) — grainInSeasonal says so.
+  grainReceived: number;
+  grainPaid: number;
+  grainNotInSeasonal: boolean;
   // true when at least one sale item in this period has no cost
   // snapshot (pre-Milestone-4 data) — the UI shows "cost data
   // unavailable" for the affected figures instead of a number that
@@ -51,8 +63,9 @@ export async function getPnlReport(input: ReportPeriodInput): Promise<PnlReport>
     ? { saleDate: { gte: range.start, lte: range.end } }
     : { season: period.view === "seasonal" ? period.season : undefined };
 
+  // Products only — grain is worked from its running account below.
   const items = await db.dailySaleItem.findMany({
-    where: { dailySale: { shopId, ...saleDateFilter } },
+    where: { dailySale: { shopId, ...saleDateFilter }, product: { stockKind: "SIMPLE" } },
     include: {
       product: { select: { stockKind: true } },
       batchAllocations: { include: { grainBatch: { select: { rate: true } } } },
@@ -121,12 +134,27 @@ export async function getPnlReport(input: ReportPeriodInput): Promise<PnlReport>
         })
       )._sum.amount ?? 0;
 
+  const grain = range
+    ? totalGrainMoves(await collectGrainMoves(shopId, { range: { gte: range.start, lte: range.end } }))
+    : null;
+  const grainReceived = grain?.received ?? 0;
+  const grainPaid = grain?.paid ?? 0;
+
+  const productRevenue = revenue;
+  const productCogs = cogs;
+  revenue = productRevenue + grainReceived;
+  cogs = productCogs + grainPaid;
   const grossProfit = revenue - cogs;
   const netProfit = grossProfit - Number(expenseTotal);
 
   return {
     revenue,
     cogs,
+    productRevenue,
+    productCogs,
+    grainReceived,
+    grainPaid,
+    grainNotInSeasonal: !range,
     hasUnknownCost,
     grossProfit,
     expenses: Number(expenseTotal),
@@ -203,7 +231,7 @@ export async function listDailyPnlHistory(options?: { fromDate?: string; toDate?
     lte: options?.toDate ? parseLocalDateEnd(options.toDate) : undefined,
   };
 
-  const [saleDates, expenseDates] = await Promise.all([
+  const [saleDates, expenseDates, grainMoves] = await Promise.all([
     db.dailySale.findMany({
       where: { shopId, saleDate: dateFilter },
       select: { saleDate: true },
@@ -212,11 +240,14 @@ export async function listDailyPnlHistory(options?: { fromDate?: string; toDate?
       where: { shopId, expenseDate: dateFilter },
       select: { expenseDate: true },
     }),
+    // Days grain was bought (or loan bags paid for) count too.
+    collectGrainMoves(shopId, { range: dateFilter as { gte: Date; lte: Date } }),
   ]);
 
   const distinctDates = new Set<string>();
   for (const s of saleDates) distinctDates.add(toLocalDateString(s.saleDate));
   for (const e of expenseDates) distinctDates.add(toLocalDateString(e.expenseDate));
+  for (const m of grainMoves) distinctDates.add(toLocalDateString(m.date));
 
   const sortedDates = Array.from(distinctDates).sort((a, b) => (a < b ? 1 : -1));
 

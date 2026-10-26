@@ -3300,3 +3300,108 @@
   font-size: 12.5px;
   color: var(--consigned-600);
 }
+
+/* Grain → Profit / Loss: the Close season card — status, a checklist
+   of every condition (done / still to do), then the button. */
+.shop-app .season-close {
+  padding: 20px 22px;
+  margin-bottom: 16px;
+}
+.shop-app .season-close-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.shop-app .season-close-head h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.shop-app .season-close-head p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+.shop-app .season-close-status {
+  flex: none;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.shop-app .season-close-status.pending {
+  background: var(--grain-50);
+  color: var(--grain-600);
+}
+.shop-app .season-close-status.ready {
+  background: var(--primary-50);
+  color: var(--primary-600);
+}
+.shop-app .season-close-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.shop-app .season-close-steps li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  font-size: 13.5px;
+}
+.shop-app .season-close-steps li + li {
+  border-top: 1px solid var(--border);
+}
+.shop-app .season-close-mark {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+.shop-app .season-close-steps li.done .season-close-mark {
+  background: var(--primary-500);
+  color: #fff;
+}
+.shop-app .season-close-steps li.todo .season-close-mark {
+  border: 2px solid var(--grain-500);
+}
+.shop-app .season-close-label {
+  flex: 1;
+}
+.shop-app .season-close-steps li.done .season-close-label {
+  color: var(--ink-muted);
+}
+.shop-app .season-close-left {
+  font-weight: 600;
+  color: var(--grain-600);
+}
+.shop-app .season-close-steps li.done .season-close-left {
+  font-weight: 500;
+  color: var(--primary-600);
+}
+.shop-app .season-close-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+.shop-app .season-close-foot p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+.shop-app .season-close-foot .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

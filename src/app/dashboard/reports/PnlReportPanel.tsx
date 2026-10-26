@@ -37,7 +37,7 @@ export async function PnlReportPanel({ period }: { period: ReportPeriodInput }) 
         </div>
         <div className="chain-op">−</div>
         <div className="chain-card">
-          <p>Cost of goods sold</p>
+          <p>Cost (products + grain bought)</p>
           <p className="v-cost num">{formatMoney(report.cogs)}</p>
         </div>
         <div className="chain-op">=</div>
@@ -50,6 +50,33 @@ export async function PnlReportPanel({ period }: { period: ReportPeriodInput }) 
           <p>Expenses</p>
           <p className="v-cost num">{formatMoney(report.expenses)}</p>
         </div>
+      </div>
+
+      {/* Where Revenue and Cost come from: products by what each unit
+          cost; grain by its running account (money received for grain
+          less money paid for it in these dates — see Grain → Profit /
+          Loss for each grain's season). */}
+      <div className="panel" style={{ padding: "12px 16px", margin: "0 0 16px", fontSize: 13.5 }}>
+        <p style={{ margin: "0 0 6px" }}>
+          <strong>Products:</strong> sold {formatMoney(report.productRevenue)} − cost{" "}
+          {formatMoney(report.productCogs)} ={" "}
+          <strong>{formatMoney(report.productRevenue - report.productCogs)}</strong>
+        </p>
+        {report.grainNotInSeasonal ? (
+          <p style={{ margin: 0, color: "var(--ink-muted)" }}>
+            <strong>Grain:</strong> not in this view — see each grain&apos;s season on Grain → Profit / Loss.
+          </p>
+        ) : (
+          <p style={{ margin: 0 }}>
+            <strong>Grain:</strong> received {formatMoney(report.grainReceived)} − paid for grain{" "}
+            {formatMoney(report.grainPaid)} ={" "}
+            <strong style={{ color: report.grainReceived - report.grainPaid >= 0 ? "var(--primary-600)" : "var(--consigned-600)" }}>
+              {report.grainReceived - report.grainPaid >= 0 ? "▲" : "▼"}{" "}
+              {formatMoney(Math.abs(report.grainReceived - report.grainPaid))}
+            </strong>{" "}
+            <span style={{ color: "var(--ink-muted)" }}>(grain bought in these dates counts here)</span>
+          </p>
+        )}
       </div>
 
       <div className={`hero-net${isNegative ? " negative" : ""}`}>

@@ -19,7 +19,7 @@ export function GrainPageHeader({
   // Grain tab's Add batch).
   tabAction?: React.ReactNode;
 }) {
-  const tab = searchParams.tab === "udhaar" ? "udhaar" : "grain";
+  const tab = searchParams.tab === "udhaar" || searchParams.tab === "pnl" ? searchParams.tab : "grain";
   const activeId = (
     products.find((p) => p.id === searchParams.product) ?? products[0]
   )?.id;
@@ -53,6 +53,15 @@ export function GrainPageHeader({
           })}
         >
           Stock Udhaar
+        </Link>
+        <Link
+          className={`tab${tab === "pnl" ? " active" : ""}`}
+          href={buildGrainHref(searchParams, {
+            tab: "pnl",
+            page: undefined,
+          })}
+        >
+          Profit / Loss
         </Link>
         {tabAction && (
           <div
