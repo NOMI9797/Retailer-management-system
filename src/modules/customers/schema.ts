@@ -101,6 +101,8 @@ export const recordCustomerUdhaarPaymentSchema = z
     amount: z.number().positive("Amount must be positive"),
     paymentMethod: z.enum(["CASH", "ACCOUNT"]),
     bankAccountId: z.string().uuid().optional(),
+    // Slip / register reference, required on every payment.
+    reference: z.string().trim().min(1, "Enter a reference"),
     notes: z.string().optional(),
   })
   .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
@@ -132,6 +134,8 @@ export const createLongTermLoanSchema = z
     bankAccountId: z.string().uuid().optional(),
     durationValue: z.number().int().positive("Duration must be a positive whole number"),
     durationUnit: durationUnitSchema,
+    // Slip / register reference, required on every payment.
+    reference: z.string().trim().min(1, "Enter a reference"),
     notes: z.string().optional(),
   })
   .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
@@ -176,6 +180,8 @@ export const payShopUdhaarSchema = z
     amount: z.number().positive("Amount must be positive"),
     paymentMethod: z.enum(["CASH", "ACCOUNT"]),
     bankAccountId: z.string().uuid().optional(),
+    // Slip / register reference, required on every payment.
+    reference: z.string().trim().min(1, "Enter a reference"),
     notes: z.string().optional(),
   })
   .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {

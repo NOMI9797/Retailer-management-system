@@ -3,11 +3,17 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { recordCustomerUdhaarPayment, payShopUdhaar } from "../actions";
-import { getCustomerUdhaarLedger, getShopOwesCustomerLedger } from "@/modules/debts/actions";
+import {
+  getCustomerUdhaarLedger,
+  getShopOwesCustomerLedger,
+} from "@/modules/debts/actions";
 import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 import { showToast } from "@/components/shared/toastStore";
 import { formatMoney, formatDate } from "@/lib/utils";
-import type { UdhaarChargeKind, ShopOwesChargeKind } from "@/modules/debts/udhaarLedger";
+import type {
+  UdhaarChargeKind,
+  ShopOwesChargeKind,
+} from "@/modules/debts/udhaarLedger";
 
 type Side = "CUSTOMER" | "SHOP";
 
@@ -23,7 +29,13 @@ type Entry = {
   isOverdue: boolean;
 };
 
-type Ledger = { entries: Entry[]; totalCharged: number; totalPaid: number; balance: number; unapplied: number };
+type Ledger = {
+  entries: Entry[];
+  totalCharged: number;
+  totalPaid: number;
+  balance: number;
+  unapplied: number;
+};
 
 const CUSTOMER_KIND_LABEL: Record<UdhaarChargeKind, string> = {
   SALE: "Sale on Udhaar",
@@ -48,7 +60,8 @@ const COPY = {
     button: "Record payment",
     toast: "Udhaar payment recorded",
     nothing: "This customer doesn't owe the shop anything right now.",
-    advance: "paid in advance — it will count against this customer's next Udhaar.",
+    advance:
+      "paid in advance — it will count against this customer's next Udhaar.",
   },
   SHOP: {
     total: "Shop owes (total)",
@@ -59,11 +72,15 @@ const COPY = {
     button: "Record repayment",
     toast: "Repayment recorded",
     nothing: "The shop doesn't owe this customer anything right now.",
-    advance: "repaid in advance — it will count against what the shop next owes this customer.",
+    advance:
+      "repaid in advance — it will count against what the shop next owes this customer.",
   },
 } as const;
 
-async function loadLedger(side: Side, customerId: string): Promise<Ledger | null> {
+async function loadLedger(
+  side: Side,
+  customerId: string,
+): Promise<Ledger | null> {
   if (side === "CUSTOMER") {
     const l = await getCustomerUdhaarLedger(customerId);
     if (!l) return null;
@@ -73,7 +90,12 @@ async function loadLedger(side: Side, customerId: string): Promise<Ledger | null
         id: c.id,
         date: c.date,
         label: CUSTOMER_KIND_LABEL[c.kind],
-        detail: c.kind === "SALE" ? c.description : c.reference ? `Ref: ${c.reference}` : null,
+        detail:
+          c.kind === "SALE"
+            ? c.description
+            : c.reference
+              ? `Ref: ${c.reference}`
+              : null,
         amount: c.amount,
         paid: c.paid,
         remaining: c.remaining,
@@ -89,7 +111,12 @@ async function loadLedger(side: Side, customerId: string): Promise<Ledger | null
       id: c.id,
       date: c.date,
       label: SHOP_KIND_LABEL[c.kind],
-      detail: c.kind === "GRAIN" ? c.description : c.reference ? `Ref: ${c.reference}` : null,
+      detail:
+        c.kind === "GRAIN"
+          ? c.description
+          : c.reference
+            ? `Ref: ${c.reference}`
+            : null,
       amount: c.amount,
       paid: c.paid,
       remaining: c.remaining,
@@ -122,9 +149,12 @@ function UdhaarPaymentPanel({
   const [ledger, setLedger] = useState<Ledger | null | undefined>(undefined);
   const [loadError, setLoadError] = useState(false);
   const [amount, setAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT">("CASH");
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT">(
+    "CASH",
+  );
   const [bankAccountId, setBankAccountId] = useState("");
   const [notes, setNotes] = useState("");
+  const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -152,9 +182,13 @@ function UdhaarPaymentPanel({
         amount: Number(amount),
         paymentMethod,
         bankAccountId: bankAccountId || undefined,
+        reference,
         notes: notes || undefined,
       };
-      const result = side === "CUSTOMER" ? await recordCustomerUdhaarPayment(input) : await payShopUdhaar(input);
+      const result =
+        side === "CUSTOMER"
+          ? await recordCustomerUdhaarPayment(input)
+          : await payShopUdhaar(input);
       if (!result.success) {
         setError(result.error);
         return;
@@ -180,7 +214,8 @@ function UdhaarPaymentPanel({
       </p>
     );
   }
-  if (ledger === undefined) return <p style={{ color: "var(--ink-muted)" }}>Loading Udhaar…</p>;
+  if (ledger === undefined)
+    return <p style={{ color: "var(--ink-muted)" }}>Loading Udhaar…</p>;
 
   const owed = ledger?.balance ?? 0;
   const entries = ledger?.entries ?? [];
@@ -193,7 +228,10 @@ function UdhaarPaymentPanel({
 
   return (
     <div>
-      <div className="stat-grid customers-stat-grid" style={{ marginBottom: 16 }}>
+      <div
+        className="stat-grid customers-stat-grid"
+        style={{ marginBottom: 16 }}
+      >
         <div className="stat-card">
           <p className="stat-label">{copy.total}</p>
           <p className="stat-value">{formatMoney(openTotal)}</p>
@@ -234,25 +272,56 @@ function UdhaarPaymentPanel({
             </div>
             <div className="field">
               <label>{copy.method}</label>
-              <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as "CASH" | "ACCOUNT")}>
+              <select
+                value={paymentMethod}
+                onChange={(e) =>
+                  setPaymentMethod(e.target.value as "CASH" | "ACCOUNT")
+                }
+              >
                 <option value="CASH">Cash</option>
                 <option value="ACCOUNT">Account/bank</option>
               </select>
             </div>
           </div>
           {paymentMethod === "ACCOUNT" && (
-            <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+            <BankAccountPicker
+              bankAccounts={bankAccounts}
+              value={bankAccountId}
+              onChange={setBankAccountId}
+            />
           )}
           <div className="field">
+            <label>Reference</label>
+            <input
+              type="text"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="Slip no. / register page"
+              required
+            />
+          </div>
+          <div className="field">
             <label>Notes (optional)</label>
-            <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
           </div>
           <button type="submit" className="btn btn-primary" disabled={isSaving}>
             {isSaving ? "Saving…" : copy.button}
           </button>
         </form>
       ) : (
-        <p style={{ color: "var(--ink-muted)", fontSize: 13.5, marginBottom: 16 }}>{copy.nothing}</p>
+        <p
+          style={{
+            color: "var(--ink-muted)",
+            fontSize: 13.5,
+            marginBottom: 16,
+          }}
+        >
+          {copy.nothing}
+        </p>
       )}
 
       {entries.length > 0 && (
@@ -274,15 +343,25 @@ function UdhaarPaymentPanel({
                   <td>{formatDate(c.date)}</td>
                   <td>
                     {c.label}
-                    {c.detail && <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>{c.detail}</div>}
+                    {c.detail && (
+                      <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>
+                        {c.detail}
+                      </div>
+                    )}
                   </td>
                   <td className="num" style={{ textAlign: "right" }}>
                     {formatMoney(c.amount)}
                   </td>
-                  <td className="num" style={{ textAlign: "right", color: "var(--primary-600)" }}>
+                  <td
+                    className="num"
+                    style={{ textAlign: "right", color: "var(--primary-600)" }}
+                  >
                     {formatMoney(c.paid)}
                   </td>
-                  <td className="num" style={{ textAlign: "right", fontWeight: 600 }}>
+                  <td
+                    className="num"
+                    style={{ textAlign: "right", fontWeight: 600 }}
+                  >
                     {formatMoney(c.remaining)}
                   </td>
                   <td>
@@ -291,7 +370,9 @@ function UdhaarPaymentPanel({
                     ) : c.paid > 0.01 ? (
                       <span className="pay-badge pay-mixed">Partly paid</span>
                     ) : (
-                      <span className="pay-badge pay-credit">{c.isOverdue ? "Overdue" : "Open"}</span>
+                      <span className="pay-badge pay-credit">
+                        {c.isOverdue ? "Overdue" : "Open"}
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -330,12 +411,20 @@ function UdhaarPaymentModal({
 
   return (
     <>
-      <button type="button" className={triggerClassName} onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className={triggerClassName}
+        onClick={() => setOpen(true)}
+      >
         {triggerLabel}
       </button>
       {open && (
         <div className="modal-backdrop" onClick={() => setOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 760, padding: 28 }}>
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 760, padding: 28 }}
+          >
             <h2>
               {side === "CUSTOMER" ? "Udhaar" : "Shop owes"} — {customerName}
             </h2>
@@ -348,7 +437,11 @@ function UdhaarPaymentModal({
               />
             </div>
             <div className="modal-actions">
-              <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setOpen(false)}
+              >
                 Close
               </button>
             </div>
@@ -383,9 +476,15 @@ export function CustomerUdhaarPaymentModal(
     customerId: string;
     customerName: string;
     bankAccounts: { id: string; name: string }[];
-  } & ModalExtras
+  } & ModalExtras,
 ) {
-  return <UdhaarPaymentModal side="CUSTOMER" {...props} triggerLabel={props.triggerLabel ?? "Record repayment"} />;
+  return (
+    <UdhaarPaymentModal
+      side="CUSTOMER"
+      {...props}
+      triggerLabel={props.triggerLabel ?? "Record repayment"}
+    />
+  );
 }
 
 export function ShopUdhaarPaymentModal(
@@ -393,7 +492,13 @@ export function ShopUdhaarPaymentModal(
     customerId: string;
     customerName: string;
     bankAccounts: { id: string; name: string }[];
-  } & ModalExtras
+  } & ModalExtras,
 ) {
-  return <UdhaarPaymentModal side="SHOP" {...props} triggerLabel={props.triggerLabel ?? "Record repayment"} />;
+  return (
+    <UdhaarPaymentModal
+      side="SHOP"
+      {...props}
+      triggerLabel={props.triggerLabel ?? "Record repayment"}
+    />
+  );
 }

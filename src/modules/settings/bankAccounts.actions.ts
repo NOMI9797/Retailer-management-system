@@ -426,7 +426,7 @@ export async function listBankAccountTransactions(options?: {
       direction: "OUT",
       amount: Number(payment.amount),
       source: "Expense Udhaar repayment",
-      description: payment.expense.description,
+      description: `${payment.expense.description}${payment.reference ? ` · Ref: ${payment.reference}` : ""}`,
       deleteRef: { kind: "EXPENSE_PAYMENT", paymentId: payment.id },
     });
   }
@@ -470,7 +470,7 @@ export async function listBankAccountTransactions(options?: {
         : txn.isSettledPurchase
           ? "Grain bought from dealer"
           : "Dealer Udhaar repayment",
-      description: txn.dealerAccount.dealer.name,
+      description: `${txn.dealerAccount.dealer.name}${txn.reference ? ` · Ref: ${txn.reference}` : ""}`,
       deleteRef: txn.isSettledPurchase ? null : { kind: "DEALER_TRANSACTION", transactionId: txn.id },
     });
   }

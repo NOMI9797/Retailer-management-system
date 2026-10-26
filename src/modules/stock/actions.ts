@@ -90,6 +90,7 @@ async function payCustomerForGrain(
     paymentMethod: "CASH" | "ACCOUNT" | "CREDIT";
     bankAccountId?: string;
     notes?: string;
+    reference?: string;
     newShopBatchId: string;
   }
 ) {
@@ -128,6 +129,7 @@ async function payCustomerForGrain(
       // comment on AccountTransaction.linkedGrainBatchId.
       linkedGrainBatchId: params.newShopBatchId,
       notes: params.notes || `Purchased ${params.quantity} ${params.productName} from deposit @ ${params.rate}`,
+      reference: params.reference || null,
     },
   });
 
@@ -291,6 +293,7 @@ export async function createTransferPurchase(
       rate: data.rate,
       paymentMethod: data.paymentMethod,
       bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : undefined,
+      reference: data.reference,
       notes: data.notes,
       newShopBatchId: newShopBatch.id,
     });
@@ -370,6 +373,7 @@ export async function createDepositWithSettlement(
       rate: data.rate,
       paymentMethod: data.paymentMethod,
       bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : undefined,
+      reference: data.reference,
       notes: data.notes,
       newShopBatchId: newShopBatch.id,
     });
@@ -683,6 +687,7 @@ export async function updateGrainSettlement(
         rate: data.rate,
         paymentMethod: data.paymentMethod,
         bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : undefined,
+        reference: data.reference,
         notes: data.notes,
         newShopBatchId: newShopBatch.id,
       });
@@ -723,6 +728,7 @@ export async function getGrainSettlementDetails(accountTransactionId: string) {
     rate: batch.rate !== null ? Number(batch.rate) : 0,
     paymentMethod: txn.paymentMethod,
     bankAccountId: txn.bankAccountId,
+    reference: txn.reference,
     depositQuantity: source ? Number(source.quantityIn) : quantity,
     otherSettled: source ? Number(source.quantityTransferred) - quantity : 0,
     soldFromDeposit: source ? Number(source.quantitySold) : 0,
@@ -1258,7 +1264,8 @@ export async function listCustomerBatchesForProduct(productId: string) {
 export type GrainLedgerRow = {
   id: string;
   date: Date;
-  party: "CUSTOMER" | "DEALER";
+  // SHOP = the shop's own stock added with Add batch (no seller).
+  party: "CUSTOMER" | "DEALER" | "SHOP";
   partyName: string;
   partyHref: string;
   quantity: number;
@@ -1278,7 +1285,7 @@ const METHOD_LABEL: Record<string, { label: string; tone: GrainLedgerRow["paymen
 export async function listGrainLedger(productId: string) {
   const shopId = await getCurrentShopId();
 
-  const [saleItems, customerPurchases, dealerBatches] = await Promise.all([
+  const [saleItems, customerPurchases, dealerBatches, ownBatches] = await Promise.all([
     db.dailySaleItem.findMany({
       where: { productId, product: { shopId } },
       include: { dailySale: { include: { customer: true, dealer: true, payments: true } } },
@@ -1296,6 +1303,21 @@ export async function listGrainLedger(productId: string) {
     db.grainBatch.findMany({
       where: { productId, dealerId: { not: null }, dealer: { shopId } },
       include: { dealer: { include: { account: { include: { transactions: true } } } } },
+    }),
+    // Own stock added with Add batch — a shop batch that came from no
+    // dealer, customer purchase or grain loan (each of those has its
+    // own row or tab). No payment is recorded for these.
+    db.grainBatch.findMany({
+      where: {
+        productId,
+        product: { shopId },
+        ownerCustomerId: null,
+        dealerId: null,
+        sourceBatchId: null,
+        grainLoanId: null,
+        grainLoanReturnId: null,
+        paymentTransactions: { none: {} },
+      },
     }),
   ]);
 
@@ -1335,6 +1357,27 @@ export async function listGrainLedger(productId: string) {
       paymentTone: pay.tone,
     };
   });
+
+  // Own stock added with Add batch is stock coming IN — a plus, so it
+  // sits with Credit (as on Daily sales), not with purchases.
+  credit.push(
+    ...ownBatches.map((batch): GrainLedgerRow => {
+      const quantity = Number(batch.quantityIn);
+      const rate = Number(batch.rate ?? 0);
+      return {
+        id: batch.id,
+        date: batch.receivedAt,
+        party: "SHOP",
+        partyName: "Own stock added",
+        partyHref: `/dashboard/grain?product=${productId}`,
+        quantity,
+        rate,
+        amount: quantity * rate,
+        payment: "Stock only",
+        paymentTone: "mixed",
+      };
+    })
+  );
 
   const debit: GrainLedgerRow[] = [
     ...customerPurchases.map((txn) => {

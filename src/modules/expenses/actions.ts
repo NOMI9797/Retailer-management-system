@@ -245,6 +245,7 @@ export async function payExpenseDebt(input: PayExpenseDebtInput): Promise<Action
         amount: data.amount,
         paymentMethod: data.paymentMethod,
         bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
+        reference: data.reference,
         notes: data.notes,
       },
     });

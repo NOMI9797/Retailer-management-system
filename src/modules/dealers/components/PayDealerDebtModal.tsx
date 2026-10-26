@@ -27,8 +27,11 @@ export function PayDealerDebtForm({
   onCancel?: () => void;
 }) {
   const [amount, setAmount] = useState(String(amountOwed));
-  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT">("CASH");
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT">(
+    "CASH",
+  );
   const [bankAccountId, setBankAccountId] = useState("");
+  const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -41,6 +44,7 @@ export function PayDealerDebtForm({
       amount: Number(amount),
       paymentMethod,
       bankAccountId: bankAccountId || undefined,
+      reference,
     });
     setIsSaving(false);
     if (response && "error" in response && !("data" in response)) {
@@ -70,16 +74,35 @@ export function PayDealerDebtForm({
 
       <div className="field">
         <label>Payment method</label>
-        <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}>
+        <select
+          value={paymentMethod}
+          onChange={(e) =>
+            setPaymentMethod(e.target.value as typeof paymentMethod)
+          }
+        >
           <option value="CASH">Cash</option>
           <option value="ACCOUNT">Account/bank</option>
         </select>
       </div>
 
       {paymentMethod === "ACCOUNT" && (
-        <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+        <BankAccountPicker
+          bankAccounts={bankAccounts}
+          value={bankAccountId}
+          onChange={setBankAccountId}
+        />
       )}
 
+      <div className="field">
+        <label>Reference</label>
+        <input
+          type="text"
+          value={reference}
+          onChange={(e) => setReference(e.target.value)}
+          placeholder="Slip no. / register page"
+          required
+        />
+      </div>
       <div className="modal-actions">
         {onCancel && (
           <button type="button" className="btn btn-ghost" onClick={onCancel}>

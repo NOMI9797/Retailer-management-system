@@ -32,8 +32,8 @@ const PAY_CLASS = {
   mixed: "pay-mixed",
 } as const;
 
-// One grain product's records, as three tabs: Credit (the shop selling
-// it — money in), Debit (the shop buying it — money out), each row
+// One grain product's records, as tabs: Credit (the shop selling
+// it — money in — and own stock added), Debit (the shop buying it — money out), each row
 // tagged Customer or Dealer; and Rate (not settled) — customer deposits
 // with grain the shop hasn't agreed a rate for yet, each with Buy from
 // customer. Pure display; the data comes from the Grain page's server
@@ -75,7 +75,7 @@ export function GrainLedgerTabs({
             className={`tab${tab === "CREDIT" ? " active" : ""}`}
             onClick={() => setTab("CREDIT")}
           >
-            Credit — sales ({ledger.credit.length})
+            Credit — sales & stock added ({ledger.credit.length})
           </button>
           <button
             type="button"
@@ -200,7 +200,7 @@ export function GrainLedgerTabs({
             <thead>
               <tr>
                 <th>Date</th>
-                <th>{tab === "CREDIT" ? "Sold to" : "Bought from"}</th>
+                <th>{tab === "CREDIT" ? "Sold to / added" : "Bought from"}</th>
                 <th style={{ textAlign: "right" }}>Quantity</th>
                 <th style={{ textAlign: "right" }}>Rate</th>
                 <th style={{ textAlign: "right" }}>Amount</th>
@@ -231,9 +231,9 @@ export function GrainLedgerTabs({
                         {row.partyName}
                       </Link>
                       <span
-                        className={`pay-badge ${row.party === "DEALER" ? "pay-account" : "pay-mixed"}`}
+                        className={`pay-badge ${row.party === "DEALER" ? "pay-account" : row.party === "SHOP" ? "pay-cash" : "pay-mixed"}`}
                       >
-                        {row.party === "DEALER" ? "Dealer" : "Customer"}
+                        {row.party === "DEALER" ? "Dealer" : row.party === "SHOP" ? "Shop" : "Customer"}
                       </span>
                     </td>
                     <td className="num" style={{ textAlign: "right" }}>
@@ -253,6 +253,7 @@ export function GrainLedgerTabs({
                             : "var(--consigned-600)",
                       }}
                     >
+                      {row.party === "SHOP" ? "+ " : ""}
                       {formatMoney(row.amount)}
                     </td>
                     <td>

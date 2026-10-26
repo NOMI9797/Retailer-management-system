@@ -28,8 +28,11 @@ export function TransferPurchaseForm({
 }) {
   const [quantity, setQuantity] = useState("");
   const [rate, setRate] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT" | "CREDIT">("CASH");
+  const [paymentMethod, setPaymentMethod] = useState<
+    "CASH" | "ACCOUNT" | "CREDIT"
+  >("CASH");
   const [bankAccountId, setBankAccountId] = useState("");
+  const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -46,7 +49,9 @@ export function TransferPurchaseForm({
       return;
     }
     if (parsedQuantity > remainingClaim) {
-      setError(`Only ${remainingClaim} ${unitName} remains as this customer's claim`);
+      setError(
+        `Only ${remainingClaim} ${unitName} remains as this customer's claim`,
+      );
       return;
     }
 
@@ -57,8 +62,9 @@ export function TransferPurchaseForm({
       rate: parsedRate,
       paymentMethod,
       bankAccountId: bankAccountId || undefined,
+      reference,
     });
-    if (response && 'error' in response && !('data' in response)) {
+    if (response && "error" in response && !("data" in response)) {
       setError((response as { error: string }).error);
       setIsSaving(false);
       return;
@@ -75,7 +81,10 @@ export function TransferPurchaseForm({
       <div className="field-row">
         <div className="field">
           <label>
-            Quantity to purchase <span style={{ color: "var(--ink-muted)", fontWeight: 400 }}>(max {remainingClaim} {unitName})</span>
+            Quantity to purchase{" "}
+            <span style={{ color: "var(--ink-muted)", fontWeight: 400 }}>
+              (max {remainingClaim} {unitName})
+            </span>
           </label>
           <input
             type="number"
@@ -104,7 +113,12 @@ export function TransferPurchaseForm({
 
       <div className="field">
         <label>Pay via</label>
-        <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}>
+        <select
+          value={paymentMethod}
+          onChange={(e) =>
+            setPaymentMethod(e.target.value as typeof paymentMethod)
+          }
+        >
           <option value="CASH">Cash</option>
           <option value="ACCOUNT">Account/bank</option>
           <option value="CREDIT">Udhaar — shop owes customer</option>
@@ -112,9 +126,23 @@ export function TransferPurchaseForm({
       </div>
 
       {paymentMethod === "ACCOUNT" && (
-        <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+        <BankAccountPicker
+          bankAccounts={bankAccounts}
+          value={bankAccountId}
+          onChange={setBankAccountId}
+        />
       )}
 
+      <div className="field">
+        <label>Reference</label>
+        <input
+          type="text"
+          value={reference}
+          onChange={(e) => setReference(e.target.value)}
+          placeholder="Slip no. / register page"
+          required
+        />
+      </div>
       <div className="modal-actions" style={{ alignItems: "center" }}>
         {total > 0 && (
           <p style={{ fontSize: 13, fontWeight: 600, marginRight: "auto" }}>

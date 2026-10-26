@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Pagination } from "@/modules/products/components/Pagination";
 import { EditCustomerModal } from "@/modules/customers/components/EditCustomerModal";
+import { DeleteCustomerButton } from "@/modules/customers/components/DeleteCustomerButton";
 import { buildCustomersHref, type CustomersSearchParams } from "./searchParamsHref";
 import type { listCustomers } from "@/modules/customers/actions";
 import type { listAreas } from "@/modules/settings/areas.actions";
@@ -75,6 +76,7 @@ export function CustomerList({
                         <Link className="btn btn-ghost" href={`/dashboard/customers/${customer.id}`}>
                           View
                         </Link>
+                        <DeleteCustomerButton customerId={customer.id} name={customer.name} />
                       </div>
                     </td>
                   </tr>

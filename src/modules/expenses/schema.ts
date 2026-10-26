@@ -95,6 +95,8 @@ export const payExpenseDebtSchema = z
     amount: z.number().positive("Amount must be positive"),
     paymentMethod: z.enum(["CASH", "ACCOUNT"]),
     bankAccountId: z.string().uuid().optional(),
+    // Slip / register reference, required on every payment.
+    reference: z.string().trim().min(1, "Enter a reference"),
     notes: z.string().optional(),
   })
   .refine(accountPaymentRefinement, accountPaymentRefinementOptions);

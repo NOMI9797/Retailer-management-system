@@ -222,6 +222,7 @@ export async function listCustomers(options?: {
 
   const where = {
     shopId,
+    isDeleted: false,
     areaId: options?.areaId || undefined,
     accounts: options?.accountTypeId ? { some: { accountTypeId: options.accountTypeId } } : undefined,
     ...(options?.search
@@ -267,13 +268,51 @@ export async function listCustomers(options?: {
 // The Customers page's stat row — shop-wide totals, unaffected by
 // whatever the filter bar/table below are currently narrowed to, so
 // the shopkeeper always has a stable overview snapshot.
+// Deletes a customer from the Customers list — hides them, never removes
+// them: every past sale, payment and deposit keeps pointing at them, so
+// history and totals don't change. Only allowed once nothing is open
+// between them and the shop: no Udhaar either way, no grain of theirs
+// still in the shop, no Stock Udhaar owed to them, no open grain loan.
+export async function deleteCustomer(id: string): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+  const customer = await db.customer.findFirst({ where: { id, shopId, isDeleted: false } });
+  if (!customer) return fail("Customer not found");
+
+  const [udhaar, shopOwes, deposits, stockUdhaar, loans] = await Promise.all([
+    loadCustomerUdhaar(shopId, id),
+    loadShopOwesCustomer(shopId, id),
+    db.grainBatch.findMany({ where: { ownerCustomerId: id }, include: { product: { include: { unit: true } } } }),
+    db.stockUdhaarEntry.aggregate({ where: { customerId: id }, _sum: { quantity: true } }),
+    db.grainLoan.findMany({ where: { shopId, customerId: id }, include: { returns: true } }),
+  ]);
+
+  const owes = udhaar.get(id)?.balance ?? 0;
+  if (owes > 0.01) return fail(`${customer.name} still owes the shop Rs ${owes.toLocaleString()} — clear it before deleting.`);
+  const owed = shopOwes.get(id)?.balance ?? 0;
+  if (owed > 0.01) return fail(`The shop still owes ${customer.name} Rs ${owed.toLocaleString()} — clear it before deleting.`);
+  const held = deposits.find((b) => Number(b.quantityIn) - Number(b.quantityTransferred) > 0.0001);
+  if (held) {
+    return fail(`${customer.name} still has ${held.product.name} deposited with the shop — settle or return it before deleting.`);
+  }
+  if (Number(stockUdhaar._sum.quantity ?? 0) > 0.0001) {
+    return fail(`The shop still owes ${customer.name} grain (Stock Udhaar) — settle it before deleting.`);
+  }
+  const openLoan = loans.some(
+    (l) => Number(l.quantity) - l.returns.reduce((s, r) => s + Number(r.quantityReturned) + Number(r.quantityPaid), 0) > 0.0001
+  );
+  if (openLoan) return fail(`${customer.name} has an open grain loan — settle it before deleting.`);
+
+  await db.customer.update({ where: { id }, data: { isDeleted: true } });
+  return ok(null);
+}
+
 export async function getCustomerStats() {
   const shopId = await getCurrentShopId();
 
   const [totalCustomers, withAccount, areasCovered] = await Promise.all([
-    db.customer.count({ where: { shopId } }),
-    db.customer.count({ where: { shopId, accounts: { some: {} } } }),
-    db.area.count({ where: { shopId, customers: { some: {} } } }),
+    db.customer.count({ where: { shopId, isDeleted: false } }),
+    db.customer.count({ where: { shopId, isDeleted: false, accounts: { some: {} } } }),
+    db.area.count({ where: { shopId, customers: { some: { isDeleted: false } } } }),
   ]);
 
   return { totalCustomers, withAccount, areasCovered };
@@ -460,6 +499,7 @@ export async function recordCustomerUdhaarPayment(
         paymentMethod: data.paymentMethod,
         bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
         isLongTerm: false,
+        reference: data.reference,
         notes: data.notes || null,
       },
     });
@@ -746,6 +786,7 @@ export async function createLongTermLoan(
     paymentMethod: data.paymentMethod,
     bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : undefined,
     dueDate: toLocalDateString(dueDate),
+    reference: data.reference,
     notes: data.notes,
     isLongTerm: true,
   });
@@ -1113,6 +1154,7 @@ export async function payShopUdhaar(input: PayShopUdhaarInput): Promise<ActionRe
           amount: data.amount,
           paymentMethod: data.paymentMethod,
           bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
+          reference: data.reference,
           notes: data.notes || "Paid customer back",
           isShopBorrowed: true,
         },

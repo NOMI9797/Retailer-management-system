@@ -36,12 +36,18 @@ export function EditGrainSettlementModal({
   const router = useRouter();
   const [quantity, setQuantity] = useState(String(initialQuantity));
   const [rate, setRate] = useState(String(initialRate));
-  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT" | "CREDIT">(initialPaymentMethod ?? "CASH");
-  const [bankAccountId, setBankAccountId] = useState(initialBankAccountId ?? "");
+  const [paymentMethod, setPaymentMethod] = useState<
+    "CASH" | "ACCOUNT" | "CREDIT"
+  >(initialPaymentMethod ?? "CASH");
+  const [bankAccountId, setBankAccountId] = useState(
+    initialBankAccountId ?? "",
+  );
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [details, setDetails] = useState<Awaited<ReturnType<typeof getGrainSettlementDetails>>>(null);
+  const [details, setDetails] =
+    useState<Awaited<ReturnType<typeof getGrainSettlementDetails>>>(null);
   const [deposit, setDeposit] = useState("");
+  const [reference, setReference] = useState("");
 
   useEffect(() => {
     getGrainSettlementDetails(accountTransactionId).then((d) => {
@@ -52,6 +58,7 @@ export function EditGrainSettlementModal({
         setRate(String(d.rate));
         if (d.paymentMethod) setPaymentMethod(d.paymentMethod);
         setBankAccountId(d.bankAccountId ?? "");
+        setReference(d.reference ?? "");
       }
     });
   }, [accountTransactionId]);
@@ -62,7 +69,10 @@ export function EditGrainSettlementModal({
   const parsedDeposit = Number(deposit) || 0;
   const otherSettled = details?.otherSettled ?? 0;
   const stillUnpriced = parsedDeposit - otherSettled - parsedQuantity;
-  const minDeposit = Math.max(details?.soldFromDeposit ?? 0, otherSettled + parsedQuantity);
+  const minDeposit = Math.max(
+    details?.soldFromDeposit ?? 0,
+    otherSettled + parsedQuantity,
+  );
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -75,6 +85,7 @@ export function EditGrainSettlementModal({
       rate: parsedRate,
       paymentMethod,
       bankAccountId: bankAccountId || undefined,
+      reference,
     });
     if (!result.success) {
       setError(result.error);
@@ -107,8 +118,15 @@ export function EditGrainSettlementModal({
                 required
               />
               {otherSettled > 0 && (
-                <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
-                  {otherSettled} {unitName} of it was bought in other settlements.
+                <p
+                  style={{
+                    margin: "4px 0 0",
+                    fontSize: 12,
+                    color: "var(--ink-muted)",
+                  }}
+                >
+                  {otherSettled} {unitName} of it was bought in other
+                  settlements.
                 </p>
               )}
             </div>
@@ -128,13 +146,25 @@ export function EditGrainSettlementModal({
             </div>
             <div className="field">
               <label>Agreed rate (per {unitName})</label>
-              <input type="number" min="0" step="any" value={rate} onChange={(e) => setRate(e.target.value)} required />
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={rate}
+                onChange={(e) => setRate(e.target.value)}
+                required
+              />
             </div>
           </div>
 
           <div className="field">
             <label>Pay via</label>
-            <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}>
+            <select
+              value={paymentMethod}
+              onChange={(e) =>
+                setPaymentMethod(e.target.value as typeof paymentMethod)
+              }
+            >
               <option value="CASH">Cash</option>
               <option value="ACCOUNT">Account/bank</option>
               <option value="CREDIT">Udhaar — shop owes customer</option>
@@ -142,7 +172,11 @@ export function EditGrainSettlementModal({
           </div>
 
           {paymentMethod === "ACCOUNT" && (
-            <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+            <BankAccountPicker
+              bankAccounts={bankAccounts}
+              value={bankAccountId}
+              onChange={setBankAccountId}
+            />
           )}
 
           <div className="settlement-summary">
@@ -162,7 +196,14 @@ export function EditGrainSettlementModal({
                 </div>
                 <div>
                   <span>Rate not settled</span>
-                  <strong style={{ color: stillUnpriced < 0 ? "var(--consigned-600)" : "var(--grain-600)" }}>
+                  <strong
+                    style={{
+                      color:
+                        stillUnpriced < 0
+                          ? "var(--consigned-600)"
+                          : "var(--grain-600)",
+                    }}
+                  >
                     {stillUnpriced} {unitName}
                   </strong>
                 </div>
@@ -174,11 +215,30 @@ export function EditGrainSettlementModal({
             </div>
           </div>
 
+          <div className="field">
+            <label>Reference</label>
+            <input
+              type="text"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="Slip no. / register page"
+              required
+            />
+          </div>
           <div className="modal-actions" style={{ alignItems: "center" }}>
-            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isSaving}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={onClose}
+              disabled={isSaving}
+            >
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary" disabled={isSaving}>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={isSaving}
+            >
               {isSaving ? "Saving…" : "Save"}
             </button>
           </div>

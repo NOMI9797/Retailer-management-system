@@ -281,6 +281,7 @@ export function ReceiveDealerPaymentForm({
   );
   const [bankAccountId, setBankAccountId] = useState("");
   const [notes, setNotes] = useState("");
+  const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -294,6 +295,7 @@ export function ReceiveDealerPaymentForm({
         amount: Number(amount),
         paymentMethod,
         bankAccountId: bankAccountId || undefined,
+        reference,
         notes: notes || undefined,
       });
       if (!result.success) {
@@ -344,6 +346,16 @@ export function ReceiveDealerPaymentForm({
         />
       )}
       <div className="field">
+        <label>Reference</label>
+        <input
+          type="text"
+          value={reference}
+          onChange={(e) => setReference(e.target.value)}
+          placeholder="Slip no. / register page"
+          required
+        />
+      </div>
+      <div className="field">
         <label>Notes (optional)</label>
         <input
           type="text"
@@ -393,7 +405,11 @@ export function ReceiveDealerPaymentModal({
       </button>
       {open && (
         <div className="modal-backdrop" onClick={() => setOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 600 }}>
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 600 }}
+          >
             <h2>Receive from {dealerName}</h2>
             <ReceiveDealerPaymentForm
               dealerId={dealerId}

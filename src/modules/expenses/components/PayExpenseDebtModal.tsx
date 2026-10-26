@@ -31,8 +31,11 @@ export function PayExpenseDebtModal({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState(String(remaining));
-  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT">("CASH");
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT">(
+    "CASH",
+  );
   const [bankAccountId, setBankAccountId] = useState("");
+  const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -47,7 +50,13 @@ export function PayExpenseDebtModal({
 
     setIsSaving(true);
     try {
-      const result = await payExpenseDebt({ expenseId, amount: parsedAmount, paymentMethod, bankAccountId: bankAccountId || undefined });
+      const result = await payExpenseDebt({
+        expenseId,
+        amount: parsedAmount,
+        paymentMethod,
+        bankAccountId: bankAccountId || undefined,
+        reference,
+      });
       if (!result.success) {
         setError(result.error);
         return;
@@ -65,7 +74,11 @@ export function PayExpenseDebtModal({
 
   return (
     <>
-      <button type="button" className="btn btn-ghost" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className="btn btn-ghost"
+        onClick={() => setOpen(true)}
+      >
         Mark as paid
       </button>
 
@@ -90,20 +103,47 @@ export function PayExpenseDebtModal({
                 </div>
                 <div className="field">
                   <label>Pay via</label>
-                  <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}>
+                  <select
+                    value={paymentMethod}
+                    onChange={(e) =>
+                      setPaymentMethod(e.target.value as typeof paymentMethod)
+                    }
+                  >
                     <option value="CASH">Cash</option>
                     <option value="ACCOUNT">Account/bank</option>
                   </select>
                 </div>
               </div>
               {paymentMethod === "ACCOUNT" && (
-                <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+                <BankAccountPicker
+                  bankAccounts={bankAccounts}
+                  value={bankAccountId}
+                  onChange={setBankAccountId}
+                />
               )}
+              <div className="field">
+                <label>Reference</label>
+                <input
+                  type="text"
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                  placeholder="Slip no. / register page"
+                  required
+                />
+              </div>
               <div className="modal-actions">
-                <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)}>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setOpen(false)}
+                >
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary" disabled={isSaving}>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={isSaving}
+                >
                   {isSaving ? "Recording…" : "Record payment"}
                 </button>
               </div>

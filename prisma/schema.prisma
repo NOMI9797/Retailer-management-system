@@ -143,6 +143,10 @@ model Customer {
   area      Area?    @relation(fields: [areaId], references: [id])
   notes     String?
   createdAt DateTime @default(now())
+  // Deleted from the Customers list (allowed only when nothing is owed
+  // either way): hidden from lists and pickers, but every past record
+  // keeps pointing at it so history and totals never change.
+  isDeleted Boolean  @default(false)
 
   accounts     CustomerAccount[]
   dailySales   DailySale[]
@@ -1071,6 +1075,8 @@ model ExpensePayment {
   bankAccountId String?
   bankAccount   BankAccount?  @relation(fields: [bankAccountId], references: [id])
   paidAt        DateTime      @default(now())
+  // Slip / register reference for the payment.
+  reference     String?
   notes         String?
 }
 

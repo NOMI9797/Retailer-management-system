@@ -4,7 +4,10 @@ import { useState } from "react";
 import { createGrainBatch } from "../actions";
 import { createDepositWithSettlement } from "@/modules/stock/actions";
 import { createCustomer } from "@/modules/customers/actions";
-import { CustomerPicker, type CustomerSelection } from "@/modules/daily-sales/components/CustomerPicker";
+import {
+  CustomerPicker,
+  type CustomerSelection,
+} from "@/modules/daily-sales/components/CustomerPicker";
 import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 import { showToast } from "@/components/shared/toastStore";
 import type { listAreas } from "@/modules/settings/areas.actions";
@@ -48,17 +51,23 @@ export function GrainBatchForm({
   bankAccounts?: { id: string; name: string }[];
   onSaved: () => void;
 }) {
-  const [owner, setOwner] = useState<Owner>(forCustomerId ? "CUSTOMER" : "SHOP");
+  const [owner, setOwner] = useState<Owner>(
+    forCustomerId ? "CUSTOMER" : "SHOP",
+  );
   const [settlement, setSettlement] = useState<Settlement>("LATER");
   // Search-or-create, same widget New Sale/Stock-from-customer already
   // use — replaces the old bespoke text-input + native listbox, which
   // was both visually inconsistent with the rest of the app and had
   // no way to add someone not already a customer.
-  const [customerSelection, setCustomerSelection] = useState<CustomerSelection | null>(null);
+  const [customerSelection, setCustomerSelection] =
+    useState<CustomerSelection | null>(null);
   const [quantityIn, setQuantityIn] = useState("");
   const [rate, setRate] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT" | "CREDIT">("CASH");
+  const [paymentMethod, setPaymentMethod] = useState<
+    "CASH" | "ACCOUNT" | "CREDIT"
+  >("CASH");
   const [bankAccountId, setBankAccountId] = useState("");
+  const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -109,6 +118,7 @@ export function GrainBatchForm({
           rate: Number(rate),
           paymentMethod,
           bankAccountId: bankAccountId || undefined,
+          reference,
         });
         if (!result.success) {
           setError(result.error);
@@ -118,7 +128,8 @@ export function GrainBatchForm({
       } else {
         const result = await createGrainBatch({
           productId,
-          ownerCustomerId: owner === "CUSTOMER" ? effectiveCustomerId : undefined,
+          ownerCustomerId:
+            owner === "CUSTOMER" ? effectiveCustomerId : undefined,
           quantityIn: Number(quantityIn),
           // Store-for-later means genuinely no rate — nothing is
           // priced at deposit time (Stock Management spec, section 2).
@@ -224,18 +235,41 @@ export function GrainBatchForm({
         <>
           <div className="field">
             <label>Pay via</label>
-            <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as typeof paymentMethod)}>
+            <select
+              value={paymentMethod}
+              onChange={(e) =>
+                setPaymentMethod(e.target.value as typeof paymentMethod)
+              }
+            >
               <option value="CASH">Cash</option>
               <option value="ACCOUNT">Account/bank</option>
               <option value="CREDIT">Udhaar — shop owes customer</option>
             </select>
           </div>
           {paymentMethod === "ACCOUNT" && (
-            <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
+            <BankAccountPicker
+              bankAccounts={bankAccounts}
+              value={bankAccountId}
+              onChange={setBankAccountId}
+            />
           )}
         </>
       )}
 
+      {sellingNow && (
+        <>
+          <div className="field">
+            <label>Reference</label>
+            <input
+              type="text"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="Slip no. / register page"
+              required
+            />
+          </div>
+        </>
+      )}
       <div className="modal-actions">
         <button type="submit" className="btn btn-primary" disabled={isSaving}>
           {isSaving ? "Saving…" : sellingNow ? "Record purchase" : "Add batch"}

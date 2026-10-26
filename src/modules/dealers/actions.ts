@@ -87,7 +87,7 @@ export async function getDealerBalances(type: "PRODUCTS" | "GRAIN") {
   const shopId = await getCurrentShopId();
 
   const dealers = await db.dealer.findMany({
-    where: { shopId, type },
+    where: { shopId, type, isDeleted: false },
     include: { account: true },
     orderBy: { name: "asc" },
   });
@@ -142,18 +142,26 @@ export async function deleteDealer(id: string): Promise<{ success: false; error:
   const shopId = await getCurrentShopId();
 
   const existing = await db.dealer.findFirst({
-    where: { id, shopId },
-    include: { account: true },
+    where: { id, shopId, isDeleted: false },
+    include: { account: { include: { transactions: true } } },
   });
   if (!existing) return { success: false, error: "Dealer not found" };
-  if (existing.isActive) {
-    return { success: false, error: "Deactivate this dealer first, then delete it." };
+  // Hidden, never removed — past purchases and sales keep their dealer.
+  // Only once nothing is open either way.
+  const sides = dealerUdhaarSides(existing.account?.transactions ?? []);
+  if (sides.shopOwes > 0.01) {
+    return { success: false, error: `The shop still owes ${existing.name} Rs ${sides.shopOwes.toLocaleString()} — pay it before deleting.` };
   }
-  if (existing.account && Number(existing.account.currentBalance) !== 0) {
-    return { success: false, error: "This dealer still has an outstanding Udhaar balance — settle it before deleting." };
+  if (sides.dealerOwes > 0.01) {
+    return { success: false, error: `${existing.name} still owes the shop Rs ${sides.dealerOwes.toLocaleString()} — clear it before deleting.` };
   }
+  const loans = await db.grainLoan.findMany({ where: { shopId, dealerId: id }, include: { returns: true } });
+  const openLoan = loans.some(
+    (l) => Number(l.quantity) - l.returns.reduce((s, r) => s + Number(r.quantityReturned) + Number(r.quantityPaid), 0) > 0.0001
+  );
+  if (openLoan) return { success: false, error: `${existing.name} has an open grain loan — settle it before deleting.` };
 
-  await db.dealer.update({ where: { id }, data: { isDeleted: true } });
+  await db.dealer.update({ where: { id }, data: { isActive: false, isDeleted: true } });
   invalidateShopCache(ENTITY, shopId);
   return { success: true, data: null };
 }
@@ -767,6 +775,7 @@ export async function payDealerDebt(input: PayDealerDebtInput) {
         amount: data.amount,
         paymentMethod: data.paymentMethod,
         bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
+        reference: data.reference,
         notes: data.notes || null,
       },
     });
@@ -1037,6 +1046,7 @@ export async function receiveDealerPayment(input: ReceiveDealerPaymentInput) {
         paymentMethod: data.paymentMethod,
         bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
         isDealerSale: true,
+        reference: data.reference,
         notes: data.notes || "Received from dealer",
       },
     });

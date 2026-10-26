@@ -4,6 +4,7 @@ import {
   getDealerUdhaarTotals,
 } from "@/modules/dealers/actions";
 import { formatMoney } from "@/lib/utils";
+import { DeleteDealerButton } from "@/modules/dealers/components/DeleteDealerButton";
 
 // Dealer → Accounts tab — every dealer's own running balance, both
 // PRODUCTS and GRAIN together, same look as the Customers list page
@@ -133,6 +134,7 @@ export async function DealerAccountsSection() {
                         >
                           View
                         </Link>
+                        <DeleteDealerButton dealerId={dealer.id} name={dealer.name} />
                       </div>
                     </td>
                   </tr>

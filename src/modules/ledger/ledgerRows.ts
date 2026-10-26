@@ -265,7 +265,7 @@ export async function collectLedgerRows(
       label: "Expense Udhaar paid",
       counterpartyName: payment.expense.description,
       counterpartyHref: "/dashboard/expenses",
-      detail: null,
+      detail: payment.reference ? `Ref: ${payment.reference}` : null,
       paymentMethod: payment.paymentMethod,
       amount: Number(payment.amount),
       saleId: null,
@@ -309,7 +309,7 @@ export async function collectLedgerRows(
               ...base,
               side: "CREDIT",
               label: "Received from dealer",
-              detail: null,
+              detail: refDetail,
               deleteRef: { kind: "DEALER_TRANSACTION", transactionId: txn.id },
             }
           : {
@@ -323,7 +323,7 @@ export async function collectLedgerRows(
       rows.push({
         ...base,
         label: "Paid dealer",
-        detail: null,
+        detail: refDetail,
         deleteRef: { kind: "DEALER_TRANSACTION", transactionId: txn.id },
       });
     } else if (txn.isSettledPurchase || txn.notes?.startsWith("Purchased ")) {
