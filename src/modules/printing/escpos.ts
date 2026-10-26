@@ -1,5 +1,7 @@
 import { formatDate, formatTime } from "@/lib/utils";
 import type { ReceiptHeader } from "./receiptHeader";
+import type { LedgerReceipt, LedgerReceiptBalance } from "@/modules/ledger-receipt/actions";
+import { receiptDetailLines, receiptLabel, receiptPayment } from "@/modules/ledger-receipt/labels";
 
 // 58 mm paper at the printer's standard font fits 32 characters a line;
 // double-width text halves that.
@@ -78,14 +80,19 @@ function twoColumns(left: string, right: string) {
 
 const divider = "-".repeat(LINE_WIDTH);
 
-export function buildReceiptEscPos(receipt: PrintableReceipt, header: ReceiptHeader): string {
+// Shop name, address and phone, centred — the top of every slip.
+function shopHeader(header: ReceiptHeader): string[] {
   const out: string[] = [INIT, ALIGN_CENTER];
-
   out.push(BOLD_ON, SIZE_DOUBLE);
   for (const line of wrap(header.shopName.toUpperCase(), DOUBLE_WIDTH)) out.push(`${line}\n`);
   out.push(SIZE_NORMAL, BOLD_OFF);
   for (const line of header.addressLines.flatMap((l) => (l.trim() ? wrap(l, LINE_WIDTH) : []))) out.push(`${line}\n`);
   if (header.phone.trim()) out.push(`${ascii(header.phone.trim())}\n`);
+  return out;
+}
+
+export function buildReceiptEscPos(receipt: PrintableReceipt, header: ReceiptHeader): string {
+  const out = shopHeader(header);
 
   out.push(ALIGN_LEFT, `${divider}\n`);
   out.push(BOLD_ON, `Receipt #${receipt.receiptNumber}\n`, BOLD_OFF);
@@ -114,5 +121,105 @@ export function buildReceiptEscPos(receipt: PrintableReceipt, header: ReceiptHea
   if (header.footer.trim()) out.push(ALIGN_CENTER, `${ascii(header.footer.trim())}\n`, ALIGN_LEFT);
   out.push(feed(4));
 
+  return out.join("");
+}
+
+// A customer's ledger receipt, laid out to read top to bottom without
+// help: who and which dates; the balance on the first day; every entry
+// numbered, under its day, each with a plain heading ("Shop paid back
+// customer"), its details one per line and its amount on a line of its
+// own; the balance on the last day; and the net — who owes whom — in
+// large print.
+export function buildLedgerReceiptEscPos(receipt: LedgerReceipt, header: ReceiptHeader): string {
+  const out = shopHeader(header);
+  const line = (text: string) => out.push(`${ascii(text)}\n`);
+  const wrapped = (text: string, indent = "") => {
+    for (const l of wrap(text, LINE_WIDTH - indent.length)) line(`${indent}${l}`);
+  };
+  const bold = (fn: () => void) => {
+    out.push(BOLD_ON);
+    fn();
+    out.push(BOLD_OFF);
+  };
+  const heavy = "=".repeat(LINE_WIDTH);
+  const amountLine = (amount: string) => line(" ".repeat(Math.max(LINE_WIDTH - amount.length, 0)) + amount);
+
+  out.push(ALIGN_LEFT);
+  line(heavy);
+  out.push(ALIGN_CENTER);
+  bold(() => line("LEDGER RECEIPT"));
+  out.push(ALIGN_LEFT);
+  line(heavy);
+  wrapped(`Customer: ${receipt.customer.name}`);
+  line(`From:     ${formatDate(receipt.fromDate)}`);
+  line(`To:       ${formatDate(receipt.toDate)}`);
+  line(heavy);
+
+  const balance = (title: string, b: LedgerReceiptBalance) => {
+    bold(() => line(title));
+    line(twoColumns(" Customer owes shop", money(b.customerOwes)));
+    line(twoColumns(" Shop owes customer", money(b.shopOwes)));
+    for (const g of b.grainLoans) {
+      if (g.lent > 0) {
+        line(" Grain customer owes shop:");
+        line(`   ${quantity(g.lent)} ${g.unitName} ${g.productName}`);
+      }
+      if (g.borrowed > 0) {
+        line(" Grain shop owes customer:");
+        line(`   ${quantity(g.borrowed)} ${g.unitName} ${g.productName}`);
+      }
+    }
+  };
+
+  balance(`BALANCE ON ${formatDate(receipt.fromDate)}`, receipt.opening);
+  line("(before these entries)");
+  line(heavy);
+
+  if (receipt.entries.length === 0) {
+    line("No entries in these dates.");
+    line(heavy);
+  }
+  let day = "";
+  receipt.entries.forEach((entry, i) => {
+    const entryDay = formatDate(entry.date);
+    if (entryDay !== day) {
+      day = entryDay;
+      bold(() => line(`--- ${entryDay} ${"-".repeat(Math.max(LINE_WIDTH - entryDay.length - 5, 0))}`));
+    } else {
+      line(divider);
+    }
+    bold(() => wrapped(`${i + 1}. ${receiptLabel(entry.label).toUpperCase()}`));
+    for (const item of entry.items) {
+      wrapped(`${item.productName.trim()}: ${quantity(item.quantity)} ${item.unitName} x ${money(item.price)}`, "   ");
+    }
+    for (const detail of receiptDetailLines(entry.detail)) wrapped(detail, "   ");
+    const payment = receiptPayment(entry);
+    if (payment) wrapped(payment, "   ");
+    if (entry.stockOnly) line("   (grain only - no money)");
+    else bold(() => amountLine(money(entry.amount)));
+  });
+  if (receipt.entries.length > 0) line(heavy);
+
+  balance(`BALANCE ON ${formatDate(receipt.toDate)}`, receipt.closing);
+  line("(after these entries)");
+  line(heavy);
+
+  const net = receipt.closing.customerOwes - receipt.closing.shopOwes;
+  out.push(ALIGN_CENTER);
+  bold(() => {
+    line("NET BALANCE");
+    if (Math.abs(net) < 0.01) line("ALL SETTLED");
+    else {
+      line(net > 0 ? "CUSTOMER OWES SHOP" : "SHOP OWES CUSTOMER");
+      out.push(SIZE_DOUBLE);
+      line(money(Math.abs(net)));
+      out.push(SIZE_NORMAL);
+    }
+  });
+  out.push(ALIGN_LEFT);
+  line(heavy);
+
+  if (header.footer.trim()) out.push(ALIGN_CENTER, `${ascii(header.footer.trim())}\n`, ALIGN_LEFT);
+  out.push(feed(4));
   return out.join("");
 }

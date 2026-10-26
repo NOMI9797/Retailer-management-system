@@ -1,3 +1,4 @@
+import { LedgerReceiptModal } from "@/modules/ledger-receipt/components/LedgerReceiptModal";
 import { Suspense } from "react";
 import Link from "next/link";
 import {
@@ -188,6 +189,7 @@ async function CustomerDetail({ id }: { id: string }) {
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          <LedgerReceiptModal customer={{ id: customer.id, name: customer.name }} />
           <ImportUdhaarModal
             customerId={customer.id}
             customerName={customer.name}

@@ -38,6 +38,7 @@ const ICON = {
   clock: "M12 21a9 9 0 100-18 9 9 0 000 18zM12 7v5l3 2",
   book: "M4 4h10a4 4 0 014 4v12H8a4 4 0 01-4-4V4zM4 16a4 4 0 014-4h10",
   plusBox: "M4 4h16v16H4zM12 8v8M8 12h8",
+  printer: "M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6z",
 };
 
 export const ENTRY_SIDES: EntrySide[] = [
@@ -204,4 +205,19 @@ export const ENTRY_SIDES: EntrySide[] = [
   },
 ];
 
-export const ENTRIES: EntryDef[] = ENTRY_SIDES.flatMap((side) => side.groups.flatMap((group) => group.entries));
+// Not entries — nothing is recorded — but reached the same way: a tile
+// under the Credit / Debit columns, and by search.
+export const REPORT_ENTRIES: EntryDef[] = [
+  {
+    tab: "ledger-receipt",
+    title: "Ledger receipt",
+    description: "Print a customer's record for chosen dates.",
+    keywords: "ledger receipt statement print history hisaab khata record report",
+    icon: ICON.printer,
+  },
+];
+
+export const ENTRIES: EntryDef[] = [
+  ...ENTRY_SIDES.flatMap((side) => side.groups.flatMap((group) => group.entries)),
+  ...REPORT_ENTRIES,
+];

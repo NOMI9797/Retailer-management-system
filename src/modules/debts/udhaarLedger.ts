@@ -65,12 +65,19 @@ function isOverdueDate(dueDate: Date | null, now: number) {
   return dueDate !== null && dueDate.getTime() + GRACE_PERIOD_DAYS * MS_PER_DAY < now;
 }
 
-export async function loadCustomerUdhaar(shopId: string, customerId?: string): Promise<Map<string, CustomerUdhaar>> {
+// asOf: only entries up to that moment — the balance as it stood then
+// (a ledger receipt's opening/closing balance). Omitted = today.
+export async function loadCustomerUdhaar(
+  shopId: string,
+  customerId?: string,
+  asOf?: Date
+): Promise<Map<string, CustomerUdhaar>> {
   const [txns, udhaarAccounts] = await Promise.all([
     db.accountTransaction.findMany({
       where: {
         isShopBorrowed: false,
         quantity: null,
+        transactionDate: asOf ? { lte: asOf } : undefined,
         customerAccount: { customerId: customerId || undefined, customer: { shopId } },
       },
       include: {
@@ -225,11 +232,13 @@ export type ShopOwesCustomer = {
 
 export async function loadShopOwesCustomer(
   shopId: string,
-  customerId?: string
+  customerId?: string,
+  asOf?: Date
 ): Promise<Map<string, ShopOwesCustomer>> {
   const txns = await db.accountTransaction.findMany({
     where: {
       customerAccount: { customerId: customerId || undefined, customer: { shopId } },
+      transactionDate: asOf ? { lte: asOf } : undefined,
       OR: [
         { isShopBorrowed: true },
         { isShopBorrowed: false, quantity: { not: null }, direction: "OUT", paymentMethod: "CREDIT" },

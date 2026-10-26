@@ -37,6 +37,7 @@ model Shop {
   userShops           UserShop[]
   receipts            Receipt[]
   grainLoans          GrainLoan[]
+  ledgerReceipts      SavedLedgerReceipt[]
   grainLoanReturns    GrainLoanReturn[]
 }
 
@@ -153,6 +154,7 @@ model Customer {
   ownedBatches GrainBatch[]
   stockUdhaars StockUdhaarEntry[]
   grainLoans   GrainLoan[]
+  ledgerReceipts SavedLedgerReceipt[]
 }
 
 // ── Dealer ───────────────────────────────────────────────
@@ -887,6 +889,26 @@ model Receipt {
 
   @@unique([shopId, receiptNumber])
   @@unique([dailySaleId, visitAt])
+}
+
+// A customer's ledger receipt as it was created (Receipts → Ledger
+// receipts): the whole receipt — balances and entries — kept as it
+// stood then, like a printed slip, so later edits don't change it.
+model SavedLedgerReceipt {
+  id            String   @id @default(uuid())
+  shopId        String
+  shop          Shop     @relation(fields: [shopId], references: [id])
+  receiptNumber Int
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  fromDate      String
+  toDate        String
+  // The LedgerReceipt (modules/ledger-receipt/actions.ts) as created.
+  data          Json
+  createdAt     DateTime @default(now())
+
+  @@unique([shopId, receiptNumber])
+  @@index([shopId, createdAt])
 }
 
 model DailySaleItem {

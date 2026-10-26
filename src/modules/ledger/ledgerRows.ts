@@ -86,7 +86,10 @@ export async function collectLedgerRows(
           linkedSaleId: null,
           customerAccount: { customer: customerMatch },
         },
-        include: { customerAccount: { include: { customer: true } } },
+        include: {
+          customerAccount: { include: { customer: true } },
+          linkedGrainBatch: { include: { product: { include: { unit: true } } } },
+        },
       }),
       db.grainSaleCreditPayment.findMany({
         where: {
@@ -195,10 +198,20 @@ export async function collectLedgerRows(
           : { ...base, side: "DEBIT", label: "Repaid to customer", deleteRef: asTxn }
       );
     } else if (txn.linkedGrainBatchId) {
+      const batch = txn.linkedGrainBatch;
       rows.push({
         ...base,
         side: "DEBIT",
         label: "Grain bought from customer",
+        // What was bought, e.g. "20 Kgs Cotton @ 80 · Ref: 12".
+        detail: batch
+          ? [
+              `${Number(txn.quantity ?? batch.quantityIn)} ${batch.product.unit.name} ${batch.product.name} @ ${Number(batch.rate ?? 0)}`,
+              base.detail,
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : base.detail,
         deleteRef: { kind: "GRAIN_SETTLEMENT", transactionId: txn.id },
       });
     } else if (txn.direction === "IN" && txn.quantity !== null) {

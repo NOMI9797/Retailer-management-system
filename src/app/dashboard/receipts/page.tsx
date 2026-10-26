@@ -3,12 +3,18 @@ import { PageLoader } from "@/components/shared/PageLoader";
 import { ReceiptsDatePicker } from "./ReceiptsDatePicker";
 import { ReceiptsListSection } from "./ReceiptsListSection";
 import { PrinterPicker } from "@/modules/printing/components/PrinterPicker";
-import { todayDateString, type ReceiptsSearchParams } from "./searchParamsHref";
+import { LedgerReceiptsSection } from "./LedgerReceiptsSection";
+import Link from "next/link";
+import {
+  buildReceiptsHref,
+  todayDateString,
+  type ReceiptsSearchParams,
+} from "./searchParamsHref";
 
-// One day's receipts (Daily Sales only, v1) — every visit that
+// One day's receipts, in two tabs: Sale receipts — every visit that
 // generated a receipt, with Edit/Delete scoped to just that one
 // receipt (see updateReceipt/deleteReceipt), and a drill-down to full
-// detail. The eventual printer integration hangs off the detail page.
+// detail — and Ledger receipts created that day.
 export default async function ReceiptsPage({
   searchParams,
 }: {
@@ -16,6 +22,7 @@ export default async function ReceiptsPage({
 }) {
   const params = await searchParams;
   const date = params.date || todayDateString();
+  const ledger = params.tab === "ledger";
 
   return (
     <div>
@@ -31,9 +38,38 @@ export default async function ReceiptsPage({
         <PrinterPicker />
       </div>
 
-      <Suspense key={date} fallback={<PageLoader label="Loading receipts…" />}>
-        <ReceiptsListSection date={date} />
-      </Suspense>
+      {/* Sale receipts (one per visit) and Ledger receipts (a
+          customer's record for chosen dates, made with Create receipt). */}
+      <div className="tabs" style={{ marginTop: 8 }}>
+        <Link
+          className={`tab${ledger ? "" : " active"}`}
+          href={buildReceiptsHref(params, { tab: undefined })}
+        >
+          Sale receipts
+        </Link>
+        <Link
+          className={`tab${ledger ? " active" : ""}`}
+          href={buildReceiptsHref(params, { tab: "ledger" })}
+        >
+          Ledger receipts
+        </Link>
+      </div>
+
+      {ledger ? (
+        <Suspense
+          key={`ledger:${date}`}
+          fallback={<PageLoader label="Loading ledger receipts…" />}
+        >
+          <LedgerReceiptsSection date={date} />
+        </Suspense>
+      ) : (
+        <Suspense
+          key={date}
+          fallback={<PageLoader label="Loading receipts…" />}
+        >
+          <ReceiptsListSection date={date} />
+        </Suspense>
+      )}
     </div>
   );
 }

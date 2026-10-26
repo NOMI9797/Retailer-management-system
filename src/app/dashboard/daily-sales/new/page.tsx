@@ -16,7 +16,8 @@ import { PageLoader } from "@/components/shared/PageLoader";
 import { formatMoney } from "@/lib/utils";
 import { EntryFormHost } from "./EntryFormHost";
 import { EntrySearch } from "./EntrySearch";
-import { ENTRIES, ENTRY_SIDES, type EntryDef } from "./entries";
+import { ENTRIES, ENTRY_SIDES, REPORT_ENTRIES, type EntryDef } from "./entries";
+import { LedgerReceiptPicker } from "@/modules/ledger-receipt/components/LedgerReceiptPicker";
 import { buildNewSaleHref, type NewSalePageSearchParams } from "./searchParamsHref";
 
 // The person picked first (search box → ?customer / ?dealer), resolved
@@ -100,6 +101,15 @@ export default async function NewEntryPage({
             </section>
           ))}
         </div>
+
+        <section className="panel" style={{ marginTop: 16, padding: 16 }}>
+          <h3 className="entry-group-title">Print</h3>
+          <div className="entry-grid">
+            {REPORT_ENTRIES.map((e) => (
+              <EntryTile key={e.tab} entry={e} side="report" href={buildNewSaleHref({ tab: e.tab, ...personParams })} />
+            ))}
+          </div>
+        </section>
       </div>
     );
   }
@@ -200,6 +210,7 @@ async function PersonCard({ person }: { person: Person }) {
     tiles.push({ tab: "borrow-from-customer", side: "credit" });
     tiles.push({ tab: "long-term-loan", side: "debit" });
     tiles.push({ tab: "import-udhaar", side: "debit" });
+    tiles.push({ tab: "ledger-receipt", side: "report" });
   } else {
     const sides = (await listDealerUdhaarSides()).find((d) => d.id === person.id);
     theyOwe = sides?.dealerOwes ?? 0;
@@ -360,6 +371,16 @@ async function EntryBody({ tab, person }: { tab: string; person: Person | null }
           bankAccounts={bankAccounts}
         />
       );
+    }
+    case "ledger-receipt": {
+      if (dealerId) {
+        return (
+          <p style={{ color: "var(--ink-muted)", fontSize: 13.5 }}>
+            Ledger receipts are for customers. Pick a customer instead.
+          </p>
+        );
+      }
+      return <LedgerReceiptPicker areas={await listAreas()} initialCustomer={customer} />;
     }
     case "grain-loan-return": {
       const [loans, bankAccounts] = await Promise.all([
