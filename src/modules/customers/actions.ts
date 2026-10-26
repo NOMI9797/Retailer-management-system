@@ -66,8 +66,10 @@ export async function createCustomer(input: CustomerInput) {
   }
   const accountTypeIds = Array.from(new Set([regularType.id, ...data.accountTypeIds]));
 
+  // A deleted (hidden) customer with the same name doesn't count —
+  // matching it would hand back a record the list never shows.
   const existing = await db.customer.findFirst({
-    where: { shopId, name: { equals: data.name, mode: "insensitive" } },
+    where: { shopId, isDeleted: false, name: { equals: data.name, mode: "insensitive" } },
     include: { accounts: true },
   });
 
