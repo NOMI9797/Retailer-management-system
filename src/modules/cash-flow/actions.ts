@@ -193,6 +193,8 @@ export async function getCashFlowOverview(dateStr: string, period: CashFlowPerio
 
   const byAccount = new Map<string, { name: string; in: number; out: number }>();
   for (const r of bank.rows) {
+    // An imported opening balance isn't money that moved that day.
+    if (r.isOpeningImport) continue;
     const acc = byAccount.get(r.bankAccountId) ?? { name: r.bankAccountName, in: 0, out: 0 };
     if (r.direction === "IN") acc.in += r.amount;
     else acc.out += r.amount;

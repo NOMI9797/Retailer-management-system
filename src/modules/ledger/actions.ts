@@ -47,7 +47,9 @@ export async function listDailyLedger(options?: {
 
   const credit = filtered.filter((r) => r.side === "CREDIT");
   const debit = filtered.filter((r) => r.side === "DEBIT");
-  const sum = (list: LedgerRow[]) => list.reduce((s, r) => s + r.amount, 0);
+  // A bank → cash withdrawal moves money between the shop's own pockets;
+  // it's listed but not added to the totals.
+  const sum = (list: LedgerRow[]) => list.reduce((s, r) => s + (r.transfer ? 0 : r.amount), 0);
 
   return { fromDate, toDate, credit, debit, creditTotal: sum(credit), debitTotal: sum(debit) };
 }

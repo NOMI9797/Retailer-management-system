@@ -597,6 +597,7 @@ export async function createDealerGrainPurchase(input: DealerGrainPurchaseInput)
         dealerId: data.dealerId,
         quantityIn: data.quantity,
         rate: data.rate,
+        reference: data.reference,
       },
     });
 
@@ -608,6 +609,7 @@ export async function createDealerGrainPurchase(input: DealerGrainPurchaseInput)
           direction: "OUT",
           amount,
           paymentMethod: "CREDIT",
+          reference: data.reference,
           notes: `Purchased ${data.quantity} ${product.name} @ ${data.rate}`,
         },
       });
@@ -629,6 +631,7 @@ export async function createDealerGrainPurchase(input: DealerGrainPurchaseInput)
           paymentMethod: data.paymentMethod,
           bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
           isSettledPurchase: true,
+          reference: data.reference,
           notes: `Purchased ${data.quantity} ${product.name} @ ${data.rate}`,
         },
       });

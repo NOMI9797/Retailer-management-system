@@ -9,8 +9,10 @@ import { parseLocalDateStart, parseLocalDateEnd } from "@/lib/utils";
 import {
   bankAccountSchema,
   updateBankAccountSchema,
+  bankEntrySchema,
   type BankAccountInput,
   type UpdateBankAccountInput,
+  type BankEntryInput,
 } from "./schema";
 import { ok, fail, type ActionResult } from "@/lib/actionResult";
 import { deleteSaleVisit, deleteGrainSaleItemCreditPayment } from "@/modules/daily-sales/actions";
@@ -187,6 +189,8 @@ export type BankAccountRowDeleteRef =
   | { kind: "EXPENSE_PAYMENT"; paymentId: string }
   | { kind: "DEALER_TRANSACTION"; transactionId: string }
   | { kind: "GRAIN_LOAN_RETURN"; returnId: string }
+  // Imported opening balance / cash withdrawn (Bank accounts page).
+  | { kind: "BANK_ENTRY"; entryId: string }
   // Grain-only rows on the Daily sales page (never bank rows).
   | { kind: "GRAIN_DEPOSIT"; batchId: string }
   | { kind: "GRAIN_LOAN"; loanId: string };
@@ -200,6 +204,9 @@ export type BankAccountTransactionRow = {
   amount: number;
   source: string;
   description: string;
+  // An imported opening balance: the bank's money, but not money that
+  // came in that day — Cash flow leaves it out.
+  isOpeningImport?: boolean;
   // Null where the app has no safe reversal (a grain purchase from a
   // dealer — deleting its payment alone would leave the grain behind).
   deleteRef: BankAccountRowDeleteRef | null;
@@ -259,6 +266,7 @@ export async function listBankAccountTransactions(options?: {
     dealerPurchases,
     dealerTxns,
     grainLoanReturns,
+    bankEntries,
   ] = await Promise.all([
     db.accountTransaction.findMany({
       where: { ...bankAccountFilter, transactionDate: dateFilter, customerAccount: { customer: { shopId } } },
@@ -314,6 +322,10 @@ export async function listBankAccountTransactions(options?: {
         bankAccount: true,
         grainLoan: { include: { product: true, customer: true, dealer: true } },
       },
+    }),
+    db.bankEntry.findMany({
+      where: { shopId, entryDate: dateFilter, bankAccountId: options?.bankAccountId || undefined },
+      include: { bankAccount: true },
     }),
   ]);
 
@@ -494,6 +506,22 @@ export async function listBankAccountTransactions(options?: {
     });
   }
 
+  for (const entry of bankEntries) {
+    const opening = entry.kind === "OPENING";
+    rows.push({
+      id: entry.id,
+      date: entry.entryDate,
+      bankAccountId: entry.bankAccount.id,
+      bankAccountName: entry.bankAccount.name,
+      direction: opening ? "IN" : "OUT",
+      amount: Number(entry.amount),
+      source: opening ? "Opening balance imported" : "Withdrawn to cash",
+      description: `Ref: ${entry.reference}${entry.notes ? ` · ${entry.notes}` : ""}`,
+      isOpeningImport: opening,
+      deleteRef: { kind: "BANK_ENTRY", entryId: entry.id },
+    });
+  }
+
   rows.sort((a, b) => b.date.getTime() - a.date.getTime());
 
   const totalCount = rows.length;
@@ -568,5 +596,62 @@ export async function deleteBankAccountRow(ref: BankAccountRowDeleteRef): Promis
       if (!result.success) return fail(result.error);
       return ok(null);
     }
+    case "BANK_ENTRY":
+      return deleteBankEntry(ref.entryId);
   }
+}
+
+// Bank accounts page → Import / Withdraw. OPENING adds money that was
+// already in the bank (balance up, not the day's money in); WITHDRAW
+// takes cash out into the drawer (bank down, cash up — refused if the
+// account doesn't have it, like every other payment out).
+export async function createBankEntry(input: BankEntryInput): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+  const parsed = bankEntrySchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the details");
+  const data = parsed.data;
+
+  const account = await db.bankAccount.findFirst({ where: { id: data.bankAccountId, shopId } });
+  if (!account) return fail("Bank account not found");
+
+  try {
+    await db.$transaction(async (tx) => {
+      await postToBankAccount(tx, account.id, data.kind === "OPENING" ? data.amount : -data.amount);
+      await tx.bankEntry.create({
+        data: {
+          shopId,
+          bankAccountId: account.id,
+          kind: data.kind,
+          amount: data.amount,
+          entryDate: data.entryDate ? parseLocalDateStart(data.entryDate) : new Date(),
+          reference: data.reference,
+          notes: data.notes || null,
+        },
+      });
+    });
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : "Couldn't save the entry.");
+  }
+  invalidateShopCache(ENTITY, shopId);
+  return ok(null);
+}
+
+// Undoes a hand-entered bank movement: an import comes back off the
+// balance (refused if that money has since been spent), a withdrawal
+// goes back into the bank.
+export async function deleteBankEntry(id: string): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+  const entry = await db.bankEntry.findFirst({ where: { id, shopId } });
+  if (!entry) return fail("Entry not found");
+  try {
+    await db.$transaction(async (tx) => {
+      const amount = Number(entry.amount);
+      await postToBankAccount(tx, entry.bankAccountId, entry.kind === "OPENING" ? -amount : amount);
+      await tx.bankEntry.delete({ where: { id: entry.id } });
+    });
+  } catch (err) {
+    return fail(err instanceof Error ? err.message : "Couldn't delete the entry.");
+  }
+  invalidateShopCache(ENTITY, shopId);
+  return ok(null);
 }

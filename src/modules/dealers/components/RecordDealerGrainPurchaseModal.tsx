@@ -37,6 +37,7 @@ export function DealerGrainPurchaseForm({
   const [rate, setRate] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT" | "CREDIT">("CASH");
   const [bankAccountId, setBankAccountId] = useState("");
+  const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -53,6 +54,7 @@ export function DealerGrainPurchaseForm({
       rate: Number(rate),
       paymentMethod,
       bankAccountId: bankAccountId || undefined,
+      reference,
     });
     setIsSaving(false);
     if (response && "error" in response && !("data" in response)) {
@@ -136,6 +138,17 @@ export function DealerGrainPurchaseForm({
       {paymentMethod === "ACCOUNT" && (
         <BankAccountPicker bankAccounts={bankAccounts} value={bankAccountId} onChange={setBankAccountId} />
       )}
+
+      <div className="field">
+        <label>Reference</label>
+        <input
+          type="text"
+          value={reference}
+          onChange={(e) => setReference(e.target.value)}
+          placeholder="Slip no. / register page"
+          required
+        />
+      </div>
 
       <div className="modal-actions">
         {onCancel && (

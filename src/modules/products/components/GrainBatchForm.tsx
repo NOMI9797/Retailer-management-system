@@ -78,6 +78,7 @@ export function GrainBatchForm({
     setRate("");
     setCustomerSelection(null);
     setSettlement("LATER");
+    setReference("");
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -134,6 +135,7 @@ export function GrainBatchForm({
           // Store-for-later means genuinely no rate — nothing is
           // priced at deposit time (Stock Management spec, section 2).
           rate: owner === "CUSTOMER" ? undefined : Number(rate),
+          reference,
         });
         if (!result.success) {
           setError(result.error);
@@ -256,20 +258,17 @@ export function GrainBatchForm({
         </>
       )}
 
-      {sellingNow && (
-        <>
-          <div className="field">
-            <label>Reference</label>
-            <input
-              type="text"
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-              placeholder="Slip no. / register page"
-              required
-            />
-          </div>
-        </>
-      )}
+      {/* Every way grain comes in carries a slip / register reference. */}
+      <div className="field">
+        <label>Reference</label>
+        <input
+          type="text"
+          value={reference}
+          onChange={(e) => setReference(e.target.value)}
+          placeholder="Slip no. / register page"
+          required
+        />
+      </div>
       <div className="modal-actions">
         <button type="submit" className="btn btn-primary" disabled={isSaving}>
           {isSaving ? "Saving…" : sellingNow ? "Record purchase" : "Add batch"}

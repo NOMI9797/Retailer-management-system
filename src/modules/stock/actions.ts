@@ -289,6 +289,7 @@ export async function createTransferPurchase(
         quantityIn: data.quantity,
         rate: data.rate,
         sourceBatchId: sourceBatch.id,
+        reference: data.reference,
       },
     });
 
@@ -365,6 +366,7 @@ export async function createDepositWithSettlement(
         ownerCustomerId: null,
         quantityIn: data.quantity,
         rate: data.rate,
+        reference: data.reference,
         // No sourceBatchId — there's no customer batch to trace back
         // to, since the deposit and the purchase are the same event
         // here (see createTransferPurchase's sourceBatchId comment
@@ -1145,6 +1147,7 @@ export async function getCustomerGrainDeposits(customerId: string) {
         quantityTransferred: Number(batch.quantityTransferred),
         rate: batch.rate !== null ? Number(batch.rate) : null,
         receivedAt: batch.receivedAt,
+        reference: batch.reference,
         product: { id: batch.product.id, name: batch.product.name, unitName: batch.product.unit.name },
         ...summarizeSettlements(batch, batch.transferredBatches),
         // Unsettled grain given back to the customer as it is.
@@ -1169,6 +1172,7 @@ export async function getCustomerGrainDeposits(customerId: string) {
             quantityTransferred: 0,
             rate,
             receivedAt: b.receivedAt,
+            reference: b.reference ?? txn.reference,
             product: { id: b.product.id, name: b.product.name, unitName: b.product.unit.name },
             settlements: [
               {
@@ -1243,6 +1247,7 @@ export async function listCustomerBatchesForProduct(productId: string) {
       quantityIn: Number(batch.quantityIn),
       quantityTransferred: Number(batch.quantityTransferred),
       receivedAt: batch.receivedAt,
+      reference: batch.reference,
       ...summarizeSettlements(batch, batch.transferredBatches),
     })),
     ...settleNowPayments
@@ -1258,6 +1263,7 @@ export async function listCustomerBatchesForProduct(productId: string) {
           quantityIn: quantity,
           quantityTransferred: 0,
           receivedAt: b.receivedAt,
+          reference: b.reference ?? txn.reference,
           settlements: [
             {
               batchId: b.id,
@@ -1298,6 +1304,8 @@ export type GrainLedgerRow = {
   // e.g. "Cash", "Bank", "Udhaar", "Part Udhaar", "Mixed".
   payment: string;
   paymentTone: "cash" | "account" | "credit" | "mixed";
+  // Slip / register reference, where the entry has one.
+  reference?: string | null;
 };
 
 const METHOD_LABEL: Record<string, { label: string; tone: GrainLedgerRow["paymentTone"] }> = {
@@ -1400,6 +1408,7 @@ export async function listGrainLedger(productId: string) {
         amount: quantity * rate,
         payment: "Stock only",
         paymentTone: "mixed",
+        reference: batch.reference,
       };
     })
   );
@@ -1420,6 +1429,7 @@ export async function listGrainLedger(productId: string) {
         amount: Number(txn.amount),
         payment: pay.label,
         paymentTone: pay.tone,
+        reference: txn.reference,
       };
     }),
     ...dealerBatches.map((batch) => {
@@ -1447,6 +1457,7 @@ export async function listGrainLedger(productId: string) {
         amount,
         payment: pay.label,
         paymentTone: pay.tone,
+        reference: batch.reference ?? paymentRow?.reference,
       };
     }),
   ];

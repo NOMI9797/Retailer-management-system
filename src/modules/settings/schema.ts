@@ -86,3 +86,16 @@ export const updateBankAccountSchema = z.object({
   isActive: z.boolean().optional(),
 });
 export type UpdateBankAccountInput = z.infer<typeof updateBankAccountSchema>;
+
+// A bank movement entered by hand: OPENING = money already in the bank
+// before it was tracked here; WITHDRAW = cash taken out into the drawer.
+export const bankEntrySchema = z.object({
+  bankAccountId: z.string().uuid("Select a bank account"),
+  kind: z.enum(["OPENING", "WITHDRAW"]),
+  amount: z.number().positive("Amount must be positive"),
+  // "YYYY-MM-DD" — defaults to today.
+  entryDate: z.string().optional(),
+  reference: z.string().trim().min(1, "Enter a reference"),
+  notes: z.string().optional(),
+});
+export type BankEntryInput = z.infer<typeof bankEntrySchema>;

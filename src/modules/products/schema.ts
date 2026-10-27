@@ -89,6 +89,8 @@ export const grainBatchSchema = z.object({
   ownerCustomerId: z.string().uuid().optional(),
   quantityIn: z.number().positive("Quantity received must be positive"),
   rate: z.number().positive("Rate must be positive").optional(),
+  // Slip / register reference, required whenever grain comes in.
+  reference: z.string().trim().min(1, "Enter a reference"),
 });
 export type GrainBatchInput = z.infer<typeof grainBatchSchema>;
 

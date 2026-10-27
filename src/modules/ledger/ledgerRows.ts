@@ -32,6 +32,9 @@ export type LedgerRow = {
   // quantity is in detail. They sit on the side the grain moves —
   // Credit when it comes in, Debit when it goes out.
   stockOnly?: boolean;
+  // Cash taken out of a bank into the drawer: cash in AND bank out by
+  // the same amount — the shop's total money doesn't change.
+  transfer?: boolean;
   // How the money was paid when a row mixes methods (a sale paid part
   // cash, part bank, part Udhaar). Absent means all of amount went by
   // paymentMethod.
@@ -74,7 +77,7 @@ export async function collectLedgerRows(
   };
   const none = Promise.resolve([] as never[]);
 
-  const [sales, accountTxns, grainCreditPayments, expenses, expensePayments, dealerPurchases, dealerTxns, loanReturns] =
+  const [sales, accountTxns, grainCreditPayments, expenses, expensePayments, dealerPurchases, dealerTxns, loanReturns, withdrawals] =
     await Promise.all([
       db.dailySale.findMany({
         where: { shopId, saleDate: range, customer: customerScoped ? customerMatch : undefined },
@@ -138,6 +141,13 @@ export async function collectLedgerRows(
         },
         include: { grainLoan: { include: { product: true, customer: true, dealer: true } } },
       }),
+      // Not tied to a customer, so not on a customer-scoped view.
+      customerScoped
+        ? none
+        : db.bankEntry.findMany({
+            where: { shopId, kind: "WITHDRAW", entryDate: range },
+            include: { bankAccount: true },
+          }),
     ]);
 
   const rows: LedgerRow[] = [];
@@ -349,7 +359,12 @@ export async function collectLedgerRows(
       // writes no separate purchase record). No safe reversal exists
       // for these yet — deleting this row alone would leave the grain
       // batch and stock behind.
-      rows.push({ ...base, label: "Grain bought from dealer", detail: txn.notes, deleteRef: null });
+      rows.push({
+        ...base,
+        label: "Grain bought from dealer",
+        detail: [txn.notes, refDetail].filter(Boolean).join(" · ") || null,
+        deleteRef: null,
+      });
     } else {
       rows.push({
         ...base,
@@ -376,6 +391,23 @@ export async function collectLedgerRows(
       amount: Number(ret.amount),
       saleId: null,
       deleteRef: { kind: "GRAIN_LOAN_RETURN", returnId: ret.id },
+    });
+  }
+
+  for (const w of withdrawals) {
+    rows.push({
+      id: w.id,
+      date: w.entryDate,
+      side: "CREDIT",
+      label: "Cash withdrawn from bank",
+      counterpartyName: w.bankAccount.name,
+      counterpartyHref: "/dashboard/bank-accounts",
+      detail: `Ref: ${w.reference}${w.notes ? ` · ${w.notes}` : ""}`,
+      paymentMethod: "CASH",
+      amount: Number(w.amount),
+      saleId: null,
+      transfer: true,
+      deleteRef: { kind: "BANK_ENTRY", entryId: w.id },
     });
   }
 
@@ -435,7 +467,7 @@ export async function collectLedgerRows(
       label: "Grain kept (drop-off)",
       counterpartyName: b.ownerCustomer!.name,
       counterpartyHref: customerHref(b.ownerCustomer!.id),
-      detail: qty(b.quantityIn, b.product.unit.name, b.product.name),
+      detail: `${qty(b.quantityIn, b.product.unit.name, b.product.name)}${b.reference ? ` · Ref: ${b.reference}` : ""}`,
       deleteRef: { kind: "GRAIN_DEPOSIT", batchId: b.id },
     });
   }
@@ -448,7 +480,7 @@ export async function collectLedgerRows(
       label: "Own stock added",
       counterpartyName: "Own stock",
       counterpartyHref: `/dashboard/grain?product=${b.productId}`,
-      detail: `${qty(b.quantityIn, b.product.unit.name, b.product.name)} @ ${Number(b.rate ?? 0)}`,
+      detail: `${qty(b.quantityIn, b.product.unit.name, b.product.name)} @ ${Number(b.rate ?? 0)}${b.reference ? ` · Ref: ${b.reference}` : ""}`,
       deleteRef: null,
     });
   }

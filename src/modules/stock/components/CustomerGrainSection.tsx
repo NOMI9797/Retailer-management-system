@@ -80,6 +80,7 @@ type Row =
       productName: string;
       unitName: string;
       quantity: number;
+      reference: string | null;
       // Whether any of this batch has already been drawn via Stock
       // Udhaar (sold before being purchased from the customer) —
       // updateGrainBatch/deleteGrainBatch both refuse once this is
@@ -257,6 +258,7 @@ export function CustomerGrainSection({
         productName: batch.product.name,
         unitName: batch.product.unitName,
         quantity: batch.unsettledQuantity,
+        reference: batch.reference ?? null,
         // Sold from or partly given back — edit/delete the deposit is then locked.
         hasBeenSold: batch.quantitySold > 0 || batch.returnedQuantity > 0,
       });
@@ -502,6 +504,11 @@ export function CustomerGrainSection({
                           </td>
                           <td>
                             <span className="pay-badge pay-mixed">Rate not settled</span>
+                            {row.reference && (
+                              <span style={{ marginLeft: 8, fontSize: 12.5, color: "var(--ink-muted)" }}>
+                                Ref: {row.reference}
+                              </span>
+                            )}
                           </td>
                           <td>
                             {/* Actions sit at the row's right end: Buy from
@@ -515,16 +522,15 @@ export function CustomerGrainSection({
                                 whiteSpace: "nowrap",
                               }}
                             >
-                              {onSettle && (
-                                <BuyFromCustomerModal
-                                  grainBatchId={row.batchId}
-                                  customerName={customerName}
-                                  remainingClaim={row.quantity}
-                                  unitName={row.unitName}
-                                  onDone={onSettle}
-                                />
-                              )}
-                              {/* Everywhere this list shows, incl. the customer page. */}
+                              {/* Both everywhere this list shows — the customer
+                                  page and New entry's Buy/Keep stock. */}
+                              <BuyFromCustomerModal
+                                grainBatchId={row.batchId}
+                                customerName={customerName}
+                                remainingClaim={row.quantity}
+                                unitName={row.unitName}
+                                onDone={onSettle}
+                              />
                               <GiveBackGrainModal
                                 grainBatchId={row.batchId}
                                 customerName={customerName}

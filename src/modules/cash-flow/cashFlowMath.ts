@@ -55,6 +55,13 @@ export function summarizeMoney(rows: LedgerRow[]): MoneySummary {
   };
 
   for (const row of rows) {
+    // Bank → cash: the drawer gains what the bank loses; not money in
+    // or out for the shop, so not in the totals or the breakdown.
+    if (row.transfer) {
+      s.cash.in += row.amount;
+      s.bank.out += row.amount;
+      continue;
+    }
     const isIn = row.side === "CREDIT";
     let movedMoney = false;
     for (const part of partsOf(row)) {

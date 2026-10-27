@@ -55,6 +55,7 @@ export async function createGrainBatch(
         ownerCustomerId: data.ownerCustomerId,
         quantityIn: data.quantityIn,
         rate: data.rate ?? null,
+        reference: data.reference,
       },
     });
     // Only a REAL, priced batch enters the pool — a customer's

@@ -61,6 +61,8 @@ export const dealerGrainPurchaseSchema = z
     rate: z.number().positive("Rate must be positive"),
     paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
     bankAccountId: z.string().uuid().optional(),
+    // Slip / register reference, required whenever grain comes in.
+    reference: z.string().trim().min(1, "Enter a reference"),
     notes: z.string().optional(),
   })
   .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {

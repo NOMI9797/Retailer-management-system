@@ -140,7 +140,14 @@ export function GrainLedgerTabs({
               ) : (
                 unsettled.map((batch) => (
                   <tr key={batch.id}>
-                    <td>{formatDate(batch.receivedAt)}</td>
+                    <td>
+                      {formatDate(batch.receivedAt)}
+                      {batch.reference && (
+                        <span style={{ display: "block", fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
+                          Ref: {batch.reference}
+                        </span>
+                      )}
+                    </td>
                     <td>
                       <div className="cust-cell">
                         <div className="cust-avatar">
@@ -255,6 +262,11 @@ export function GrainLedgerTabs({
                       >
                         {row.party === "DEALER" ? "Dealer" : row.party === "SHOP" ? "Shop" : "Customer"}
                       </span>
+                      {row.reference && (
+                        <span style={{ display: "block", fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
+                          Ref: {row.reference}
+                        </span>
+                      )}
                     </td>
                     <td className="num" style={{ textAlign: "right" }}>
                       {row.quantity} {unitName}

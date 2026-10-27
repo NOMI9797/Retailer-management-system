@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getBankAccountBalances, listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { formatMoney } from "@/lib/utils";
 import { PageLoader } from "@/components/shared/PageLoader";
+import { BankEntryModal } from "@/modules/settings/components/BankEntryModal";
 import { BankAccountsFilterBar } from "./BankAccountsFilterBar";
 import { BankAccountTransactionsTable } from "./BankAccountTransactionsTable";
 import type { BankAccountsSearchParams } from "./searchParamsHref";
@@ -31,6 +32,11 @@ export default async function BankAccountsPage({
           <h1>Bank accounts</h1>
           <p>How much money is in each bank account, based on every Account payment recorded against it.</p>
         </div>
+        {accounts.length > 0 && (
+          <BankEntryModal
+            bankAccounts={accounts.filter((a) => a.isActive).map((a) => ({ id: a.id, name: a.name }))}
+          />
+        )}
       </div>
 
       {accounts.length === 0 ? (
