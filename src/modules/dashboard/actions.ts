@@ -10,6 +10,8 @@ import { loadCustomerUdhaar, loadShopOwesCustomer } from "@/modules/debts/udhaar
 import { getDealerUdhaarTotals } from "@/modules/dealers/actions";
 import { getStockOverview } from "@/modules/stock/actions";
 import { getShopExpenseUdhaarSummary } from "@/modules/expenses/actions";
+import { lowStockWhere } from "@/modules/products/lowStock";
+import { formatStock } from "@/modules/products/units";
 
 const round = (n: number) => Math.round(n * 100) / 100;
 const dayKey = (d: Date) => toLocalDateString(d);
@@ -52,6 +54,8 @@ export async function getDashboard() {
     bankAccounts,
     stockedProducts,
     expenseUdhaar,
+    lowStockCount,
+    outOfStockCount,
   ] = await Promise.all([
     collectLedgerRows(shopId, { gte: parseLocalDateStart(weekStart), lte: parseLocalDateEnd(today) }),
     getCashFlowForDate(today),
@@ -63,11 +67,13 @@ export async function getDashboard() {
       include: { unit: true },
       orderBy: { name: "asc" },
     }),
+    // The first few (out of stock first, then fewest left); the rest
+    // are on the Low stock page.
     db.product.findMany({
-      where: { shopId, stockKind: "SIMPLE", isActive: true, isDeleted: false, tracksStock: true, quantity: { lte: 5 } },
-      include: { unit: true },
-      orderBy: { quantity: "asc" },
-      take: 6,
+      where: lowStockWhere(shopId),
+      include: { unit: true, subUnit: true },
+      orderBy: [{ quantity: "asc" }, { name: "asc" }],
+      take: 8,
     }),
     db.bankAccount.findMany({ where: { shopId }, orderBy: { name: "asc" } }),
     // Products in stock, valued at what the shop paid (cost price).
@@ -76,6 +82,8 @@ export async function getDashboard() {
       select: { quantity: true, costPrice: true },
     }),
     getShopExpenseUdhaarSummary(),
+    db.product.count({ where: lowStockWhere(shopId) }),
+    db.product.count({ where: { ...lowStockWhere(shopId), quantity: { lte: 0 } } }),
   ]);
 
   const rowsOn = (date: string) => weekRows.filter((r) => dayKey(r.date) === date);
@@ -182,7 +190,14 @@ export async function getDashboard() {
     },
     grain: grain.filter((g) => g.own !== 0 || g.stockUdhaar > 0 || g.lentOut > 0 || g.borrowed > 0),
     overdue: overdue.slice(0, 5),
-    lowStock: lowStock.map((p) => ({ id: p.id, name: p.name, quantity: Number(p.quantity), unit: p.unit.name })),
+    lowStock: lowStock.map((p) => ({
+      id: p.id,
+      name: p.name,
+      quantity: Number(p.quantity),
+      left: formatStock(Number(p.quantity), p),
+    })),
+    lowStockCount,
+    outOfStockCount,
     recent: [...todayRows]
       .sort((a, b) => b.date.getTime() - a.date.getTime())
       .slice(0, 5)

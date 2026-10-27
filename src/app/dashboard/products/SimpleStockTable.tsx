@@ -3,9 +3,8 @@ import { listProducts, getSoldQuantities, type listCategories, type listUnits } 
 import { formatMoney } from "@/lib/utils";
 import { Pagination } from "@/modules/products/components/Pagination";
 import { EditProductButton } from "@/modules/products/components/EditProductButton";
+import { LOW_STOCK_LIMIT } from "@/modules/products/lowStock";
 import { buildProductsHref, type ProductsSearchParams } from "./searchParamsHref";
-
-const LOW_STOCK_THRESHOLD = 5;
 
 type Category = Awaited<ReturnType<typeof listCategories>>[number];
 type Unit = Awaited<ReturnType<typeof listUnits>>[number];
@@ -83,7 +82,7 @@ export async function SimpleStockTable({
                         carry a small "sold" badge once anything has sold. */}
                     <td
                       className={
-                        product.tracksStock && quantity > 0 && quantity <= LOW_STOCK_THRESHOLD ? "qty-low" : undefined
+                        product.tracksStock && quantity > 0 && quantity <= LOW_STOCK_LIMIT ? "qty-low" : undefined
                       }
                     >
                       {product.tracksStock ? (

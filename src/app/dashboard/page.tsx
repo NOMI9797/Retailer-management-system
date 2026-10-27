@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getDashboard } from "@/modules/dashboard/actions";
 import { formatMoney, formatDate } from "@/lib/utils";
+import { LOW_STOCK_LIMIT } from "@/modules/products/lowStock";
 
 // The shopkeeper's first screen, laid out most-important-first: today's
 // headline numbers (each against yesterday), the last 7 days, who owes
@@ -213,9 +214,23 @@ export default async function DashboardPage() {
               </div>
             ))
           )}
-          <p className="dash-sub" style={{ marginTop: 14 }}>
-            Low stock (5 or less)
-          </p>
+          <div className="dash-sub-head">
+            <p className="dash-sub">
+              Low stock ({LOW_STOCK_LIMIT} or less)
+              {d.lowStockCount > 0 && (
+                <>
+                  {" "}
+                  · {d.lowStockCount} product{d.lowStockCount === 1 ? "" : "s"}
+                  {d.outOfStockCount > 0 && <>, {d.outOfStockCount} out of stock</>}
+                </>
+              )}
+            </p>
+            {d.lowStockCount > 0 && (
+              <Link href="/dashboard/products/low-stock" className="dash-link">
+                View all →
+              </Link>
+            )}
+          </div>
           {d.lowStock.length === 0 ? (
             <p className="dash-empty">All products are stocked.</p>
           ) : (
@@ -223,13 +238,18 @@ export default async function DashboardPage() {
               <div key={p.id} className="dash-row">
                 <span>{p.name}</span>
                 <span className={`num dash-row-amount ${p.quantity <= 0 ? "out" : ""}`}>
-                  {p.quantity <= 0 ? "Out of stock" : `${p.quantity} ${p.unit} left`}
+                  {p.quantity <= 0 ? "Out of stock" : `${p.left} left`}
                 </span>
                 <Link href="/dashboard/daily-sales/new?tab=dealer-products" className="btn btn-ghost dash-row-btn">
                   Buy
                 </Link>
               </div>
             ))
+          )}
+          {d.lowStockCount > d.lowStock.length && (
+            <Link href="/dashboard/products/low-stock" className="dash-more">
+              + {d.lowStockCount - d.lowStock.length} more — see all low stock →
+            </Link>
           )}
         </section>
 

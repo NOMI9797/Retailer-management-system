@@ -3011,6 +3011,27 @@
   font-size: 12.5px;
 }
 
+.shop-app .dash-sub-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.shop-app .dash-more {
+  display: block;
+  padding-top: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary-600);
+  text-decoration: none;
+}
+
+.shop-app .dash-more:hover {
+  text-decoration: underline;
+}
+
 .shop-app .dash-sub {
   margin: 0 0 2px;
   font-size: 12px;

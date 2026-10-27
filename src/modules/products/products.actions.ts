@@ -12,6 +12,7 @@ import {
   type GrainProductInput,
 } from "./schema";
 import { ok, fail, type ActionResult } from "@/lib/actionResult";
+import { lowStockWhere } from "./lowStock";
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -195,6 +196,18 @@ export async function listProducts(options?: {
     pageSize,
     totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
   };
+}
+
+// Every low-stock product (see lowStockWhere) for the Low stock page:
+// out of stock first, then fewest left, then by name.
+export async function listLowStockProducts() {
+  const shopId = await getCurrentShopId();
+  const products = await db.product.findMany({
+    where: lowStockWhere(shopId),
+    include: { category: true, unit: true, subUnit: true },
+    orderBy: [{ quantity: "asc" }, { name: "asc" }],
+  });
+  return products.map(serializeDecimals);
 }
 
 // The Products page's stat row — shop-wide totals, unaffected by

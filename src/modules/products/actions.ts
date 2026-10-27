@@ -23,6 +23,7 @@ export {
   createGrainProduct,
   getProductStats,
   getSoldQuantities,
+  listLowStockProducts,
 } from "./products.actions";
 
 export {
