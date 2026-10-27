@@ -1612,3 +1612,36 @@ export async function getReceiptDetail(dailySaleId: string, visitAt: Date) {
     total: items.reduce((sum, i) => sum + Number(i.quantity) * Number(i.actualPrice) - Number(i.discount), 0),
   };
 }
+
+export type LastPrice = { price: number; unit: "MAIN" | "SUB"; date: Date };
+
+// The price this customer (or dealer) paid the last time they bought
+// each product — so a new sale opens at their own rate, not the
+// catalog price (each buyer can have a different rate). The latest
+// sale line wins, so a price changed on a sale becomes the next
+// time's price by itself.
+export async function getLastPrices(buyer: { customerId?: string; dealerId?: string }): Promise<Record<string, LastPrice>> {
+  const shopId = await getCurrentShopId();
+  if (!buyer.customerId && !buyer.dealerId) return {};
+  const items = await db.dailySaleItem.findMany({
+    where: {
+      dailySale: {
+        shopId,
+        ...(buyer.customerId ? { customerId: buyer.customerId } : { dealerId: buyer.dealerId }),
+      },
+    },
+    orderBy: { visitAt: "desc" },
+    select: { productId: true, actualPrice: true, unitName: true, visitAt: true },
+    take: 2000,
+  });
+  const last: Record<string, LastPrice> = {};
+  for (const item of items) {
+    if (last[item.productId]) continue;
+    last[item.productId] = {
+      price: Number(item.actualPrice),
+      unit: item.unitName ? "SUB" : "MAIN",
+      date: item.visitAt,
+    };
+  }
+  return last;
+}

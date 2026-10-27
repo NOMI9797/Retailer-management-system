@@ -9,7 +9,7 @@ import { GrainItemsEditor, type GrainItemDraft } from "./GrainItemsEditor";
 import { BillSummary } from "./BillSummary";
 import { PaymentSplitEditor, type PaymentSplitDraft } from "./PaymentSplitEditor";
 import { createCustomer } from "@/modules/customers/actions";
-import { createDailySale } from "../actions";
+import { createDailySale, getLastPrices, type LastPrice } from "../actions";
 import { toLocalDateString, formatMoney } from "@/lib/utils";
 import { showToast } from "@/components/shared/toastStore";
 import type { listAreas } from "@/modules/settings/areas.actions";
@@ -32,6 +32,7 @@ export function NewSaleForm({
   onSaved,
   initialCustomer,
   initialDealerId,
+  initialLastPrices = {},
 }: {
   areas: Awaited<ReturnType<typeof listAreas>>;
   products: Product[];
@@ -41,6 +42,9 @@ export function NewSaleForm({
   // Opens with this buyer already picked (New entry's person-first flow).
   initialCustomer?: { id: string; name: string };
   initialDealerId?: string;
+  // The picked customer's / dealer's last price per product (loaded
+  // with the page when the screen opens with them already chosen).
+  initialLastPrices?: Record<string, LastPrice>;
 }) {
   const initialDealer = dealers.find((d) => d.id === initialDealerId);
   const router = useRouter();
@@ -56,6 +60,13 @@ export function NewSaleForm({
     initialCustomer ? { mode: "existing", customerId: initialCustomer.id, name: initialCustomer.name } : null
   );
   const [dealerId, setDealerId] = useState(initialDealer?.id ?? "");
+  // What this buyer paid last time for each product, so a picked
+  // product opens at their own rate. Reloaded whenever the buyer
+  // changes (a choice the shopkeeper makes, not on page load).
+  const [lastPrices, setLastPrices] = useState<Record<string, LastPrice>>(initialLastPrices);
+  async function loadLastPrices(buyer: { customerId?: string; dealerId?: string }) {
+    setLastPrices(buyer.customerId || buyer.dealerId ? await getLastPrices(buyer) : {});
+  }
   // A sale is either all-Product or all-Grain, never mixed — per the
   // "shopkeeper adds one entry, either a product or a grain" decision.
   // Kept as two separate item lists rather than one shared shape,
@@ -249,10 +260,24 @@ export function NewSaleForm({
       <div className="field">
         <label>Selling to</label>
         <div className="stock-toggle">
-          <button type="button" className={buyerKind === "CUSTOMER" ? "active" : ""} onClick={() => setBuyerKind("CUSTOMER")}>
+          <button
+            type="button"
+            className={buyerKind === "CUSTOMER" ? "active" : ""}
+            onClick={() => {
+              setBuyerKind("CUSTOMER");
+              void loadLastPrices(customer?.mode === "existing" ? { customerId: customer.customerId } : {});
+            }}
+          >
             Customer
           </button>
-          <button type="button" className={buyerKind === "DEALER" ? "active" : ""} onClick={() => setBuyerKind("DEALER")}>
+          <button
+            type="button"
+            className={buyerKind === "DEALER" ? "active" : ""}
+            onClick={() => {
+              setBuyerKind("DEALER");
+              void loadLastPrices({ dealerId });
+            }}
+          >
             Dealer
           </button>
         </div>
@@ -267,10 +292,18 @@ export function NewSaleForm({
             // from a prior attempt.
             resolvedCustomerIdRef.current = null;
             setCustomer(next);
+            void loadLastPrices(next?.mode === "existing" ? { customerId: next.customerId } : {});
           }}
         />
       ) : (
-        <DealerPicker dealers={dealersForSaleKind} value={dealerId} onChange={setDealerId} />
+        <DealerPicker
+          dealers={dealersForSaleKind}
+          value={dealerId}
+          onChange={(id) => {
+            setDealerId(id);
+            void loadLastPrices({ dealerId: id });
+          }}
+        />
       )}
 
       <div className="field">
@@ -286,13 +319,19 @@ export function NewSaleForm({
       </div>
 
       {saleKind === "PRODUCT" ? (
-        <LineItemsEditor products={simpleProducts} items={productItems} onChange={setProductItems} />
+        <LineItemsEditor
+          products={simpleProducts}
+          items={productItems}
+          onChange={setProductItems}
+          lastPrices={lastPrices}
+        />
       ) : (
         <GrainItemsEditor
           products={grainProducts}
           items={grainItems}
           onChange={setGrainItems}
           saleCreditAmount={Number(payments.credit) || 0}
+          lastPrices={lastPrices}
         />
       )}
 

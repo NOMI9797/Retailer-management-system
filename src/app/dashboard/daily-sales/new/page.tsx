@@ -9,6 +9,7 @@ import { listMonthlyExpenseTypes } from "@/modules/expenses/actions";
 import { getCustomer, getCustomerRelationshipSummary } from "@/modules/customers/actions";
 import { listGrainLoans } from "@/modules/grain-loans/actions";
 import { NewSaleForm } from "@/modules/daily-sales/components/NewSaleForm";
+import { getLastPrices } from "@/modules/daily-sales/actions";
 import { UdhaarClearanceForm } from "@/modules/daily-sales/components/UdhaarClearanceForm";
 import { StockFromCustomerForm } from "@/modules/daily-sales/components/StockFromCustomerForm";
 import { GrainLoanRecords } from "@/modules/grain-loans/components/GrainLoanRecords";
@@ -322,15 +323,18 @@ async function EntryBody({ tab, person }: { tab: string; person: Person | null }
 
   switch (tab) {
     case "new-sale": {
-      const [areas, simpleProducts, grainProducts, bankAccounts, dealers] = await Promise.all([
+      const [areas, simpleProducts, grainProducts, bankAccounts, dealers, lastPrices] = await Promise.all([
         listAreas(),
         listProducts({ stockKind: "SIMPLE", pageSize: 500 }),
         listProducts({ stockKind: "GRAIN", pageSize: 500 }),
         listBankAccounts(),
         listDealers(),
+        // The person already picked: their last price for each product.
+        getLastPrices({ customerId: customer?.id, dealerId }),
       ]);
       return (
         <NewSaleForm
+          initialLastPrices={lastPrices}
           areas={areas}
           products={[...simpleProducts.products, ...grainProducts.products]}
           dealers={dealers}

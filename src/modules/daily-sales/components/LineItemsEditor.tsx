@@ -3,6 +3,8 @@
 import { useMemo } from "react";
 import type { listProducts } from "@/modules/products/actions";
 import { subUnitsPerUnit } from "@/modules/products/units";
+import { formatDate } from "@/lib/utils";
+import type { LastPrice } from "../actions";
 
 type Product = Awaited<ReturnType<typeof listProducts>>["products"][number];
 
@@ -23,10 +25,15 @@ export function LineItemsEditor({
   products,
   items,
   onChange,
+  lastPrices = {},
 }: {
   products: Product[];
   items: LineItemDraft[];
   onChange: (items: LineItemDraft[]) => void;
+  // What this buyer paid last time for each product — a picked product
+  // opens at that price (in the unit it was sold in) instead of the
+  // catalog price.
+  lastPrices?: Record<string, LastPrice>;
 }) {
   const categories = useMemo(() => {
     const seen = new Map<string, string>();
@@ -47,9 +54,15 @@ export function LineItemsEditor({
       // milestone's "actual price may differ from catalog default".
       if (patch.productId) {
         const product = products.find((p) => p.id === patch.productId);
+        const last = lastPrices[patch.productId];
         const defaultPrice = product?.sellPrice ?? product?.baseRate;
-        if (defaultPrice != null) updated.actualPrice = String(defaultPrice);
-        updated.unit = "MAIN";
+        if (last) {
+          updated.actualPrice = String(last.price);
+          updated.unit = last.unit === "SUB" && product && subUnitsPerUnit(product) ? "SUB" : "MAIN";
+        } else {
+          if (defaultPrice != null) updated.actualPrice = String(defaultPrice);
+          updated.unit = "MAIN";
+        }
       }
       // Switching Bag ↔ Kgs moves the price to the new unit (e.g. Rs
       // 2,500 a bag → Rs 50 a kg), so the line keeps the same rate.
@@ -151,6 +164,14 @@ export function LineItemsEditor({
                 onChange={(e) => updateItem(i, { actualPrice: e.target.value })}
                 required
               />
+              {product && (
+                <LastPriceHint
+                  last={lastPrices[product.id]}
+                  unitName={
+                    lastPrices[product.id]?.unit === "SUB" && twoUnit ? twoUnit.subUnit!.name : product.unit.name
+                  }
+                />
+              )}
             </div>
             <button type="button" className="icon-btn" onClick={() => removeItem(i)}>
               <svg className="icon" viewBox="0 0 24 24">
@@ -164,5 +185,15 @@ export function LineItemsEditor({
         + Add item
       </button>
     </div>
+  );
+}
+
+// "Last time: Rs 2,450 per Bag (12/10/2026)" under the price.
+function LastPriceHint({ last, unitName }: { last?: LastPrice; unitName: string }) {
+  if (!last) return null;
+  return (
+    <span style={{ display: "block", fontSize: 11.5, color: "var(--ink-muted)", marginTop: 2 }}>
+      Last time: Rs {last.price.toLocaleString("en-US")} per {unitName} ({formatDate(last.date)})
+    </span>
   );
 }

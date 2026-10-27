@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import type { listProducts } from "@/modules/products/actions";
-import { toLocalDateString } from "@/lib/utils";
+import { formatDate, toLocalDateString } from "@/lib/utils";
+import type { LastPrice } from "../actions";
 
 type Product = Awaited<ReturnType<typeof listProducts>>["products"][number];
 type DurationUnit = "DAYS" | "WEEKS" | "MONTHS";
@@ -51,11 +52,15 @@ export function GrainItemsEditor({
   // running "X of Y allocated" total; the actual per-item values live
   // on each item itself (creditAmount).
   saleCreditAmount = 0,
+  lastPrices = {},
 }: {
   products: Product[];
   items: GrainItemDraft[];
   onChange: (items: GrainItemDraft[]) => void;
   saleCreditAmount?: number;
+  // What this buyer paid last time for each grain — a picked grain
+  // opens at that rate instead of the catalog one.
+  lastPrices?: Record<string, LastPrice>;
 }) {
   const showPerItemCredit = items.length > 1 && saleCreditAmount > 0;
   const allocatedCredit = items.reduce((sum, item) => sum + (Number(item.creditAmount) || 0), 0);
@@ -75,8 +80,10 @@ export function GrainItemsEditor({
       const updated = { ...item, ...patch };
       if (patch.productId) {
         const product = products.find((p) => p.id === patch.productId);
+        const last = lastPrices[patch.productId];
         const defaultPrice = product?.sellPrice ?? product?.baseRate;
-        if (defaultPrice != null) updated.actualPrice = String(defaultPrice);
+        if (last) updated.actualPrice = String(last.price);
+        else if (defaultPrice != null) updated.actualPrice = String(defaultPrice);
       }
       return updated;
     });
@@ -154,6 +161,12 @@ export function GrainItemsEditor({
                   onChange={(e) => updateItem(i, { actualPrice: e.target.value })}
                   required
                 />
+                {product && lastPrices[product.id] && (
+                  <span style={{ display: "block", fontSize: 11.5, color: "var(--ink-muted)", marginTop: 2 }}>
+                    Last time: Rs {lastPrices[product.id].price.toLocaleString("en-US")} per {product.unit.name} (
+                    {formatDate(lastPrices[product.id].date)})
+                  </span>
+                )}
               </div>
               {showPerItemCredit && (
                 <div className="field" style={{ marginBottom: 0, flex: "0 1 150px" }}>
