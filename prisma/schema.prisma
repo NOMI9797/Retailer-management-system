@@ -42,6 +42,8 @@ model Shop {
   grainSeasons        GrainSeason[]
   bankEntries         BankEntry[]
   grainLoanReturns    GrainLoanReturn[]
+  saleReturns         SaleReturn[]
+  purchaseReturns     PurchaseReturn[]
 }
 
 // A login — email + hashed password, nothing more. Deliberately has
@@ -113,6 +115,8 @@ model BankAccount {
   grainLoanReturns        GrainLoanReturn[]
   bankEntries             BankEntry[]
 
+  saleReturns             SaleReturn[]
+  purchaseReturns         PurchaseReturn[]
   @@unique([shopId, name])
 }
 
@@ -187,6 +191,7 @@ model Customer {
   grainLoans   GrainLoan[]
   ledgerReceipts SavedLedgerReceipt[]
   grainDepositReturns GrainDepositReturn[]
+  saleReturns  SaleReturn[]
 }
 
 // ── Dealer ───────────────────────────────────────────────
@@ -235,6 +240,8 @@ model Dealer {
   dailySales DailySale[]
   grainLoans GrainLoan[]
 
+  saleReturns     SaleReturn[]
+  purchaseReturns PurchaseReturn[]
   @@unique([shopId, name])
 }
 
@@ -315,6 +322,11 @@ model DealerTransaction {
   // purchase FROM this dealer (nothing to do with a Daily Sales
   // visit) and for every row created before this column existed.
   visitAt           DateTime?
+  // Written by a sales / purchase return (deleted with it).
+  saleReturnId      String?
+  saleReturn        SaleReturn?            @relation(fields: [saleReturnId], references: [id])
+  purchaseReturnId  String?
+  purchaseReturn    PurchaseReturn?        @relation(fields: [purchaseReturnId], references: [id])
 }
 
 // One bulk purchase of Simple (non-grain) stock from a PRODUCTS-type
@@ -348,6 +360,7 @@ model DealerProductPurchase {
   notes         String?
 
   dealerTransactions DealerTransaction[]
+  returns PurchaseReturn[]
 }
 
 // ── Settings-managed: account types & their custom fields ──
@@ -546,6 +559,9 @@ model AccountTransaction {
   // visit) can be edited/deleted without touching another same-day
   // receipt's own Udhaar charge — see reverseVisitContents.
   visitAt            DateTime?
+  // Udhaar taken off by a sales return (deleted with it).
+  saleReturnId       String?
+  saleReturn         SaleReturn?     @relation(fields: [saleReturnId], references: [id])
 }
 
 // ── Products & stock ─────────────────────────────────────
@@ -677,6 +693,7 @@ model Product {
   grainLoans        GrainLoan[]
   grainDepositReturns GrainDepositReturn[]
   grainSeasons        GrainSeason[]
+  purchaseReturns     PurchaseReturn[]
 }
 
 // Batches let one product (e.g. "Wheat") hold both shop-owned and
@@ -756,6 +773,8 @@ model GrainBatch {
   // since payCustomerForGrain creates one of each per call, but this
   // stays a list since nothing prevents more in principle.
   paymentTransactions AccountTransaction[]
+  saleReturnBatches SaleReturnBatch[]
+  purchaseReturns   PurchaseReturn[]
 }
 
 // A signed-quantity ledger tracking a shopkeeper's outstanding stock
@@ -912,6 +931,7 @@ model DailySale {
   dealerTransactions DealerTransaction[]
   stockUdhaars       StockUdhaarEntry[]
   receipts           Receipt[]
+  saleReturns        SaleReturn[]
 }
 
 // One receipt = one visit (one checkout event) within a DailySale —
@@ -1017,6 +1037,100 @@ model GrainSeason {
   @@index([shopId, productId])
 }
 
+// A customer (or dealer) bringing back part of one bill (one visit of a
+// DailySale). The money goes back the way the bill was paid — cash,
+// bank, and Udhaar taken off — split in the bill's own proportions;
+// the goods go back into stock.
+model SaleReturn {
+  id            String           @id @default(uuid())
+  shopId        String
+  shop          Shop             @relation(fields: [shopId], references: [id])
+  dailySaleId   String
+  dailySale     DailySale        @relation(fields: [dailySaleId], references: [id])
+  visitAt       DateTime
+  customerId    String?
+  customer      Customer?        @relation(fields: [customerId], references: [id])
+  dealerId      String?
+  dealer        Dealer?          @relation(fields: [dealerId], references: [id])
+  returnDate    DateTime
+  reference     String
+  notes         String?
+  // What the returned items were worth on the bill (after its discount),
+  // and how it went back: cash, bank, and Udhaar taken off.
+  amount        Decimal          @db.Decimal(14, 2)
+  cashRefund    Decimal          @default(0) @db.Decimal(14, 2)
+  accountRefund Decimal          @default(0) @db.Decimal(14, 2)
+  bankAccountId String?
+  bankAccount   BankAccount?     @relation(fields: [bankAccountId], references: [id])
+  creditReduced Decimal          @default(0) @db.Decimal(14, 2)
+  createdAt     DateTime         @default(now())
+
+  items              SaleReturnItem[]
+  accountTxns        AccountTransaction[]
+  dealerTransactions DealerTransaction[]
+
+  @@index([shopId, returnDate])
+}
+
+model SaleReturnItem {
+  id              String            @id @default(uuid())
+  saleReturnId    String
+  saleReturn      SaleReturn        @relation(fields: [saleReturnId], references: [id])
+  dailySaleItemId String
+  dailySaleItem   DailySaleItem     @relation(fields: [dailySaleItemId], references: [id])
+  // In the unit the line was sold in.
+  quantity        Decimal           @db.Decimal(16, 6)
+  amount          Decimal           @db.Decimal(14, 2)
+  // Products: what went back into stock, in the main unit.
+  stockReturned   Decimal?          @db.Decimal(16, 6)
+
+  batches SaleReturnBatch[]
+}
+
+// Grain: which batches the returned grain went back into (the sale's
+// own allocations, reduced), so deleting the return puts it back.
+model SaleReturnBatch {
+  id               String         @id @default(uuid())
+  saleReturnItemId String
+  saleReturnItem   SaleReturnItem @relation(fields: [saleReturnItemId], references: [id])
+  grainBatchId     String
+  grainBatch       GrainBatch     @relation(fields: [grainBatchId], references: [id])
+  quantity         Decimal        @db.Decimal(16, 6)
+}
+
+// The shop sending back part of a purchase from a dealer — a products
+// purchase or a grain batch bought from the dealer. Stock goes down;
+// the money comes back as cash, bank, or less owed to the dealer.
+model PurchaseReturn {
+  id            String                 @id @default(uuid())
+  shopId        String
+  shop          Shop                   @relation(fields: [shopId], references: [id])
+  dealerId      String
+  dealer        Dealer                 @relation(fields: [dealerId], references: [id])
+  productId     String
+  product       Product                @relation(fields: [productId], references: [id])
+  purchaseId    String?
+  purchase      DealerProductPurchase? @relation(fields: [purchaseId], references: [id])
+  grainBatchId  String?
+  grainBatch    GrainBatch?            @relation(fields: [grainBatchId], references: [id])
+  // In the unit of the purchase; stockRemoved in the product's main unit.
+  quantity      Decimal                @db.Decimal(16, 6)
+  stockRemoved  Decimal                @db.Decimal(16, 6)
+  amount        Decimal                @db.Decimal(14, 2)
+  // CASH / ACCOUNT = the dealer pays it back; CREDIT = less owed to the dealer.
+  refundMethod  PaymentMethod
+  bankAccountId String?
+  bankAccount   BankAccount?           @relation(fields: [bankAccountId], references: [id])
+  returnDate    DateTime
+  reference     String
+  notes         String?
+  createdAt     DateTime               @default(now())
+
+  dealerTransactions DealerTransaction[]
+
+  @@index([shopId, returnDate])
+}
+
 model DailySaleItem {
   id              String    @id @default(uuid())
   dailySaleId     String
@@ -1078,6 +1192,7 @@ model DailySaleItem {
 
   batchAllocations DailySaleItemBatch[]
   creditPayments   GrainSaleCreditPayment[]
+  returnItems SaleReturnItem[]
 }
 
 // One payment against a specific grain sale item's Credit amount (see

@@ -465,6 +465,9 @@ export async function deleteDealerProductPurchase(id: string): Promise<Result<nu
     include: { dealer: { include: { account: true } } },
   });
   if (!purchase) return { success: false, error: "Purchase not found" };
+  if (await db.purchaseReturn.findFirst({ where: { purchaseId: purchase.id } })) {
+    return { success: false, error: "Part of this purchase was returned to the dealer — delete that return first (Returns page)." };
+  }
 
   const amount = Number(purchase.quantity) * Number(purchase.costPrice);
 

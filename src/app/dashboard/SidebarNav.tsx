@@ -121,6 +121,11 @@ const navItems = [
     ),
   },
   {
+    href: "/dashboard/returns",
+    label: "Returns",
+    icon: <path d="M9 14L4 9l5-5M4 9h11a5 5 0 010 10h-3" />,
+  },
+  {
     href: "/dashboard/expenses",
     label: "Expenses",
     icon: (

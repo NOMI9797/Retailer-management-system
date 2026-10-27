@@ -418,6 +418,10 @@ async function reverseSaleContents(
     include: { items: { include: { batchAllocations: true } } },
   });
   if (!sale) return { success: false, error: "Sale not found" };
+  // Goods returned from it are tied to its lines — undo the return first.
+  if (await tx.saleReturn.findFirst({ where: { dailySaleId: saleId } })) {
+    return { success: false, error: "This sale has a return recorded against it — delete the return first (Returns page)." };
+  }
 
   for (const item of sale.items) {
     const product = await tx.product.findFirst({ where: { id: item.productId } });
@@ -582,6 +586,9 @@ async function reverseVisitContents(
     where: { id: dailySaleId, shopId },
   });
   if (!sale) return { success: false, error: "Sale not found" };
+  if (await tx.saleReturn.findFirst({ where: { dailySaleId, visitAt } })) {
+    return { success: false, error: "This bill has a return recorded against it — delete the return first (Returns page)." };
+  }
 
   const items = await tx.dailySaleItem.findMany({
     where: { dailySaleId, visitAt },

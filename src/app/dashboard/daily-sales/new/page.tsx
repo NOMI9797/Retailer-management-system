@@ -10,6 +10,9 @@ import { getCustomer, getCustomerRelationshipSummary } from "@/modules/customers
 import { listGrainLoans } from "@/modules/grain-loans/actions";
 import { NewSaleForm } from "@/modules/daily-sales/components/NewSaleForm";
 import { getLastPrices } from "@/modules/daily-sales/actions";
+import { listReturnableBills, listReturnablePurchases } from "@/modules/returns/actions";
+import { SaleReturnForm } from "@/modules/returns/components/SaleReturnForm";
+import { PurchaseReturnForm } from "@/modules/returns/components/PurchaseReturnForm";
 import { UdhaarClearanceForm } from "@/modules/daily-sales/components/UdhaarClearanceForm";
 import { StockFromCustomerForm } from "@/modules/daily-sales/components/StockFromCustomerForm";
 import { GrainLoanRecords } from "@/modules/grain-loans/components/GrainLoanRecords";
@@ -211,6 +214,7 @@ async function PersonCard({ person }: { person: Person }) {
     tiles.push({ tab: "borrow-from-customer", side: "credit" });
     tiles.push({ tab: "long-term-loan", side: "debit" });
     tiles.push({ tab: "import-udhaar", side: "debit" });
+    tiles.push({ tab: "sales-return", side: "debit" });
     tiles.push({ tab: "ledger-receipt", side: "report" });
   } else {
     const sides = (await listDealerUdhaarSides()).find((d) => d.id === person.id);
@@ -222,6 +226,8 @@ async function PersonCard({ person }: { person: Person }) {
     if (shopOwes > 0.01) tiles.push({ tab: "pay-dealer", side: "debit", note: `Shop owes ${formatMoney(shopOwes)}` });
     if (theyOwe > 0.01) tiles.push({ tab: "receive-dealer", side: "credit", note: `Owes ${formatMoney(theyOwe)}` });
     if (person.type === "GRAIN") tiles.push({ tab: "grain-loan", side: "credit" });
+    tiles.push({ tab: "purchase-return", side: "credit" });
+    tiles.push({ tab: "sales-return", side: "debit" });
     if (openLoans.length > 0) tiles.push({ tab: "grain-loan-return", side: "credit", note: `${openLoans.length} open` });
   }
 
@@ -373,6 +379,38 @@ async function EntryBody({ tab, person }: { tab: string; person: Person | null }
           grainProducts={grainProducts.products}
           initialCustomer={customer}
           bankAccounts={bankAccounts}
+        />
+      );
+    }
+    case "sales-return": {
+      const [areas, dealers, bills] = await Promise.all([
+        listAreas(),
+        listDealers(),
+        // The person already picked: their bills, ready to choose from.
+        listReturnableBills({ customerId: customer?.id, dealerId }),
+      ]);
+      return (
+        <SaleReturnForm
+          areas={areas}
+          dealers={dealers}
+          initialCustomer={customer}
+          initialDealerId={dealerId}
+          initialBills={bills}
+        />
+      );
+    }
+    case "purchase-return": {
+      const [dealers, bankAccounts, purchases] = await Promise.all([
+        listDealers(),
+        listBankAccounts(),
+        dealerId ? listReturnablePurchases(dealerId) : Promise.resolve([]),
+      ]);
+      return (
+        <PurchaseReturnForm
+          dealers={dealers.map((d) => ({ id: d.id, name: d.name }))}
+          bankAccounts={bankAccounts}
+          initialDealerId={dealerId}
+          initialPurchases={purchases}
         />
       );
     }

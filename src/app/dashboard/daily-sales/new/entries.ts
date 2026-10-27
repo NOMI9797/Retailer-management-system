@@ -104,6 +104,17 @@ export const ENTRY_SIDES: EntrySide[] = [
           },
         ],
       },
+      {
+        title: "Returns",
+        entries: [
+          {
+            tab: "purchase-return",
+            title: "Purchase return",
+            description: "Send goods back to a dealer.",
+            keywords: "return wapsi dealer purchase back maal wapis",
+            icon: ICON.undo,
+          },
+        ],      },
     ],
   },
   {
@@ -201,6 +212,17 @@ export const ENTRY_SIDES: EntrySide[] = [
           },
         ],
       },
+      {
+        title: "Returns",
+        entries: [
+          {
+            tab: "sales-return",
+            title: "Sales return",
+            description: "Customer brings goods back.",
+            keywords: "return wapsi sale back customer maal wapis refund",
+            icon: ICON.undo,
+          },
+        ],      },
     ],
   },
 ];

@@ -22,7 +22,11 @@ function shiftDays(dateStr: string, days: number) {
 
 // Sales total for a set of rows — the full sale amount, Udhaar part
 // included (a sale on Udhaar is still a sale).
-const salesTotal = (rows: LedgerRow[]) => round(rows.filter((r) => r.label === "Sale").reduce((s, r) => s + r.amount, 0));
+const salesTotal = (rows: LedgerRow[]) =>
+  round(
+    rows.filter((r) => r.label === "Sale").reduce((s, r) => s + r.amount, 0) -
+      rows.filter((r) => r.label === "Sales return").reduce((s, r) => s + r.amount, 0)
+  );
 
 // Everything the Dashboard shows, in one fetch, all from the same
 // records as Daily sales / Cash flow so the pages always agree:

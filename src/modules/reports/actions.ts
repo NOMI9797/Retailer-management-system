@@ -135,6 +135,22 @@ export async function getPnlReport(input: ReportPeriodInput): Promise<PnlReport>
         })
       )._sum.amount ?? 0;
 
+  // Products brought back in the period: their sale and their cost
+  // come off (on the day they came back).
+  if (range) {
+    const returned = await db.saleReturnItem.findMany({
+      where: {
+        saleReturn: { shopId, returnDate: { gte: range.start, lte: range.end } },
+        dailySaleItem: { product: { stockKind: "SIMPLE" } },
+      },
+      include: { dailySaleItem: { select: { costPriceAtSale: true } } },
+    });
+    for (const r of returned) {
+      revenue -= Number(r.amount);
+      if (r.dailySaleItem.costPriceAtSale !== null) cogs -= Number(r.quantity) * Number(r.dailySaleItem.costPriceAtSale);
+    }
+  }
+
   const grainEntries = range ? await collectGrainProfit(shopId, { range: { gte: range.start, lte: range.end } }) : [];
   const grainReceived = Math.round(grainEntries.reduce((s, e) => s + e.revenue, 0) * 100) / 100;
   const grainPaid = Math.round(grainEntries.reduce((s, e) => s + e.cost, 0) * 100) / 100;

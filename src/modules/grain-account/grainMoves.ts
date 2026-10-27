@@ -17,7 +17,15 @@ import { lentCostRates } from "@/modules/stock/grainFifo";
 // given back unsettled) doesn't count. Not a "use server" module — it
 // takes a shopId (same reason as ledger/ledgerRows.ts).
 
-export type GrainMoveKind = "PURCHASE" | "SALE" | "LOAN_PAID_TO_SHOP" | "LOAN_PAID_BY_SHOP";
+export type GrainMoveKind =
+  | "PURCHASE"
+  | "SALE"
+  | "LOAN_PAID_TO_SHOP"
+  | "LOAN_PAID_BY_SHOP"
+  // Negative amounts: money given back on a sales return, money got
+  // back on a purchase return.
+  | "SALE_RETURN"
+  | "PURCHASE_RETURN";
 
 export type GrainMove = {
   productId: string;
@@ -36,7 +44,7 @@ export async function collectGrainMoves(
   const productId = options?.productId;
   const range = options?.range;
 
-  const [batches, saleItems, loanReturns] = await Promise.all([
+  const [batches, saleItems, loanReturns, saleReturnItems, purchaseReturns] = await Promise.all([
     // Shop-owned batches that cost money. A grain-loan batch (borrowed
     // grain, or lent grain coming back) cost nothing.
     db.grainBatch.findMany({
@@ -68,9 +76,40 @@ export async function collectGrainMoves(
         grainLoan: { select: { productId: true, direction: true } },
       },
     }),
+    db.saleReturnItem.findMany({
+      where: {
+        saleReturn: { shopId, returnDate: range },
+        dailySaleItem: { productId, product: { stockKind: "GRAIN" } },
+      },
+      select: { quantity: true, amount: true, saleReturn: { select: { returnDate: true } }, dailySaleItem: { select: { productId: true } } },
+    }),
+    db.purchaseReturn.findMany({
+      where: { shopId, productId, returnDate: range, grainBatchId: { not: null } },
+      select: { productId: true, returnDate: true, quantity: true, amount: true },
+    }),
   ]);
 
   const moves: GrainMove[] = [];
+  for (const r of saleReturnItems) {
+    moves.push({
+      productId: r.dailySaleItem.productId,
+      date: r.saleReturn.returnDate,
+      kind: "SALE_RETURN",
+      side: "RECEIVED",
+      amount: -Number(r.amount),
+      quantity: -Number(r.quantity),
+    });
+  }
+  for (const r of purchaseReturns) {
+    moves.push({
+      productId: r.productId,
+      date: r.returnDate,
+      kind: "PURCHASE_RETURN",
+      side: "PAID",
+      amount: -Number(r.amount),
+      quantity: -Number(r.quantity),
+    });
+  }
   for (const b of batches) {
     const quantity = Number(b.quantityIn);
     moves.push({
@@ -156,7 +195,7 @@ export function totalGrainMoves(moves: GrainMove[]): GrainMoveTotals {
 export type GrainProfitEntry = {
   productId: string;
   date: Date;
-  kind: "SALE" | "LOAN_PAID_TO_SHOP" | "LOAN_PAID_BY_SHOP";
+  kind: "SALE" | "LOAN_PAID_TO_SHOP" | "LOAN_PAID_BY_SHOP" | "SALE_RETURN";
   // Money for the grain, and what that grain cost the shop.
   revenue: number;
   cost: number;
@@ -171,7 +210,7 @@ export async function collectGrainProfit(
 ): Promise<GrainProfitEntry[]> {
   const productId = options?.productId;
   const range = options?.range;
-  const [items, loanReturns] = await Promise.all([
+  const [items, loanReturns, saleReturnItems] = await Promise.all([
     db.dailySaleItem.findMany({
       where: { productId, product: { shopId, stockKind: "GRAIN" }, visitAt: range },
       select: {
@@ -181,6 +220,11 @@ export async function collectGrainProfit(
         actualPrice: true,
         discount: true,
         batchAllocations: { select: { quantity: true, grainBatchId: true, grainBatch: { select: { rate: true, ownerCustomerId: true } } } },
+        // Grain later returned went back into these batches (taken off
+        // the allocations) — its cost still belongs to the sale's day.
+        returnItems: {
+          select: { batches: { select: { quantity: true, grainBatch: { select: { rate: true, ownerCustomerId: true } } } } },
+        },
       },
     }),
     db.grainLoanReturn.findMany({
@@ -190,6 +234,18 @@ export async function collectGrainProfit(
         amount: true,
         quantityPaid: true,
         grainLoan: { select: { id: true, productId: true, direction: true, rate: true } },
+      },
+    }),
+    db.saleReturnItem.findMany({
+      where: {
+        saleReturn: { shopId, returnDate: range },
+        dailySaleItem: { productId, product: { stockKind: "GRAIN" } },
+      },
+      select: {
+        amount: true,
+        saleReturn: { select: { returnDate: true } },
+        dailySaleItem: { select: { productId: true } },
+        batches: { select: { quantity: true, grainBatch: { select: { rate: true, ownerCustomerId: true } } } },
       },
     }),
   ]);
@@ -233,6 +289,11 @@ export async function collectGrainProfit(
       } else if (a.grainBatch.rate === null) uncostedKg += q;
       else cost += q * Number(a.grainBatch.rate);
     }
+    for (const r of item.returnItems) {
+      for (const b of r.batches) {
+        if (!b.grainBatch.ownerCustomerId && b.grainBatch.rate !== null) cost += Number(b.quantity) * Number(b.grainBatch.rate);
+      }
+    }
     entries.push({
       productId: item.productId,
       date: item.visitAt,
@@ -241,6 +302,24 @@ export async function collectGrainProfit(
       cost: round2(cost),
       profit: round2(revenue - cost),
       uncostedKg: round3(uncostedKg),
+    });
+  }
+  // A sales return: the money given back, less what that grain cost
+  // (it's back in stock at that cost) — the sale's profit undone on
+  // the day it came back.
+  for (const r of saleReturnItems) {
+    const cost = r.batches.reduce(
+      (s, b) => s + (!b.grainBatch.ownerCustomerId && b.grainBatch.rate !== null ? Number(b.quantity) * Number(b.grainBatch.rate) : 0),
+      0
+    );
+    entries.push({
+      productId: r.dailySaleItem.productId,
+      date: r.saleReturn.returnDate,
+      kind: "SALE_RETURN",
+      revenue: round2(-Number(r.amount)),
+      cost: round2(-cost),
+      profit: round2(cost - Number(r.amount)),
+      uncostedKg: 0,
     });
   }
   for (const r of loanReturns) {

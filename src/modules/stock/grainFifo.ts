@@ -109,7 +109,7 @@ export async function coverStockUdhaarFromBatch(
   options?: { onlyDepositId?: string; tag?: boolean }
 ) {
   const newBatch = await tx.grainBatch.findUniqueOrThrow({ where: { id: newBatchId } });
-  let free = Number(newBatch.quantityIn) - Number(newBatch.quantitySold);
+  let free = Number(newBatch.quantityIn) - Number(newBatch.quantitySold) - Number(newBatch.quantityReturned);
   if (free <= 0.0001 || newBatch.ownerCustomerId) return;
 
   const entries = await tx.stockUdhaarEntry.findMany({
@@ -216,7 +216,7 @@ export async function coverDepositFromOwnStock(
       where: { productId: params.productId, ownerCustomerId: null },
       orderBy: { receivedAt: "asc" },
     })
-  ).map((b) => ({ id: b.id, free: Number(b.quantityIn) - Number(b.quantitySold) }));
+  ).map((b) => ({ id: b.id, free: Number(b.quantityIn) - Number(b.quantitySold) - Number(b.quantityReturned) }));
 
   const saleAllocs = await tx.dailySaleItemBatch.findMany({
     where: { grainBatchId: deposit.id },

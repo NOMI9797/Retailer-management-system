@@ -1001,7 +1001,8 @@ export async function getStockOverview(productId: string) {
       // The customer's ownership claim, whatever has physically moved.
       customerClaim += quantityIn - quantityTransferred - quantityReturned;
     } else {
-      const available = quantityIn - quantitySold;
+      // Grain sent back to the dealer (purchase return) has left too.
+      const available = quantityIn - quantitySold - quantityReturned;
       totalPhysical += available;
       ownAvailable += available;
       // What the grain the shop owns is worth: each own batch's
@@ -1490,7 +1491,9 @@ async function takeUnsettledGrain(
 
   if (fromShopStock > 0) {
     const own = await tx.grainBatch.findMany({ where: { productId: batch.productId, ownerCustomerId: null } });
-    const ownFree = round3(own.reduce((s, b) => s + Math.max(Number(b.quantityIn) - Number(b.quantitySold), 0), 0));
+    const ownFree = round3(
+      own.reduce((s, b) => s + Math.max(Number(b.quantityIn) - Number(b.quantitySold) - Number(b.quantityReturned), 0), 0)
+    );
     if (ownFree + 0.0001 < fromShopStock) {
       throw new Error(
         `${fromShopStock} ${names.unit} of this grain was already sold, so the shop must give it from its own ${names.product} — but it has only ${ownFree} ${names.unit} of its own.`

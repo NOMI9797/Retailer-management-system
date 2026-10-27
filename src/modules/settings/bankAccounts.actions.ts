@@ -22,6 +22,7 @@ import { deleteAccountTransaction } from "@/modules/customers/actions";
 import { deleteGrainSettlement } from "@/modules/stock/actions";
 import { deleteGrainLoan, deleteGrainLoanReturn } from "@/modules/grain-loans/actions";
 import { deleteGrainBatch } from "@/modules/products/batches.actions";
+import { deleteSaleReturn, deletePurchaseReturn } from "@/modules/returns/actions";
 
 const ENTITY = "bankAccounts";
 
@@ -191,6 +192,9 @@ export type BankAccountRowDeleteRef =
   | { kind: "GRAIN_LOAN_RETURN"; returnId: string }
   // Imported opening balance / cash withdrawn (Bank accounts page).
   | { kind: "BANK_ENTRY"; entryId: string }
+  // Sales / purchase returns (Returns page).
+  | { kind: "SALE_RETURN"; returnId: string }
+  | { kind: "PURCHASE_RETURN"; returnId: string }
   // Grain-only rows on the Daily sales page (never bank rows).
   | { kind: "GRAIN_DEPOSIT"; batchId: string }
   | { kind: "GRAIN_LOAN"; loanId: string };
@@ -267,6 +271,8 @@ export async function listBankAccountTransactions(options?: {
     dealerTxns,
     grainLoanReturns,
     bankEntries,
+    saleReturns,
+    purchaseReturns,
   ] = await Promise.all([
     db.accountTransaction.findMany({
       where: { ...bankAccountFilter, transactionDate: dateFilter, customerAccount: { customer: { shopId } } },
@@ -326,6 +332,24 @@ export async function listBankAccountTransactions(options?: {
     db.bankEntry.findMany({
       where: { shopId, entryDate: dateFilter, bankAccountId: options?.bankAccountId || undefined },
       include: { bankAccount: true },
+    }),
+    db.saleReturn.findMany({
+      where: {
+        shopId,
+        returnDate: dateFilter,
+        accountRefund: { gt: 0 },
+        bankAccountId: options?.bankAccountId || { not: null },
+      },
+      include: { bankAccount: true, customer: true, dealer: true },
+    }),
+    db.purchaseReturn.findMany({
+      where: {
+        shopId,
+        returnDate: dateFilter,
+        refundMethod: "ACCOUNT",
+        bankAccountId: options?.bankAccountId || { not: null },
+      },
+      include: { bankAccount: true, dealer: true, product: true },
     }),
   ]);
 
@@ -522,6 +546,35 @@ export async function listBankAccountTransactions(options?: {
     });
   }
 
+  for (const r of saleReturns) {
+    if (!r.bankAccount) continue;
+    rows.push({
+      id: r.id,
+      date: r.returnDate,
+      bankAccountId: r.bankAccount.id,
+      bankAccountName: r.bankAccount.name,
+      direction: "OUT",
+      amount: Number(r.accountRefund),
+      source: "Sales return",
+      description: `${r.customer?.name ?? r.dealer?.name ?? ""} · Ref: ${r.reference}`,
+      deleteRef: { kind: "SALE_RETURN", returnId: r.id },
+    });
+  }
+  for (const r of purchaseReturns) {
+    if (!r.bankAccount) continue;
+    rows.push({
+      id: r.id,
+      date: r.returnDate,
+      bankAccountId: r.bankAccount.id,
+      bankAccountName: r.bankAccount.name,
+      direction: "IN",
+      amount: Number(r.amount),
+      source: "Purchase return",
+      description: `${r.dealer.name} — ${Number(r.quantity)} ${r.product.name} · Ref: ${r.reference}`,
+      deleteRef: { kind: "PURCHASE_RETURN", returnId: r.id },
+    });
+  }
+
   rows.sort((a, b) => b.date.getTime() - a.date.getTime());
 
   const totalCount = rows.length;
@@ -598,6 +651,10 @@ export async function deleteBankAccountRow(ref: BankAccountRowDeleteRef): Promis
     }
     case "BANK_ENTRY":
       return deleteBankEntry(ref.entryId);
+    case "SALE_RETURN":
+      return deleteSaleReturn(ref.returnId);
+    case "PURCHASE_RETURN":
+      return deletePurchaseReturn(ref.returnId);
   }
 }
 

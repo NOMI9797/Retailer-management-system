@@ -52,7 +52,8 @@ const dealerHref = (id: string) => `/dashboard/dealers/${id}`;
 
 // Which Cash flow breakdown line an entry belongs to, by its label.
 export function categoryOf(label: string): LedgerCategory {
-  if (label === "Sale") return "SALES";
+  if (label === "Sale" || label === "Sales return") return "SALES";
+  if (label === "Purchase return") return "DEALERS";
   if (label.includes("dealer") || label.startsWith("Dealer")) return "DEALERS";
   if (label.startsWith("Grain") || label.includes("grain") || label === "Own stock added") return "GRAIN";
   if (label.includes("expense") || label.startsWith("Expense")) return "EXPENSES";
@@ -77,7 +78,7 @@ export async function collectLedgerRows(
   };
   const none = Promise.resolve([] as never[]);
 
-  const [sales, accountTxns, grainCreditPayments, expenses, expensePayments, dealerPurchases, dealerTxns, loanReturns, withdrawals] =
+  const [sales, accountTxns, grainCreditPayments, expenses, expensePayments, dealerPurchases, dealerTxns, loanReturns, withdrawals, saleReturns, purchaseReturns] =
     await Promise.all([
       db.dailySale.findMany({
         where: { shopId, saleDate: range, customer: customerScoped ? customerMatch : undefined },
@@ -122,6 +123,8 @@ export async function collectLedgerRows(
             where: {
               transactionDate: range,
               linkedPurchaseId: null,
+              // A purchase return's "less owed" row is the return's own row.
+              purchaseReturnId: null,
               // A sale's own dealer Udhaar charge is already the sale
               // row; dealer-side rows with no sale (a dealer paying the
               // shop back, an imported "dealer owes shop") are listed.
@@ -147,6 +150,16 @@ export async function collectLedgerRows(
         : db.bankEntry.findMany({
             where: { shopId, kind: "WITHDRAW", entryDate: range },
             include: { bankAccount: true },
+          }),
+      db.saleReturn.findMany({
+        where: { shopId, returnDate: range, ...(customerScoped ? { customer: customerMatch } : {}) },
+        include: { customer: true, dealer: true, items: true },
+      }),
+      customerScoped
+        ? none
+        : db.purchaseReturn.findMany({
+            where: { shopId, returnDate: range },
+            include: { dealer: true, product: true },
           }),
     ]);
 
@@ -408,6 +421,55 @@ export async function collectLedgerRows(
       saleId: null,
       transfer: true,
       deleteRef: { kind: "BANK_ENTRY", entryId: w.id },
+    });
+  }
+
+  for (const r of saleReturns) {
+    const credit = Number(r.creditReduced);
+    rows.push({
+      id: r.id,
+      date: r.returnDate,
+      side: "DEBIT",
+      label: "Sales return",
+      counterpartyName: r.customer?.name ?? r.dealer?.name ?? "Unknown",
+      counterpartyHref: r.customer ? customerHref(r.customer.id) : r.dealer ? dealerHref(r.dealer.id) : "#",
+      detail: [
+        `${r.items.length} item${r.items.length === 1 ? "" : "s"}`,
+        credit > 0.004 ? `Rs ${Math.round(credit).toLocaleString("en-US")} off Udhaar` : null,
+        `Ref: ${r.reference}`,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      paymentMethod: Number(r.cashRefund) > 0 ? "CASH" : Number(r.accountRefund) > 0 ? "ACCOUNT" : null,
+      amount: Number(r.amount),
+      // Only the cash / bank part moves money; the Udhaar part is
+      // taken off what they owe.
+      splits: [
+        { method: "CASH" as const, amount: Number(r.cashRefund) },
+        { method: "ACCOUNT" as const, amount: Number(r.accountRefund) },
+      ].filter((p) => p.amount > 0.004),
+      saleId: null,
+      deleteRef: { kind: "SALE_RETURN", returnId: r.id },
+    });
+  }
+  for (const r of purchaseReturns) {
+    const less = r.refundMethod === "CREDIT";
+    rows.push({
+      id: r.id,
+      date: r.returnDate,
+      side: "CREDIT",
+      label: "Purchase return",
+      counterpartyName: r.dealer.name,
+      counterpartyHref: dealerHref(r.dealer.id),
+      detail: [`${Number(r.quantity)} ${r.product.name}`, less ? "less owed to dealer" : null, `Ref: ${r.reference}`]
+        .filter(Boolean)
+        .join(" · "),
+      // "Less owed" moves no money.
+      paymentMethod: less ? null : r.refundMethod,
+      amount: Number(r.amount),
+      ...(less ? { splits: [] } : {}),
+      saleId: null,
+      deleteRef: { kind: "PURCHASE_RETURN", returnId: r.id },
     });
   }
 
