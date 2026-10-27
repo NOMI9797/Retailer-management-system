@@ -96,12 +96,25 @@ export async function drawGrainFifo(
 // (its grain is on the shelf again), and a compensating Stock Udhaar
 // entry carrying the same sale / loan link cancels the shortfall — so
 // reversing that sale or loan later still nets to exactly zero.
-export async function coverStockUdhaarFromBatch(tx: Prisma.TransactionClient, productId: string, newBatchId: string) {
+//
+// Buying a customer's grain uses this too (options): onlyDepositId
+// limits it to the deposit being bought (its already-sold part is what
+// the shop is paying for first), and `tag` marks each compensating
+// entry with the purchase's batch (linkedTransferBatchId) so deleting
+// or editing that purchase can move it all back (undoCoverOntoBatch).
+export async function coverStockUdhaarFromBatch(
+  tx: Prisma.TransactionClient,
+  productId: string,
+  newBatchId: string,
+  options?: { onlyDepositId?: string; tag?: boolean }
+) {
   const newBatch = await tx.grainBatch.findUniqueOrThrow({ where: { id: newBatchId } });
   let free = Number(newBatch.quantityIn) - Number(newBatch.quantitySold);
   if (free <= 0.0001 || newBatch.ownerCustomerId) return;
 
-  const entries = await tx.stockUdhaarEntry.findMany({ where: { productId } });
+  const entries = await tx.stockUdhaarEntry.findMany({
+    where: { productId, grainBatchId: options?.onlyDepositId || undefined },
+  });
   const owed = new Map<string, number>();
   for (const e of entries) owed.set(e.grainBatchId, (owed.get(e.grainBatchId) ?? 0) + Number(e.quantity));
   const batchIds = [...owed].filter(([, q]) => q > 0.0001).map(([id]) => id);
@@ -167,8 +180,9 @@ export async function coverStockUdhaarFromBatch(tx: Prisma.TransactionClient, pr
         productId,
         grainBatchId: deposit.id,
         quantity: -q,
-        notes: "Given back from new stock",
+        notes: options?.tag ? "Bought by the shop" : "Given back from new stock",
         ...link,
+        ...(options?.tag ? { linkedTransferBatchId: newBatchId } : {}),
       },
     });
 
@@ -275,4 +289,120 @@ export async function coverDepositFromOwnStock(
   await tx.dailySaleItemBatch.deleteMany({ where: { grainBatchId: deposit.id, quantity: { lte: 0 } } });
   await tx.grainLoanDraw.deleteMany({ where: { grainBatchId: deposit.id, quantity: { lte: 0 } } });
   return Math.round((params.quantity - needed) * 1000) / 1000;
+}
+
+// What a purchase batch still carries from coverStockUdhaarFromBatch
+// (tagged entries): per deposit and sale / loan, how much of that
+// deposit's sold grain was moved onto the batch. Net of any earlier
+// undo, so it's always what's there now.
+async function taggedMoves(tx: Prisma.TransactionClient, batchId: string) {
+  const tagged = await tx.stockUdhaarEntry.findMany({
+    where: {
+      linkedTransferBatchId: batchId,
+      OR: [{ linkedSaleId: { not: null } }, { linkedGrainLoanId: { not: null } }, { linkedGrainLoanReturnId: { not: null } }],
+    },
+  });
+  const net = new Map<string, { entry: (typeof tagged)[number]; moved: number }>();
+  for (const e of tagged) {
+    const key = [e.grainBatchId, e.linkedSaleId, e.visitAt?.getTime(), e.linkedGrainLoanId, e.linkedGrainLoanReturnId].join(":");
+    const cur = net.get(key) ?? { entry: e, moved: 0 };
+    cur.moved -= Number(e.quantity);
+    net.set(key, cur);
+  }
+  return [...net.values()].filter((m) => m.moved > 0.0001);
+}
+
+// How much of a purchase batch's "sold" figure is really grain it took
+// over from a deposit (not sold from it since) — so delete / edit can
+// tell that apart from grain genuinely sold out of the purchase.
+export async function movedOntoBatch(tx: Prisma.TransactionClient, batchId: string) {
+  return Math.round((await taggedMoves(tx, batchId)).reduce((s, m) => s + m.moved, 0) * 1000) / 1000;
+}
+
+// Undoes coverStockUdhaarFromBatch(..., { tag: true }) for a purchase
+// being deleted or edited: each sale / loan draw moved onto the batch
+// goes back onto its deposit, the deposit is "sold" again, and the
+// Stock Udhaar comes back with the same link — so the customer is owed
+// that grain again, exactly as before the purchase. A draw that no
+// longer exists (its sale was since deleted) has nothing to move back.
+export async function undoCoverOntoBatch(tx: Prisma.TransactionClient, batchId: string) {
+  for (const { entry, moved } of await taggedMoves(tx, batchId)) {
+    let left = moved;
+    if (entry.linkedSaleId) {
+      const allocs = await tx.dailySaleItemBatch.findMany({
+        where: {
+          grainBatchId: batchId,
+          dailySaleItem: {
+            dailySaleId: entry.linkedSaleId,
+            ...(entry.visitAt ? { visitAt: entry.visitAt } : {}),
+          },
+        },
+      });
+      for (const a of allocs) {
+        if (left <= 0.0001) break;
+        const q = Math.round(Math.min(Number(a.quantity), left) * 1000) / 1000;
+        await tx.dailySaleItemBatch.update({ where: { id: a.id }, data: { quantity: { decrement: q } } });
+        await tx.dailySaleItemBatch.create({
+          data: { dailySaleItemId: a.dailySaleItemId, grainBatchId: entry.grainBatchId, quantity: q },
+        });
+        left -= q;
+      }
+    } else {
+      const draws = await tx.grainLoanDraw.findMany({
+        where: {
+          grainBatchId: batchId,
+          grainLoanId: entry.linkedGrainLoanId ?? undefined,
+          grainLoanReturnId: entry.linkedGrainLoanReturnId ?? undefined,
+        },
+      });
+      for (const d of draws) {
+        if (left <= 0.0001) break;
+        const q = Math.round(Math.min(Number(d.quantity), left) * 1000) / 1000;
+        await tx.grainLoanDraw.update({ where: { id: d.id }, data: { quantity: { decrement: q } } });
+        await tx.grainLoanDraw.create({
+          data: { grainBatchId: entry.grainBatchId, quantity: q, grainLoanId: d.grainLoanId, grainLoanReturnId: d.grainLoanReturnId },
+        });
+        left -= q;
+      }
+    }
+    const back = Math.round((moved - left) * 1000) / 1000;
+    if (back > 0) {
+      await tx.grainBatch.update({ where: { id: batchId }, data: { quantitySold: { decrement: back } } });
+      await tx.grainBatch.update({ where: { id: entry.grainBatchId }, data: { quantitySold: { increment: back } } });
+    }
+    // Close this move out (tagged, so it nets to zero for taggedMoves);
+    // the customer is owed the moved-back grain again.
+    await tx.stockUdhaarEntry.create({
+      data: {
+        customerId: entry.customerId,
+        productId: entry.productId,
+        grainBatchId: entry.grainBatchId,
+        quantity: moved,
+        linkedSaleId: entry.linkedSaleId,
+        visitAt: entry.visitAt,
+        linkedGrainLoanId: entry.linkedGrainLoanId,
+        linkedGrainLoanReturnId: entry.linkedGrainLoanReturnId,
+        linkedTransferBatchId: batchId,
+        notes: "Purchase undone — owed again",
+      },
+    });
+    // A draw that's gone (its sale deleted) leaves nothing owed.
+    if (left > 0.0001) {
+      await tx.stockUdhaarEntry.create({
+        data: {
+          customerId: entry.customerId,
+          productId: entry.productId,
+          grainBatchId: entry.grainBatchId,
+          quantity: -Math.round(left * 1000) / 1000,
+          linkedSaleId: entry.linkedSaleId,
+          visitAt: entry.visitAt,
+          linkedGrainLoanId: entry.linkedGrainLoanId,
+          linkedGrainLoanReturnId: entry.linkedGrainLoanReturnId,
+          notes: "Purchase undone — sale no longer there",
+        },
+      });
+    }
+  }
+  await tx.dailySaleItemBatch.deleteMany({ where: { grainBatchId: batchId, quantity: { lte: 0 } } });
+  await tx.grainLoanDraw.deleteMany({ where: { grainBatchId: batchId, quantity: { lte: 0 } } });
 }

@@ -20,7 +20,7 @@ import {
   updateDepositReturnSchema,
   type UpdateDepositReturnInput,
 } from "./schema";
-import { coverDepositFromOwnStock, coverStockUdhaarFromBatch } from "./grainFifo";
+import { coverDepositFromOwnStock, coverStockUdhaarFromBatch, movedOntoBatch, undoCoverOntoBatch } from "./grainFifo";
 
 type Result<T> = { success: true; data: T } | { success: false; error: string };
 
@@ -166,49 +166,44 @@ async function payCustomerForGrain(
     });
   }
 
-  // Settle outstanding Stock Udhaar for this customer+product,
-  // oldest-first, up to the quantity just purchased. Each settlement
-  // is a NEGATIVE entry (never a delete — see reverseSaleContents'
-  // comment for why the ledger is append-only) so the shortfall's
-  // full history stays intact and auditable.
-  let remainingToSettle = params.quantity;
-  if (remainingToSettle > 0) {
-    const outstandingEntries = await tx.stockUdhaarEntry.findMany({
-      where: { customerId: params.customerId, productId: params.productId },
-      orderBy: { createdAt: "asc" },
-    });
-    // Running outstanding total per batch this shortfall came from —
-    // settle the oldest-growing batches first.
-    const outstandingByBatch = new Map<string, number>();
-    for (const entry of outstandingEntries) {
-      outstandingByBatch.set(
-        entry.grainBatchId,
-        (outstandingByBatch.get(entry.grainBatchId) ?? 0) + Number(entry.quantity)
-      );
-    }
-    for (const [grainBatchId, outstanding] of outstandingByBatch) {
-      if (remainingToSettle <= 0) break;
-      if (outstanding <= 0) continue;
-      const settleAmount = Math.min(outstanding, remainingToSettle);
-      await tx.stockUdhaarEntry.create({
-        data: {
-          customerId: params.customerId,
-          productId: params.productId,
-          grainBatchId,
-          quantity: -settleAmount,
-          linkedTransferBatchId: params.newShopBatchId,
-          notes: `Settled by purchase of ${params.productName}`,
-        },
-      });
-      remainingToSettle -= settleAmount;
-    }
-  }
+  // Stock Udhaar isn't cleared here: the caller moves the grain the
+  // shop had sold onto the new batch (coverStockUdhaarFromBatch), so
+  // the batch, the deposit and Stock Udhaar all stay in step.
 
   return {
     ...payoutTxn,
     amount: Number(payoutTxn.amount),
     quantity: payoutTxn.quantity ? Number(payoutTxn.quantity) : null,
   };
+}
+
+// Undoes the Stock Udhaar side of a grain purchase (delete / edit):
+// the sales it took over move back onto their deposits
+// (undoCoverOntoBatch), and any older-style settlement entries (made
+// before purchases moved the sales — no sale link) are cancelled
+// with opposite entries, net, as they always were.
+async function reverseSettlementStockUdhaar(tx: Prisma.TransactionClient, batchId: string, notes: string) {
+  await undoCoverOntoBatch(tx, batchId);
+  const legacy = await tx.stockUdhaarEntry.findMany({
+    where: {
+      linkedTransferBatchId: batchId,
+      linkedSaleId: null,
+      linkedGrainLoanId: null,
+      linkedGrainLoanReturnId: null,
+    },
+  });
+  const net = new Map<string, { customerId: string; productId: string; grainBatchId: string; quantity: number }>();
+  for (const e of legacy) {
+    const cur = net.get(e.grainBatchId) ?? { customerId: e.customerId, productId: e.productId, grainBatchId: e.grainBatchId, quantity: 0 };
+    cur.quantity += Number(e.quantity);
+    net.set(e.grainBatchId, cur);
+  }
+  for (const e of net.values()) {
+    if (Math.abs(e.quantity) <= 0.0001) continue;
+    await tx.stockUdhaarEntry.create({
+      data: { ...e, quantity: -Math.round(e.quantity * 1000) / 1000, linkedTransferBatchId: batchId, notes },
+    });
+  }
 }
 
 // Ownership-transfer/purchase: the shopkeeper buys some or all of a
@@ -310,6 +305,14 @@ export async function createTransferPurchase(
     // agreed rate) — the pool gains exactly what was paid, same as
     // any other grain purchase. See postToPooledGrainStock's comment.
     await postToPooledGrainStock(tx, sourceBatch.productId, data.quantity, data.quantity * data.rate);
+    // Grain of this deposit the shop had already sold is the first
+    // thing it's paying for: those sales move onto the new batch, so
+    // the batch only holds what's really still on the shelf and the
+    // customer's Stock Udhaar for it is cleared.
+    await coverStockUdhaarFromBatch(tx, sourceBatch.productId, newShopBatch.id, {
+      onlyDepositId: sourceBatch.id,
+      tag: true,
+    });
 
     const updatedSourceBatch = await tx.grainBatch.findUniqueOrThrow({ where: { id: sourceBatch.id } });
 
@@ -390,8 +393,9 @@ export async function createDepositWithSettlement(
     // Real, priced purchase (settle-now at drop-off) — pool gains
     // what was paid, same as createTransferPurchase above.
     await postToPooledGrainStock(tx, data.productId, data.quantity, data.quantity * data.rate);
-    // New own grain first gives back any Stock Udhaar still owed.
-    await coverStockUdhaarFromBatch(tx, data.productId, newShopBatch.id);
+    // New own grain first gives back any Stock Udhaar still owed —
+    // tagged so deleting / editing this purchase can move it back.
+    await coverStockUdhaarFromBatch(tx, data.productId, newShopBatch.id, { tag: true });
 
     return {
       success: true,
@@ -439,22 +443,17 @@ export async function deleteGrainSettlement(accountTransactionId: string): Promi
   if (!txn || !txn.linkedGrainBatch) return { success: false, error: "Settlement not found" };
 
   const newShopBatch = txn.linkedGrainBatch;
-  if (Number(newShopBatch.quantitySold) > 0) {
+  // Grain this purchase took over from deposits (already sold before
+  // it was bought) counts as "sold" on the batch but moves back on
+  // delete — only grain sold out of the purchase itself blocks it.
+  const takenOver = await movedOntoBatch(db as unknown as Prisma.TransactionClient, newShopBatch.id);
+  if (Number(newShopBatch.quantitySold) - takenOver > 0.0001) {
     return {
       success: false,
       error: "Some of this settlement's stock has already been sold — it can't be undone until that's resolved.",
     };
   }
 
-  const laterSettlement = await db.stockUdhaarEntry.findFirst({
-    where: { linkedTransferBatchId: newShopBatch.id, createdAt: { gt: txn.transactionDate } },
-  });
-  if (laterSettlement) {
-    return {
-      success: false,
-      error: "A later settlement depends on this one having happened — it can't be undone out of order.",
-    };
-  }
 
   const amount = Number(txn.amount);
   const quantity = Number(txn.quantity ?? newShopBatch.quantityIn);
@@ -481,20 +480,7 @@ export async function deleteGrainSettlement(accountTransactionId: string): Promi
     // — append-only ledger (see StockUdhaarEntry's own comment), so
     // this adds a compensating POSITIVE entry rather than deleting
     // the negative settlement rows, keeping the full history intact.
-    const settlementEntries = await tx.stockUdhaarEntry.findMany({
-      where: { linkedTransferBatchId: newShopBatch.id },
-    });
-    for (const entry of settlementEntries) {
-      await tx.stockUdhaarEntry.create({
-        data: {
-          customerId: entry.customerId,
-          productId: entry.productId,
-          grainBatchId: entry.grainBatchId,
-          quantity: -Number(entry.quantity),
-          notes: "Reversed — settlement deleted",
-        },
-      });
-    }
+    await reverseSettlementStockUdhaar(tx, newShopBatch.id, "Reversed — settlement deleted");
 
     // If this settlement came from a transfer-purchase (has a source
     // batch), give that claim back; a settle-now deposit has no
@@ -548,19 +534,11 @@ export async function updateGrainSettlement(
   const newShopBatch = txn.linkedGrainBatch;
   const customerId = txn.customerAccount.customerId;
   const productName = newShopBatch.product.name;
-  if (Number(newShopBatch.quantitySold) > 0) {
+  const takenOver = await movedOntoBatch(db as unknown as Prisma.TransactionClient, newShopBatch.id);
+  if (Number(newShopBatch.quantitySold) - takenOver > 0.0001) {
     return {
       success: false,
       error: "Some of this settlement's stock has already been sold — it can't be edited until that's resolved.",
-    };
-  }
-  const laterSettlement = await db.stockUdhaarEntry.findFirst({
-    where: { linkedTransferBatchId: newShopBatch.id, createdAt: { gt: txn.transactionDate } },
-  });
-  if (laterSettlement) {
-    return {
-      success: false,
-      error: "A later settlement depends on this one having happened — it can't be edited out of order.",
     };
   }
 
@@ -637,20 +615,7 @@ export async function updateGrainSettlement(
       if (txn.paymentMethod === "ACCOUNT" && txn.bankAccountId) {
         await postToBankAccount(tx, txn.bankAccountId, oldAmount);
       }
-      const settlementEntries = await tx.stockUdhaarEntry.findMany({
-        where: { linkedTransferBatchId: newShopBatch.id },
-      });
-      for (const entry of settlementEntries) {
-        await tx.stockUdhaarEntry.create({
-          data: {
-            customerId: entry.customerId,
-            productId: entry.productId,
-            grainBatchId: entry.grainBatchId,
-            quantity: -Number(entry.quantity),
-            notes: "Reversed — settlement edited",
-          },
-        });
-      }
+      await reverseSettlementStockUdhaar(tx, newShopBatch.id, "Reversed — settlement edited");
       if (sourceBatchId) {
         await tx.grainBatch.update({
           where: { id: sourceBatchId },
@@ -704,6 +669,15 @@ export async function updateGrainSettlement(
       });
 
       await postToPooledGrainStock(tx, newShopBatch.productId, data.quantity, data.quantity * data.rate);
+      // Same as when it was first recorded: grain of the deposit
+      // already sold is what's bought first (or, for a drop-off sold
+      // straight away, the new grain refills what the shop owes).
+      await coverStockUdhaarFromBatch(
+        tx,
+        newShopBatch.productId,
+        newShopBatch.id,
+        effectiveSourceId ? { onlyDepositId: effectiveSourceId, tag: true } : { tag: true }
+      );
 
       const updatedBatch = await tx.grainBatch.findUniqueOrThrow({ where: { id: newShopBatch.id } });
 
