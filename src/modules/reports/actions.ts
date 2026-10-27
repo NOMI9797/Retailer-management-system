@@ -5,7 +5,7 @@ import { getCurrentShopId } from "@/lib/tenant";
 import { parseLocalDateStart, parseLocalDateEnd, toLocalDateString } from "@/lib/utils";
 import { reportPeriodSchema, type ReportPeriodInput } from "./schema";
 import { getStockUdhaarSummary } from "@/modules/stock/actions";
-import { collectGrainMoves, totalGrainMoves } from "@/modules/grain-account/grainMoves";
+import { collectGrainProfit } from "@/modules/grain-account/grainMoves";
 
 export type PnlReport = {
   // Products (cost-based) + grain (running account) together.
@@ -14,10 +14,11 @@ export type PnlReport = {
   // Products: what they sold for, and what those units cost.
   productRevenue: number;
   productCogs: number;
-  // Grain, the way its season account works it (Grain → Profit /
-  // Loss): money received for grain in the period, less money paid for
-  // grain in the period. Not available for a seasonal view (purchases
-  // have no sale season) — grainInSeasonal says so.
+  // Grain, the same way its season account works it (Grain → Profit /
+  // Loss): what grain sold for in the period, and what that grain had
+  // cost (each batch it came from × that batch's rate; customer grain
+  // has no cost until the shop buys it). Not available for a seasonal
+  // view — grainNotInSeasonal says so.
   grainReceived: number;
   grainPaid: number;
   grainNotInSeasonal: boolean;
@@ -134,11 +135,9 @@ export async function getPnlReport(input: ReportPeriodInput): Promise<PnlReport>
         })
       )._sum.amount ?? 0;
 
-  const grain = range
-    ? totalGrainMoves(await collectGrainMoves(shopId, { range: { gte: range.start, lte: range.end } }))
-    : null;
-  const grainReceived = grain?.received ?? 0;
-  const grainPaid = grain?.paid ?? 0;
+  const grainEntries = range ? await collectGrainProfit(shopId, { range: { gte: range.start, lte: range.end } }) : [];
+  const grainReceived = Math.round(grainEntries.reduce((s, e) => s + e.revenue, 0) * 100) / 100;
+  const grainPaid = Math.round(grainEntries.reduce((s, e) => s + e.cost, 0) * 100) / 100;
 
   const productRevenue = revenue;
   const productCogs = cogs;
@@ -240,8 +239,8 @@ export async function listDailyPnlHistory(options?: { fromDate?: string; toDate?
       where: { shopId, expenseDate: dateFilter },
       select: { expenseDate: true },
     }),
-    // Days grain was bought (or loan bags paid for) count too.
-    collectGrainMoves(shopId, { range: dateFilter as { gte: Date; lte: Date } }),
+    // Days with grain sold (or loan bags paid for in money) count too.
+    collectGrainProfit(shopId, { range: dateFilter as { gte: Date; lte: Date } }),
   ]);
 
   const distinctDates = new Set<string>();

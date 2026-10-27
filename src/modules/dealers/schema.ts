@@ -36,6 +36,9 @@ export const dealerProductPurchaseSchema = z
     productId: z.string().uuid(),
     quantity: z.number().positive("Quantity must be positive"),
     costPrice: z.number().positive("Cost price must be positive"),
+    // For a product sold in two units: which one quantity and costPrice
+    // are in ("SUB" = e.g. Kgs). Default main.
+    unit: z.enum(["MAIN", "SUB"]).optional(),
     paymentMethod: z.enum(["CASH", "ACCOUNT", "CREDIT"]),
     bankAccountId: z.string().uuid().optional(),
     purchaseDate: z.string().optional(),

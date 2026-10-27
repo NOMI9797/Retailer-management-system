@@ -6,7 +6,7 @@ import { ok, fail, type ActionResult } from "@/lib/actionResult";
 import { parseLocalDateStart, toLocalDateString } from "@/lib/utils";
 import { postToBankAccount } from "@/modules/settings/bankAccounts.actions";
 import { postToPooledGrainStock } from "@/modules/stock/actions";
-import { drawGrainFifo } from "@/modules/stock/grainFifo";
+import { drawGrainFifo, lentCostRates } from "@/modules/stock/grainFifo";
 import {
   grainLoanSchema,
   updateGrainLoanSchema,
@@ -298,11 +298,15 @@ async function applyReturnStock(
 ) {
   const qty = Number(ret.quantityReturned);
   if (loan.direction === "SHOP_LENT") {
+    // Lent grain comes back into stock at what it cost the shop when
+    // it went out (not the agreed rate) — so lending and getting it
+    // back is neither a profit nor a loss.
+    const costRate = (await lentCostRates(tx, [loan])).get(loan.id) ?? Number(loan.rate);
     await syncCreatedBatch(tx, {
       productId: loan.productId,
       owner: { grainLoanReturnId: ret.id },
       quantity: qty,
-      rate: Number(loan.rate),
+      rate: costRate,
       receivedAt: ret.returnDate,
       unitName,
     });
@@ -469,11 +473,13 @@ export async function updateGrainLoan(
     // SHOP_BORROWED → its batch is synced in place (kept if sold from).
     await applyLoanStock(tx, updated, product.name, product.unit.name);
 
-    // Grain given back to the shop is costed at the loan's rate.
+    // Grain given back to the shop is costed at what it cost when it
+    // went out (the loan's draws were just redone above).
     if (updated.direction === "SHOP_LENT") {
+      const costRate = (await lentCostRates(tx, [updated])).get(updated.id) ?? data.rate;
       await tx.grainBatch.updateMany({
         where: { grainLoanReturnId: { in: loan.returns.map((r) => r.id) } },
-        data: { rate: data.rate },
+        data: { rate: costRate },
       });
     }
     return { id: updated.id };

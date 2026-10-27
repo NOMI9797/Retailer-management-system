@@ -32,18 +32,30 @@ export async function createProduct(
     return fail(`"${category.name}" is a Grain category — pick a Product category for this item.`);
   }
 
+  const subUnitId = data.subUnitId || null;
+  if (subUnitId) {
+    const sub = await db.unit.findFirst({ where: { id: subUnitId, shopId } });
+    if (!sub) return fail("Small unit not found");
+  }
+  const perUnit = subUnitId ? (data.subUnitsPerUnit ?? null) : null;
+  // Opening stock typed in the small unit is kept in the main unit.
+  const quantity =
+    data.quantity !== undefined && data.quantityUnit === "SUB" && perUnit ? data.quantity / perUnit : data.quantity;
+
   const product = await db.product.create({
     data: {
       shopId,
       categoryId: data.categoryId,
       unitId: data.unitId,
+      subUnitId,
+      subUnitsPerUnit: perUnit,
       name: data.name,
       stockKind: "SIMPLE",
       costPrice: data.costPrice,
       sellPrice: data.sellPrice,
-      quantity: data.quantity ?? 0,
+      quantity: quantity ?? 0,
       // No quantity given → don't track stock (sold count shown instead).
-      tracksStock: data.quantity !== undefined,
+      tracksStock: quantity !== undefined,
     },
   });
   return ok(serializeDecimals(product));
@@ -70,10 +82,43 @@ export async function updateProduct(
     }
   }
 
+  // Two units: turning it off clears both fields; turning it on needs
+  // the small unit and how many make one main unit. Stock and prices
+  // stay in the main unit either way, so nothing already recorded
+  // changes.
+  const { quantityUnit, subUnitId, subUnitsPerUnit, ...rest } = data;
+  const twoUnit: { subUnitId?: string | null; subUnitsPerUnit?: number | null } = {};
+  if (subUnitId !== undefined) {
+    if (subUnitId) {
+      const sub = await db.unit.findFirst({ where: { id: subUnitId, shopId } });
+      if (!sub) return fail("Small unit not found");
+      if (subUnitId === (rest.unitId ?? existing.unitId)) return fail("The small unit must be different from the main unit");
+      if (!subUnitsPerUnit || subUnitsPerUnit <= 0) return fail("Enter how many of the small unit make one main unit");
+      twoUnit.subUnitId = subUnitId;
+      twoUnit.subUnitsPerUnit = subUnitsPerUnit;
+    } else {
+      twoUnit.subUnitId = null;
+      twoUnit.subUnitsPerUnit = null;
+    }
+  }
+  const perUnit =
+    twoUnit.subUnitId !== undefined
+      ? twoUnit.subUnitsPerUnit
+      : existing.subUnitsPerUnit !== null
+        ? Number(existing.subUnitsPerUnit)
+        : null;
+  // A quantity typed in the small unit is kept in the main unit.
+  const quantity =
+    rest.quantity !== undefined && quantityUnit === "SUB" && perUnit ? rest.quantity / perUnit : rest.quantity;
+
   // Giving a quantity starts tracking stock for an untracked product.
   const product = await db.product.update({
     where: { id },
-    data: { ...data, ...(data.quantity !== undefined ? { tracksStock: true } : {}) },
+    data: {
+      ...rest,
+      ...twoUnit,
+      ...(quantity !== undefined ? { quantity, tracksStock: true } : {}),
+    },
   });
   return ok(serializeDecimals(product));
 }
@@ -135,7 +180,7 @@ export async function listProducts(options?: {
   const [products, totalCount] = await Promise.all([
     db.product.findMany({
       where,
-      include: { category: true, unit: true },
+      include: { category: true, unit: true, subUnit: true },
       orderBy: { name: "asc" },
       skip: (page - 1) * pageSize,
       take: pageSize,

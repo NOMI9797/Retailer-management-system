@@ -20,7 +20,7 @@ import {
   updateDepositReturnSchema,
   type UpdateDepositReturnInput,
 } from "./schema";
-import { coverDepositFromOwnStock, coverStockUdhaarFromBatch, movedOntoBatch, undoCoverOntoBatch } from "./grainFifo";
+import { coverDepositFromOwnStock, coverStockUdhaarFromBatch, lentCostRates, movedOntoBatch, undoCoverOntoBatch } from "./grainFifo";
 
 type Result<T> = { success: true; data: T } | { success: false; error: string };
 
@@ -991,7 +991,13 @@ export async function getStockOverview(productId: string) {
       // already-gone quantity, and the negative here cancels it out.
       const remaining = quantityIn - quantitySold - quantityTransferred - quantityReturned;
       totalPhysical += remaining;
-      if (remaining < 0) ownAvailable += remaining;
+      if (remaining < 0) {
+        ownAvailable += remaining;
+        // Bought by the shop beyond what was there (recorded before
+        // purchases moved the earlier sales): grain the shop paid for
+        // that's already gone — it takes its cost off the value.
+        ownValue += remaining * Number(batch.rate ?? 0);
+      }
       // The customer's ownership claim, whatever has physically moved.
       customerClaim += quantityIn - quantityTransferred - quantityReturned;
     } else {
@@ -1021,9 +1027,15 @@ export async function getStockOverview(productId: string) {
   const pooled = await getPooledGrainStock(productId);
 
   // Grain loans still outstanding — what parties owe back to the shop
-  // (lent out) and what the shop owes back (borrowed), each at the
-  // loan's agreed rate.
+  // (lent out, valued at what that grain cost the shop — it's the
+  // shop's stock while it's out) and what the shop owes back
+  // (borrowed, at the loan's agreed rate, the same rate its batch
+  // came in at).
   const loans = await db.grainLoan.findMany({ where: { shopId, productId }, include: { returns: true } });
+  const lentCost = await lentCostRates(
+    db as unknown as Prisma.TransactionClient,
+    loans.filter((l) => l.direction === "SHOP_LENT")
+  );
   let lentOut = 0;
   let lentOutValue = 0;
   let borrowed = 0;
@@ -1033,7 +1045,7 @@ export async function getStockOverview(productId: string) {
     const outstanding = Math.max(Number(loan.quantity) - given, 0);
     if (loan.direction === "SHOP_LENT") {
       lentOut += outstanding;
-      lentOutValue += outstanding * Number(loan.rate);
+      lentOutValue += outstanding * (lentCost.get(loan.id) ?? Number(loan.rate));
     } else {
       borrowed += outstanding;
       borrowedValue += outstanding * Number(loan.rate);

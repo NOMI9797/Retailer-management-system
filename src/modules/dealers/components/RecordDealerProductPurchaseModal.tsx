@@ -6,6 +6,7 @@ import { createDealerProductPurchase } from "../actions";
 import { BankAccountPicker } from "@/components/shared/BankAccountPicker";
 import { showToast } from "@/components/shared/toastStore";
 import { formatMoney } from "@/lib/utils";
+import { subUnitsPerUnit } from "@/modules/products/units";
 import type { listDealers } from "../actions";
 import type { listProducts } from "@/modules/products/actions";
 
@@ -36,6 +37,11 @@ export function DealerProductPurchaseForm({
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("");
   const [costPrice, setCostPrice] = useState("");
+  // A two-unit product (Bag / Kgs): which unit quantity and cost are in.
+  const [unit, setUnit] = useState<"MAIN" | "SUB">("MAIN");
+  const product = products.find((p) => p.id === productId);
+  const twoUnit = product && subUnitsPerUnit(product) ? product : null;
+  const unitLabel = product ? (unit === "SUB" && twoUnit ? twoUnit.subUnit!.name : product.unit.name) : "unit";
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "ACCOUNT" | "CREDIT">("CASH");
   const [bankAccountId, setBankAccountId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +58,7 @@ export function DealerProductPurchaseForm({
       productId,
       quantity: Number(quantity),
       costPrice: Number(costPrice),
+      unit: twoUnit ? unit : undefined,
       paymentMethod,
       bankAccountId: bankAccountId || undefined,
     });
@@ -84,13 +91,21 @@ export function DealerProductPurchaseForm({
 
       <div className="field">
         <label>Product</label>
-        <select value={productId} onChange={(e) => setProductId(e.target.value)} required>
+        <select
+          value={productId}
+          onChange={(e) => {
+            setProductId(e.target.value);
+            setUnit("MAIN");
+          }}
+          required
+        >
           <option value="" disabled>
             Select a product
           </option>
           {products.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.name}
+              {p.name} ({p.unit.name}
+              {subUnitsPerUnit(p) ? ` / ${p.subUnit!.name}` : ""})
             </option>
           ))}
         </select>
@@ -98,18 +113,40 @@ export function DealerProductPurchaseForm({
 
       <div className="field-row">
         <div className="field">
-          <label>Quantity</label>
-          <input
-            type="number"
-            min="0"
-            step="any"
-            value={quantity}
-            onChange={(e) => setQuantity(e.target.value)}
-            required
-          />
+          <label>Quantity{product ? ` (${unitLabel})` : ""}</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              required
+            />
+            {twoUnit && (
+              <select
+                value={unit}
+                onChange={(e) => {
+                  // Keep the same rate when switching Bag ↔ Kgs.
+                  const next = e.target.value as "MAIN" | "SUB";
+                  const n = subUnitsPerUnit(twoUnit)!;
+                  const c = Number(costPrice);
+                  if (c > 0 && next !== unit) {
+                    setCostPrice(String(Math.round((next === "SUB" ? c / n : c * n) * 100) / 100));
+                  }
+                  setUnit(next);
+                }}
+                style={{ width: "auto" }}
+                aria-label="Unit"
+              >
+                <option value="MAIN">{twoUnit.unit.name}</option>
+                <option value="SUB">{twoUnit.subUnit!.name}</option>
+              </select>
+            )}
+          </div>
         </div>
         <div className="field">
-          <label>Cost price (per unit)</label>
+          <label>Cost price (per {unitLabel})</label>
           <input
             type="number"
             min="0"

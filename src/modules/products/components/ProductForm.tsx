@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createProduct, createGrainProduct } from "../actions";
 import { showToast } from "@/components/shared/toastStore";
+import { TwoUnitSetup, SubUnitPriceHint } from "./TwoUnitSetup";
 import type { listCategories, listUnits } from "../actions";
 
 type StockKind = "SIMPLE" | "GRAIN";
@@ -45,6 +46,13 @@ export function ProductForm({
   const [costPrice, setCostPrice] = useState("");
   const [sellPrice, setSellPrice] = useState("");
   const [quantity, setQuantity] = useState("");
+  // Sold in two units (Bag and Kgs): the small unit, how many make one
+  // main unit, and which unit the opening quantity is typed in.
+  const [twoUnits, setTwoUnits] = useState({ enabled: false, subUnitId: "", perUnit: "" });
+  const [quantityUnit, setQuantityUnit] = useState<"MAIN" | "SUB">("MAIN");
+  const mainName = units.find((u) => u.id === unitId)?.name ?? "unit";
+  const subName = units.find((u) => u.id === twoUnits.subUnitId)?.name ?? "small unit";
+  const priceLabel = twoUnits.enabled ? ` (per ${mainName})` : "";
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -76,6 +84,9 @@ export function ProductForm({
               sellPrice: Number(sellPrice),
               // Left blank → stock isn't tracked (see Product.tracksStock).
               quantity: quantity.trim() ? Number(quantity) : undefined,
+              quantityUnit: twoUnits.enabled ? quantityUnit : undefined,
+              subUnitId: twoUnits.enabled ? twoUnits.subUnitId : null,
+              subUnitsPerUnit: twoUnits.enabled ? Number(twoUnits.perUnit) : null,
             })
           : await createGrainProduct({
               categoryId,
@@ -161,19 +172,41 @@ export function ProductForm({
             </div>
             <div className="field">
               <label>Quantity (optional)</label>
-              <input
-                type="number"
-                min="0"
-                step="any"
-                placeholder="Leave blank to not track stock"
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder="Leave blank to not track stock"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                />
+                {twoUnits.enabled && twoUnits.subUnitId && (
+                  <select
+                    value={quantityUnit}
+                    onChange={(e) => setQuantityUnit(e.target.value as "MAIN" | "SUB")}
+                    style={{ width: "auto" }}
+                  >
+                    <option value="MAIN">{mainName}</option>
+                    <option value="SUB">{subName}</option>
+                  </select>
+                )}
+              </div>
             </div>
           </div>
+          {unitId && (
+            <TwoUnitSetup
+              units={units}
+              mainUnitId={unitId}
+              enabled={twoUnits.enabled}
+              subUnitId={twoUnits.subUnitId}
+              perUnit={twoUnits.perUnit}
+              onChange={setTwoUnits}
+            />
+          )}
           <div className="field-row">
             <div className="field">
-              <label>Cost price</label>
+              <label>Cost price{priceLabel}</label>
               <input
                 type="number"
                 min="0"
@@ -183,9 +216,10 @@ export function ProductForm({
                 onChange={(e) => setCostPrice(e.target.value)}
                 required
               />
+              {twoUnits.enabled && <SubUnitPriceHint price={costPrice} perUnit={twoUnits.perUnit} subName={subName} />}
             </div>
             <div className="field">
-              <label>Sell price</label>
+              <label>Sell price{priceLabel}</label>
               <input
                 type="number"
                 min="0"
@@ -195,6 +229,7 @@ export function ProductForm({
                 onChange={(e) => setSellPrice(e.target.value)}
                 required
               />
+              {twoUnits.enabled && <SubUnitPriceHint price={sellPrice} perUnit={twoUnits.perUnit} subName={subName} />}
             </div>
           </div>
         </>

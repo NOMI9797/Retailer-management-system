@@ -37,7 +37,7 @@ export async function PnlReportPanel({ period }: { period: ReportPeriodInput }) 
         </div>
         <div className="chain-op">−</div>
         <div className="chain-card">
-          <p>Cost (products + grain bought)</p>
+          <p>Cost of goods sold</p>
           <p className="v-cost num">{formatMoney(report.cogs)}</p>
         </div>
         <div className="chain-op">=</div>
@@ -68,13 +68,13 @@ export async function PnlReportPanel({ period }: { period: ReportPeriodInput }) 
           </p>
         ) : (
           <p style={{ margin: 0 }}>
-            <strong>Grain:</strong> received {formatMoney(report.grainReceived)} − paid for grain{" "}
+            <strong>Grain:</strong> sold {formatMoney(report.grainReceived)} − cost of that grain{" "}
             {formatMoney(report.grainPaid)} ={" "}
             <strong style={{ color: report.grainReceived - report.grainPaid >= 0 ? "var(--primary-600)" : "var(--consigned-600)" }}>
               {report.grainReceived - report.grainPaid >= 0 ? "▲" : "▼"}{" "}
               {formatMoney(Math.abs(report.grainReceived - report.grainPaid))}
             </strong>{" "}
-            <span style={{ color: "var(--ink-muted)" }}>(grain bought in these dates counts here)</span>
+            <span style={{ color: "var(--ink-muted)" }}>(customer grain not yet bought has no cost yet)</span>
           </p>
         )}
       </div>

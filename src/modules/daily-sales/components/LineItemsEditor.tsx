@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import type { listProducts } from "@/modules/products/actions";
+import { subUnitsPerUnit } from "@/modules/products/units";
 
 type Product = Awaited<ReturnType<typeof listProducts>>["products"][number];
 
@@ -10,6 +11,8 @@ export type LineItemDraft = {
   quantity: string;
   actualPrice: string;
   categoryId?: string;
+  // A two-unit product (Bag / Kgs): which unit quantity and price are in.
+  unit?: "MAIN" | "SUB";
 };
 
 // Filtering by category first is purely a narrowing aid for the
@@ -46,6 +49,18 @@ export function LineItemsEditor({
         const product = products.find((p) => p.id === patch.productId);
         const defaultPrice = product?.sellPrice ?? product?.baseRate;
         if (defaultPrice != null) updated.actualPrice = String(defaultPrice);
+        updated.unit = "MAIN";
+      }
+      // Switching Bag ↔ Kgs moves the price to the new unit (e.g. Rs
+      // 2,500 a bag → Rs 50 a kg), so the line keeps the same rate.
+      if (patch.unit && patch.unit !== (item.unit ?? "MAIN")) {
+        const product = products.find((p) => p.id === item.productId);
+        const n = product ? subUnitsPerUnit(product) : null;
+        const price = Number(item.actualPrice);
+        if (n && price > 0) {
+          const next = patch.unit === "SUB" ? price / n : price * n;
+          updated.actualPrice = String(Math.round(next * 100) / 100);
+        }
       }
       return updated;
     });
@@ -73,6 +88,8 @@ export function LineItemsEditor({
       <label>Items</label>
       {items.map((item, i) => {
         const product = products.find((p) => p.id === item.productId);
+        const twoUnit = product && subUnitsPerUnit(product) ? product : null;
+        const unitLabel = product ? (item.unit === "SUB" && twoUnit ? twoUnit.subUnit!.name : product.unit.name) : "";
         const filteredProducts = item.categoryId
           ? products.filter((p) => p.categoryId === item.categoryId)
           : products;
@@ -95,7 +112,8 @@ export function LineItemsEditor({
                 </option>
                 {filteredProducts.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name} ({p.unit.name})
+                    {p.name} ({p.unit.name}
+                    {subUnitsPerUnit(p) ? ` / ${p.subUnit!.name}` : ""})
                   </option>
                 ))}
               </select>
@@ -105,18 +123,30 @@ export function LineItemsEditor({
                 type="number"
                 min="0"
                 step="any"
-                placeholder={`Qty${product ? ` (${product.unit.name})` : ""}`}
+                placeholder={`Qty${product ? ` (${unitLabel})` : ""}`}
                 value={item.quantity}
                 onChange={(e) => updateItem(i, { quantity: e.target.value })}
                 required
               />
             </div>
+            {twoUnit && (
+              <div className="field" style={{ marginBottom: 0, flex: "0 1 120px" }}>
+                <select
+                  value={item.unit ?? "MAIN"}
+                  onChange={(e) => updateItem(i, { unit: e.target.value as "MAIN" | "SUB" })}
+                  aria-label="Unit"
+                >
+                  <option value="MAIN">{twoUnit.unit.name}</option>
+                  <option value="SUB">{twoUnit.subUnit!.name}</option>
+                </select>
+              </div>
+            )}
             <div className="field" style={{ marginBottom: 0, flex: "0 1 180px" }}>
               <input
                 type="number"
                 min="0"
                 step="any"
-                placeholder="Price"
+                placeholder={product ? `Price per ${unitLabel}` : "Price"}
                 value={item.actualPrice}
                 onChange={(e) => updateItem(i, { actualPrice: e.target.value })}
                 required

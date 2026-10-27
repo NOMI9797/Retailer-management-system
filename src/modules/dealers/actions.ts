@@ -1,5 +1,6 @@
 "use server";
 
+import { entryUnitName, mainUnitsPer, subUnitsPerUnit } from "@/modules/products/units";
 import { cache } from "react";
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
@@ -208,7 +209,7 @@ export async function getDealer(id: string) {
         date: p.purchaseDate,
         by: "SHOP" as const,
         productName: p.product.name,
-        unitName: p.product.unit.name,
+        unitName: p.unitName ?? p.product.unit.name,
         quantity: Number(p.quantity),
         rate: Number(p.costPrice),
         amount,
@@ -256,7 +257,7 @@ export async function getDealer(id: string) {
           date: new Date(time),
           by: "DEALER" as const,
           productName: items.map((i) => i.product.name).join(", "),
-          unitName: items.length === 1 ? items[0].product.unit.name : "",
+          unitName: items.length === 1 ? (items[0].unitName ?? items[0].product.unit.name) : "",
           quantity: items.reduce((sum, i) => sum + Number(i.quantity), 0),
           rate: items.length === 1 ? Number(items[0].actualPrice) : 0,
           amount,
@@ -308,6 +309,7 @@ export async function getDealer(id: string) {
         productId: p.productId,
         productName: p.product.name,
         quantity: Number(p.quantity),
+        unitName: p.unitName,
         costPrice: Number(p.costPrice),
         amount: Number(p.quantity) * Number(p.costPrice),
         purchaseDate: p.purchaseDate,
@@ -359,11 +361,21 @@ export async function createDealerProductPurchase(input: DealerProductPurchaseIn
   const dealer = await db.dealer.findFirst({ where: { id: data.dealerId, shopId, type: "PRODUCTS" } });
   if (!dealer) return { success: false, error: "Products dealer not found" };
 
-  const product = await db.product.findFirst({ where: { id: data.productId, shopId, stockKind: "SIMPLE" } });
+  const product = await db.product.findFirst({
+    where: { id: data.productId, shopId, stockKind: "SIMPLE" },
+    include: { unit: true, subUnit: true },
+  });
   if (!product) return { success: false, error: "Product not found" };
 
   const purchaseDate = data.purchaseDate ? parseLocalDateStart(data.purchaseDate) : new Date();
   const amount = data.quantity * data.costPrice;
+  // Bought in the small unit (e.g. Kgs of a Bag product): stock and the
+  // product's cost price are kept per main unit, so convert.
+  const sub = data.unit === "SUB" && subUnitsPerUnit(product) ? true : false;
+  const perEntered = sub ? mainUnitsPer(product, "SUB") : 1;
+  const stockQuantity = data.quantity * perEntered;
+  const costPerMain = data.costPrice / perEntered;
+  const unitLabel = entryUnitName(product, sub ? "SUB" : "MAIN");
 
   const purchase = await db.$transaction(async (tx) => {
     const created = await tx.dealerProductPurchase.create({
@@ -372,6 +384,8 @@ export async function createDealerProductPurchase(input: DealerProductPurchaseIn
         productId: data.productId,
         quantity: data.quantity,
         costPrice: data.costPrice,
+        unitName: sub ? unitLabel : null,
+        stockQuantity,
         purchaseDate,
         paymentMethod: data.paymentMethod,
         bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
@@ -383,7 +397,7 @@ export async function createDealerProductPurchase(input: DealerProductPurchaseIn
       where: { id: product.id },
       // A purchase gives the product real stock, so an untracked one
       // starts tracking from here.
-      data: { quantity: { increment: data.quantity }, costPrice: data.costPrice, tracksStock: true },
+      data: { quantity: { increment: stockQuantity }, costPrice: costPerMain, tracksStock: true },
     });
 
     if (data.paymentMethod === "CREDIT") {
@@ -395,7 +409,7 @@ export async function createDealerProductPurchase(input: DealerProductPurchaseIn
           amount,
           linkedPurchaseId: created.id,
           paymentMethod: "CREDIT",
-          notes: `Purchased ${data.quantity} ${product.name} @ ${data.costPrice}`,
+          notes: `Purchased ${data.quantity} ${unitLabel} ${product.name} @ ${data.costPrice}`,
         },
       });
       // OUT here means the shop's debt to the dealer grows — see
@@ -420,7 +434,7 @@ export async function createDealerProductPurchase(input: DealerProductPurchaseIn
           paymentMethod: data.paymentMethod,
           bankAccountId: data.paymentMethod === "ACCOUNT" ? data.bankAccountId : null,
           isSettledPurchase: true,
-          notes: `Purchased ${data.quantity} ${product.name} @ ${data.costPrice}`,
+          notes: `Purchased ${data.quantity} ${unitLabel} ${product.name} @ ${data.costPrice}`,
         },
       });
     }
@@ -459,7 +473,13 @@ export async function deleteDealerProductPurchase(id: string): Promise<Result<nu
     const current = await tx.product.findUniqueOrThrow({ where: { id: purchase.productId } });
     await tx.product.update({
       where: { id: purchase.productId },
-      data: { quantity: { decrement: Math.min(Number(purchase.quantity), Math.max(Number(current.quantity), 0)) } },
+      // What it added to stock, in the main unit (older purchases: the
+      // quantity itself).
+      data: {
+        quantity: {
+          decrement: Math.min(Number(purchase.stockQuantity ?? purchase.quantity), Math.max(Number(current.quantity), 0)),
+        },
+      },
     });
 
     if (purchase.paymentMethod === "ACCOUNT" && purchase.bankAccountId) {
@@ -527,7 +547,7 @@ export async function listDealerProductPurchases(options?: {
       dealerName: p.dealer.name,
       productId: p.productId,
       productName: p.product.name,
-      unitName: p.product.unit.name,
+      unitName: p.unitName ?? p.product.unit.name,
       quantity: Number(p.quantity),
       costPrice: Number(p.costPrice),
       amount: Number(p.quantity) * Number(p.costPrice),

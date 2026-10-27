@@ -19,6 +19,9 @@ export const dailySaleItemSchema = z.object({
   productId: z.string().uuid(),
   quantity: z.number().positive("Quantity must be positive"),
   actualPrice: z.number().positive("Price must be positive"),
+  // For a product sold in two units: which one quantity and
+  // actualPrice are in ("SUB" = e.g. Kgs out of a Bag). Default main.
+  unit: z.enum(["MAIN", "SUB"]).optional(),
   batchRateOverrides: z.record(z.string().uuid(), z.number().positive()).optional(),
   // How much of THIS item's own price is being paid via Credit —
   // only ever meaningful for a GRAIN item, and only ever REQUIRED

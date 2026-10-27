@@ -334,6 +334,11 @@ model DealerProductPurchase {
   product       Product       @relation(fields: [productId], references: [id])
   quantity      Decimal       @db.Decimal(14, 3)
   costPrice     Decimal       @db.Decimal(12, 2)
+  // For a two-unit product: the unit bought in (quantity and costPrice
+  // are in it) and what it added to stock in the main unit. Null =
+  // main unit / same as quantity.
+  unitName      String?
+  stockQuantity Decimal?      @db.Decimal(16, 6)
   purchaseDate  DateTime      @default(now())
   paymentMethod PaymentMethod
   // Same convention as AccountTransaction.bankAccountId — set only
@@ -587,7 +592,8 @@ model Unit {
   // is a required foreign key.
   isDeleted Boolean @default(false)
 
-  products Product[]
+  products    Product[] @relation("ProductUnit")
+  subProducts Product[] @relation("ProductSubUnit")
 
   @@unique([shopId, name])
 }
@@ -605,7 +611,13 @@ model Product {
   category            Category  @relation(fields: [categoryId], references: [id])
   name                String
   unitId              String
-  unit                Unit      @relation(fields: [unitId], references: [id])
+  unit                Unit      @relation("ProductUnit", fields: [unitId], references: [id])
+  // Sold in two units (e.g. Bag and Kgs): the smaller unit and how many
+  // of it make one main unit (1 Bag = 50 Kgs). Stock and prices stay in
+  // the main unit; a sale or purchase can be entered in either.
+  subUnitId           String?
+  subUnit             Unit?     @relation("ProductSubUnit", fields: [subUnitId], references: [id])
+  subUnitsPerUnit     Decimal?  @db.Decimal(12, 3)
   stockKind           StockKind @default(SIMPLE)
   // SIMPLE stock uses costPrice/sellPrice; GRAIN stock uses baseRate as
   // a reference rate only — each GrainBatch carries its own actual
@@ -613,7 +625,7 @@ model Product {
   costPrice           Decimal?  @db.Decimal(12, 2)
   sellPrice           Decimal?  @db.Decimal(12, 2)
   baseRate            Decimal?  @db.Decimal(12, 2)
-  quantity            Decimal   @default(0) @db.Decimal(14, 3)
+  quantity            Decimal   @default(0) @db.Decimal(16, 6)
   // false = added without a quantity: stock isn't tracked, sales never
   // touch quantity and it's always sellable (the Products page shows
   // how many have been sold instead). Turns true once stock is given
@@ -1016,8 +1028,11 @@ model DailySaleItem {
   // (SIMPLE only) — less than quantity when the sale went past what was
   // in stock, 0 for an untracked product. Editing/deleting the sale puts
   // back exactly this. Null on rows from before it existed (= quantity).
-  stockDeducted   Decimal?  @db.Decimal(14, 3)
+  stockDeducted   Decimal?  @db.Decimal(16, 6)
   actualPrice     Decimal   @db.Decimal(12, 2)
+  // For a two-unit product: the unit this line was sold in (e.g.
+  // "Kgs") — quantity and actualPrice are in it. Null = main unit.
+  unitName        String?
   // This line's share of the bill's discount (the visit's discount is
   // spread over its lines by amount). What the line really brought in
   // is actualPrice × quantity − discount; every total uses that.

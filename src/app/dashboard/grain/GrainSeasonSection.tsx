@@ -3,15 +3,16 @@ import { CloseSeasonButton } from "@/modules/grain-account/components/CloseSeaso
 import { formatMoney, formatDate } from "@/lib/utils";
 
 // The Grain page's Profit / Loss tab for the grain picked in the
-// header: the season's running account — money paid for the grain,
-// money received for it, and what that leaves (profit, or loss still
-// to recover) — then the grain still in hand and the rate it must sell
-// above to come out even, what still has to happen before the season
-// can close, each day's movement, and past seasons.
+// header: the season's account — money paid for the grain, money
+// received for it, the grain still in hand at what it cost, and the
+// profit / loss they come to (received − paid + stock value) — then
+// the rate the grain in hand must sell above, what still has to happen
+// before the season can close, the profit made each day, and past
+// seasons.
 export async function GrainSeasonSection({ productId }: { productId: string }) {
   const a = await getGrainAccount(productId);
   const unit = a.product.unitName;
-  const up = a.season.result >= 0;
+  const up = a.profit >= 0;
 
   return (
     <div className="cf">
@@ -20,7 +21,7 @@ export async function GrainSeasonSection({ productId }: { productId: string }) {
         {a.seasonStartedAt && ` · since ${formatDate(a.seasonStartedAt)}`}
       </p>
 
-      <div className="cf-hero">
+      <div className="cf-hero cf-hero-4">
         <div className="cf-hero-card out">
           <p className="cf-hero-label">↓ Money paid for grain</p>
           <p className="cf-hero-value num">{formatMoney(a.season.paid)}</p>
@@ -35,12 +36,27 @@ export async function GrainSeasonSection({ productId }: { productId: string }) {
             {a.season.kgSold} {unit} sold
           </p>
         </div>
-        <div className={`cf-hero-card net ${up ? "up" : "down"}`}>
-          <p className="cf-hero-label">{up ? "Profit so far" : "Loss to recover"}</p>
-          <p className="cf-hero-value num">
-            {up ? "▲" : "▼"} {formatMoney(Math.abs(a.season.result))}
+        <div className="cf-hero-card">
+          <p className="cf-hero-label">Stock in hand (at cost)</p>
+          <p className="cf-hero-value num">{formatMoney(a.stockValue)}</p>
+          <p className="cf-hero-sub">
+            {a.ownKg} {unit} of the shop&apos;s own grain
           </p>
-          <p className="cf-hero-sub">Received − paid · final when the season closes</p>
+        </div>
+        <div className={`cf-hero-card net ${up ? "up" : "down"}`}>
+          <p className="cf-hero-label">{up ? "Profit so far" : "Loss so far"}</p>
+          <p className="cf-hero-value num">
+            {up ? "▲" : "▼"} {formatMoney(Math.abs(a.profit))}
+          </p>
+          <p className="cf-hero-sub">Received − paid + stock in hand · final when the season closes</p>
+          {a.estimate && (
+            <p className="cf-hero-sub" style={{ marginTop: 6, color: "var(--grain-600)", fontWeight: 500 }}>
+              ⚠ {a.estimate.kg} {unit} Stock Udhaar not bought yet — expected after buying it: about{" "}
+              {a.estimate.profit >= 0 ? "+" : "−"}
+              {formatMoney(Math.abs(a.estimate.profit))} ({a.estimate.kg} {unit} × Rs {a.estimate.rate}, the last purchase
+              rate)
+            </p>
+          )}
         </div>
       </div>
 
@@ -139,14 +155,14 @@ export async function GrainSeasonSection({ productId }: { productId: string }) {
                 {nothingYet
                   ? "Nothing has been bought or sold this season yet."
                   : ready
-                    ? `Final ${a.season.result >= 0 ? "profit" : "loss"}: ${formatMoney(Math.abs(a.season.result))}`
+                    ? `Final ${a.profit >= 0 ? "profit" : "loss"}: ${formatMoney(Math.abs(a.profit))}`
                     : "Finish the steps above to close the season."}
               </p>
               <CloseSeasonButton
                 productId={a.product.id}
                 productName={a.product.name}
                 seasonNumber={a.seasonNumber}
-                result={a.season.result}
+                result={a.profit}
                 disabled={!ready || nothingYet}
               />
             </div>
@@ -157,27 +173,34 @@ export async function GrainSeasonSection({ productId }: { productId: string }) {
       <section className="panel cf-panel">
         <h3 className="cf-panel-title">Day by day</h3>
         {a.days.length === 0 ? (
-          <p className="cf-empty">Nothing bought or sold yet this season.</p>
+          <p className="cf-empty">Nothing sold yet this season.</p>
         ) : (
           <table className="cf-table">
             <thead>
               <tr>
                 <th>Date</th>
-                <th style={{ textAlign: "right" }}>Paid</th>
-                <th style={{ textAlign: "right" }}>Received</th>
-                <th style={{ textAlign: "right" }}>That day</th>
-                <th style={{ textAlign: "right" }}>Result after</th>
+                <th style={{ textAlign: "right" }}>Sold for</th>
+                <th style={{ textAlign: "right" }}>Cost of that grain</th>
+                <th style={{ textAlign: "right" }}>Profit that day</th>
+                <th style={{ textAlign: "right" }}>Season so far</th>
               </tr>
             </thead>
             <tbody>
               {a.days.map((d) => (
                 <tr key={d.date}>
-                  <td>{formatDate(d.date)}</td>
-                  <td className="num" style={{ textAlign: "right", color: "var(--consigned-600)" }}>
-                    {d.paid ? `− ${formatMoney(d.paid)}` : "—"}
+                  <td>
+                    {formatDate(d.date)}
+                    {d.uncostedKg > 0 && (
+                      <span style={{ display: "block", fontSize: 12, color: "var(--grain-600)" }}>
+                        {d.uncostedKg} {unit} customer grain — no cost until bought
+                      </span>
+                    )}
                   </td>
-                  <td className="num" style={{ textAlign: "right", color: "var(--primary-600)" }}>
-                    {d.received ? `+ ${formatMoney(d.received)}` : "—"}
+                  <td className="num" style={{ textAlign: "right" }}>
+                    {formatMoney(d.soldFor)}
+                  </td>
+                  <td className="num" style={{ textAlign: "right", color: "var(--ink-muted)" }}>
+                    {formatMoney(d.cost)}
                   </td>
                   <td
                     className="num"
@@ -195,6 +218,20 @@ export async function GrainSeasonSection({ productId }: { productId: string }) {
                   </td>
                 </tr>
               ))}
+              {Math.abs(a.otherAdjustments) >= 1 && (
+                <tr>
+                  <td colSpan={3} style={{ color: "var(--ink-muted)", fontSize: 12.5 }}>
+                    Opening: other stock adjustments (lent grain at the loan rate, older entries)
+                  </td>
+                  <td className="num" style={{ textAlign: "right", fontWeight: 600 }}>
+                    {a.otherAdjustments >= 0 ? "▲" : "▼"} {formatMoney(Math.abs(a.otherAdjustments))}
+                  </td>
+                  <td className="num" style={{ textAlign: "right" }}>
+                    {a.otherAdjustments >= 0 ? "Profit " : "Loss "}
+                    {formatMoney(Math.abs(a.otherAdjustments))}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}

@@ -26,7 +26,7 @@ export type PrintableReceipt = {
   visitAt: Date | string;
   buyerName: string;
   buyerKind: "CUSTOMER" | "DEALER";
-  items: { productName: string; quantity: number; actualPrice: number }[];
+  items: { productName: string; quantity: number; actualPrice: number; unitName?: string }[];
   // Before the discount, and the discount off the bill (total is after it).
   subtotal?: number;
   discount?: number;
@@ -107,7 +107,7 @@ export function buildReceiptEscPos(receipt: PrintableReceipt, header: ReceiptHea
   for (const item of receipt.items) {
     for (const line of wrap(item.productName, LINE_WIDTH)) out.push(`${line}\n`);
     out.push(
-      `${twoColumns(`  ${quantity(item.quantity)} x ${money(item.actualPrice)}`, money(item.quantity * item.actualPrice))}\n`
+      `${twoColumns(`  ${quantity(item.quantity)}${item.unitName ? ` ${item.unitName}` : ""} x ${money(item.actualPrice)}`, money(item.quantity * item.actualPrice))}\n`
     );
   }
 

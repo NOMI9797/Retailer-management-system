@@ -5,18 +5,21 @@ import { getCurrentShopId } from "@/lib/tenant";
 import { ok, fail, type ActionResult } from "@/lib/actionResult";
 import { toLocalDateString } from "@/lib/utils";
 import { getStockOverview } from "@/modules/stock/actions";
-import { collectGrainMoves, totalGrainMoves, type GrainMoveTotals } from "./grainMoves";
+import { collectGrainMoves, collectGrainProfit, totalGrainMoves, type GrainMoveTotals } from "./grainMoves";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
 export type GrainSeasonDay = {
   date: string; // "YYYY-MM-DD"
-  paid: number;
-  received: number;
-  // received − paid that day: ▲ up / ▼ down.
+  // What that day's grain sold for, and what that grain had cost.
+  soldFor: number;
+  cost: number;
+  // soldFor − cost: profit (▲) or loss (▼) made that day.
   change: number;
-  // The season's result at the end of that day.
+  // Kg sold that day with no cost yet (customer grain not bought).
+  uncostedKg: number;
+  // The season's profit / loss at the end of that day.
   resultAfter: number;
 };
 
@@ -24,7 +27,11 @@ export type GrainSeasonDay = {
 // reason the Close season button explains when it's not ready yet.
 export type GrainSeasonBlocker = "OWN_STOCK" | "STOCK_UDHAAR" | "LENT_OUT" | "BORROWED";
 
-// One grain's running profit / loss for its open season, plus what's
+// One grain's running profit / loss for its open season:
+//   profit / loss = money received − money paid + the grain still in
+//   hand at what it cost (stock value)
+// — so buying grain is never a loss (the money just became stock); a
+// sale counts its profit over what that grain cost. Plus what's
 // needed to judge it: the grain the shop still holds and the rate it
 // must sell that grain above to come out ahead (break-even), each day's
 // movement, and the closed seasons before it. Closed seasons are kept
@@ -39,8 +46,9 @@ export async function getGrainAccount(productId: string) {
   });
   if (!product) throw new Error("Grain not found");
 
-  const [moves, closed, overview] = await Promise.all([
+  const [moves, profitEntries, closed, overview] = await Promise.all([
     collectGrainMoves(shopId, { productId }),
+    collectGrainProfit(shopId, { productId }),
     db.grainSeason.findMany({ where: { shopId, productId }, orderBy: { seasonNumber: "desc" } }),
     getStockOverview(productId),
   ]);
@@ -63,30 +71,58 @@ export async function getGrainAccount(productId: string) {
     kgSold: round3(allTime.kgSold - closedSum.kgSold),
   };
 
-  // Day by day since the last close, newest first, each with the
-  // season's result at the end of it.
+  // The headline: received − paid + what the grain in hand cost.
+  const stockValue = overview.ownValue;
+  const profit = round2(season.result + stockValue);
+
+  // While the shop still owes customers grain it sold (Stock Udhaar),
+  // that grain has no cost yet, so the headline is too high by what
+  // buying it will cost. An estimate prices it at the last rate the
+  // shop paid for this grain — a guess, shown beside the real figure.
+  let estimate: { rate: number; kg: number; profit: number } | null = null;
+  if (overview.stockUdhaarOutstanding > 0.0005) {
+    const last = await db.grainBatch.findFirst({
+      where: { productId, ownerCustomerId: null, grainLoanId: null, grainLoanReturnId: null, rate: { not: null } },
+      orderBy: { receivedAt: "desc" },
+      select: { rate: true },
+    });
+    if (last?.rate != null) {
+      const rate = Number(last.rate);
+      const kg = overview.stockUdhaarOutstanding;
+      estimate = { rate, kg, profit: round2(profit - kg * rate) };
+    }
+  }
+
+  // Day by day since the last close, newest first: each day's grain
+  // sold for, what that grain had cost, the profit made, and the
+  // season's profit at the end of the day.
   const lastClosedAt = closed[0]?.closedAt ?? null;
-  const byDay = new Map<string, { paid: number; received: number }>();
-  for (const m of moves) {
-    if (lastClosedAt && m.date <= lastClosedAt) continue;
-    const day = toLocalDateString(m.date);
-    const d = byDay.get(day) ?? { paid: 0, received: 0 };
-    if (m.side === "PAID") d.paid += m.amount;
-    else d.received += m.amount;
+  const byDay = new Map<string, { soldFor: number; cost: number; uncostedKg: number }>();
+  for (const e of profitEntries) {
+    if (lastClosedAt && e.date <= lastClosedAt) continue;
+    const day = toLocalDateString(e.date);
+    const d = byDay.get(day) ?? { soldFor: 0, cost: 0, uncostedKg: 0 };
+    d.soldFor += e.revenue;
+    d.cost += e.cost;
+    d.uncostedKg += e.uncostedKg;
     byDay.set(day, d);
   }
   const daysAsc = [...byDay.entries()].sort(([a], [b]) => (a < b ? -1 : 1));
-  // Anything the season holds that isn't on one of these days (an
-  // entry dated back before the last close) is counted as at the start.
-  let running = season.result - daysAsc.reduce((s, [, d]) => s + d.received - d.paid, 0);
+  // Anything the days don't explain (lent grain valued at the loan's
+  // agreed rate rather than what it cost, an entry dated back before
+  // the last close…) — shown as an opening line, so each day's
+  // "season so far" ends at the headline.
+  const otherAdjustments = round2(profit - daysAsc.reduce((s, [, d]) => s + d.soldFor - d.cost, 0));
+  let running = otherAdjustments;
   const days: GrainSeasonDay[] = daysAsc
     .map(([date, d]) => {
-      running += d.received - d.paid;
+      running += d.soldFor - d.cost;
       return {
         date,
-        paid: round2(d.paid),
-        received: round2(d.received),
-        change: round2(d.received - d.paid),
+        soldFor: round2(d.soldFor),
+        cost: round2(d.cost),
+        change: round2(d.soldFor - d.cost),
+        uncostedKg: round3(d.uncostedKg),
         resultAfter: round2(running),
       };
     })
@@ -109,6 +145,12 @@ export async function getGrainAccount(productId: string) {
     seasonNumber: (closed[0]?.seasonNumber ?? 0) + 1,
     seasonStartedAt: lastClosedAt ?? (moves.length > 0 ? new Date(Math.min(...moves.map((m) => m.date.getTime()))) : null),
     season,
+    stockValue,
+    // received − paid + stock value: above 0 profit, below 0 loss.
+    profit,
+    estimate,
+    otherAdjustments,
+    uncostedKg: round3(daysAsc.reduce((s, [, d]) => s + d.uncostedKg, 0)),
     ownKg,
     // Shop's grain on its shelf (excludes Advance stock out on loan).
     shelfKg: round3(overview.ownAvailable - overview.lentOut),
@@ -164,7 +206,7 @@ export async function closeGrainSeason(input: { productId: string; notes?: strin
         startedAt: account.seasonStartedAt,
         moneyPaid: account.season.paid,
         moneyReceived: account.season.received,
-        result: account.season.result,
+        result: account.profit,
         kgBought: account.season.kgBought,
         kgSold: account.season.kgSold,
         notes: input.notes?.trim() || null,

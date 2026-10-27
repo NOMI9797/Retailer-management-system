@@ -37,16 +37,35 @@ export type UpdateUnitInput = z.infer<typeof updateUnitSchema>;
 
 // Simple stock product. costPrice/sellPrice are required here —
 // grain products go through grainProductSchema instead.
-export const productSchema = z.object({
-  categoryId: z.string().uuid(),
-  unitId: z.string().uuid(),
-  name: z.string().min(1, "Name is required"),
-  costPrice: z.number().positive("Cost price must be positive"),
-  sellPrice: z.number().positive("Sell price must be positive"),
-  // Optional — left out, the product's stock isn't tracked (see
-  // Product.tracksStock).
-  quantity: z.number().nonnegative("Quantity can't be negative").optional(),
-});
+// Sold in two units (optional): the smaller unit and how many of it
+// make one main unit (1 Bag = 50 Kgs). Prices are per main unit.
+const twoUnitFields = {
+  subUnitId: z.string().uuid().nullable().optional(),
+  subUnitsPerUnit: z.number().positive("Enter how many make one unit").nullable().optional(),
+};
+
+export const productSchema = z
+  .object({
+    categoryId: z.string().uuid(),
+    unitId: z.string().uuid(),
+    name: z.string().min(1, "Name is required"),
+    costPrice: z.number().positive("Cost price must be positive"),
+    sellPrice: z.number().positive("Sell price must be positive"),
+    // Optional — left out, the product's stock isn't tracked (see
+    // Product.tracksStock).
+    quantity: z.number().nonnegative("Quantity can't be negative").optional(),
+    // The unit the opening quantity was typed in.
+    quantityUnit: z.enum(["MAIN", "SUB"]).optional(),
+    ...twoUnitFields,
+  })
+  .refine((d) => !d.subUnitId || (d.subUnitsPerUnit ?? 0) > 0, {
+    message: "Enter how many of the small unit make one main unit",
+    path: ["subUnitsPerUnit"],
+  })
+  .refine((d) => !d.subUnitId || d.subUnitId !== d.unitId, {
+    message: "The small unit must be different from the main unit",
+    path: ["subUnitId"],
+  });
 export type ProductInput = z.infer<typeof productSchema>;
 
 export const updateProductSchema = z.object({
@@ -57,7 +76,9 @@ export const updateProductSchema = z.object({
   costPrice: z.number().positive("Cost price must be positive").optional(),
   sellPrice: z.number().positive("Sell price must be positive").optional(),
   quantity: z.number().nonnegative("Quantity can't be negative").optional(),
+  quantityUnit: z.enum(["MAIN", "SUB"]).optional(),
   isActive: z.boolean().optional(),
+  ...twoUnitFields,
 });
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 

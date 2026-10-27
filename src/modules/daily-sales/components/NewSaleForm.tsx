@@ -150,6 +150,7 @@ export function NewSaleForm({
               productId: i.productId,
               quantity: Number(i.quantity),
               actualPrice: Number(i.actualPrice),
+              unit: i.unit,
             }))
           : grainItems.map((i) => ({
               productId: i.productId,

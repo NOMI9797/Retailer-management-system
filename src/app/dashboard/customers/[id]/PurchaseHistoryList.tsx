@@ -242,7 +242,7 @@ export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sa
                           <td>{itemIndex === 0 && <ByBadge by="CUSTOMER" />}</td>
                           <td>{item.productName}</td>
                           <td className="num" style={{ textAlign: "right" }}>
-                            {item.quantity}
+                            {item.quantity} {item.unitName}
                           </td>
                           <td>
                             {isLastItemInVisit &&

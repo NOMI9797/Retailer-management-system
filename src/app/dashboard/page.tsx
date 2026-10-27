@@ -74,7 +74,7 @@ export default async function DashboardPage() {
       </div>
       <p className="dash-group-label owes">What the shop owes</p>
       <div className="dash-tiles owes">
-        <PosTile owes label="Owed to customers" value={d.position.owes.customers} total={d.position.totalOwes} href="/dashboard/debts" note="Borrowed money & grain" />
+        <PosTile owes label="Owed to customers" value={d.position.owes.customers} total={d.position.totalOwes} href="/dashboard/debts" note="Borrowed money + unpaid grain purchases" />
         <PosTile owes label="Owed to dealers" value={d.position.owes.dealers} total={d.position.totalOwes} href="/dashboard/dealers" />
         <PosTile owes label="Expense Udhaar" value={d.position.owes.expenses} total={d.position.totalOwes} href="/dashboard/debts" note="Unpaid expenses" />
         {d.position.stockUdhaar.length > 0 && (

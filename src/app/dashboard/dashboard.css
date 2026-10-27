@@ -3405,3 +3405,18 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* Grain Profit / Loss: paid, received, stock in hand, result. */
+.shop-app .cf-hero.cf-hero-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+@media (max-width: 900px) {
+  .shop-app .cf-hero.cf-hero-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 560px) {
+  .shop-app .cf-hero.cf-hero-4 {
+    grid-template-columns: 1fr;
+  }
+}

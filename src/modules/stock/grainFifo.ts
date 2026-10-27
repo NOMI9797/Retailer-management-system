@@ -406,3 +406,33 @@ export async function undoCoverOntoBatch(tx: Prisma.TransactionClient, batchId: 
   await tx.dailySaleItemBatch.deleteMany({ where: { grainBatchId: batchId, quantity: { lte: 0 } } });
   await tx.grainLoanDraw.deleteMany({ where: { grainBatchId: batchId, quantity: { lte: 0 } } });
 }
+
+// What grain lent out cost the shop, per kg, for each loan: the
+// batches it was taken from at their rates (a deposit's grain, still
+// unpriced, falls back to the loan's agreed rate). Lent grain is the
+// shop's stock while it's out, so it's valued — and comes back into
+// stock — at this, not at the agreed rate.
+export async function lentCostRates(
+  tx: Prisma.TransactionClient,
+  loans: { id: string; rate: Prisma.Decimal | number }[]
+): Promise<Map<string, number>> {
+  const rates = new Map<string, number>();
+  if (loans.length === 0) return rates;
+  const draws = await tx.grainLoanDraw.findMany({
+    where: { grainLoanId: { in: loans.map((l) => l.id) } },
+    select: { grainLoanId: true, quantity: true, grainBatch: { select: { rate: true } } },
+  });
+  for (const loan of loans) {
+    const agreed = Number(loan.rate);
+    let kg = 0;
+    let cost = 0;
+    for (const d of draws) {
+      if (d.grainLoanId !== loan.id) continue;
+      const q = Number(d.quantity);
+      kg += q;
+      cost += q * (d.grainBatch.rate !== null ? Number(d.grainBatch.rate) : agreed);
+    }
+    rates.set(loan.id, kg > 0.0001 ? Math.round((cost / kg) * 100) / 100 : agreed);
+  }
+  return rates;
+}

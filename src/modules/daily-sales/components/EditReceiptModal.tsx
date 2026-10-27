@@ -47,6 +47,7 @@ export function EditReceiptModal({
           productId: item.productId,
           quantity: String(item.quantity),
           actualPrice: String(item.actualPrice),
+          unit: item.unit,
         }))
   );
   const [grainItems, setGrainItems] = useState<GrainItemDraft[]>(() =>
@@ -131,6 +132,7 @@ export function EditReceiptModal({
             productId: i.productId,
             quantity: Number(i.quantity),
             actualPrice: Number(i.actualPrice),
+            unit: i.unit,
           })),
       payments: { cash, account, credit, bankAccountId: payments.bankAccountId },
       discount: discountAmount,

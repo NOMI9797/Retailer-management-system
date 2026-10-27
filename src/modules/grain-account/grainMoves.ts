@@ -1,4 +1,6 @@
 import { db } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
+import { lentCostRates } from "@/modules/stock/grainFifo";
 
 // Every money movement in a grain's running account — the shop's grain
 // profit / loss, worked the way a shopkeeper works it: money paid for
@@ -140,4 +142,123 @@ export function totalGrainMoves(moves: GrainMove[]): GrainMoveTotals {
     kgBought: round3(kgBought),
     kgSold: round3(kgSold),
   };
+}
+
+// ── Profit made, entry by entry ──
+// The profit side of the account: each grain sale's money less what
+// the grain it took had cost (each batch it came from × that batch's
+// rate), and each grain-loan settlement in money less the bags' agreed
+// value. Grain sold from a customer's deposit has no cost until the
+// shop buys it — then that sale is moved onto the purchase batch and
+// picks up its rate. Summed over a season this is received − paid +
+// the grain still in hand, worked out a day at a time.
+
+export type GrainProfitEntry = {
+  productId: string;
+  date: Date;
+  kind: "SALE" | "LOAN_PAID_TO_SHOP" | "LOAN_PAID_BY_SHOP";
+  // Money for the grain, and what that grain cost the shop.
+  revenue: number;
+  cost: number;
+  profit: number;
+  // Kg sold that have no cost yet (customer grain not bought yet).
+  uncostedKg: number;
+};
+
+export async function collectGrainProfit(
+  shopId: string,
+  options?: { productId?: string; range?: { gte: Date; lte: Date } }
+): Promise<GrainProfitEntry[]> {
+  const productId = options?.productId;
+  const range = options?.range;
+  const [items, loanReturns] = await Promise.all([
+    db.dailySaleItem.findMany({
+      where: { productId, product: { shopId, stockKind: "GRAIN" }, visitAt: range },
+      select: {
+        productId: true,
+        visitAt: true,
+        quantity: true,
+        actualPrice: true,
+        discount: true,
+        batchAllocations: { select: { quantity: true, grainBatchId: true, grainBatch: { select: { rate: true, ownerCustomerId: true } } } },
+      },
+    }),
+    db.grainLoanReturn.findMany({
+      where: { shopId, amount: { gt: 0 }, returnDate: range, grainLoan: { productId } },
+      select: {
+        returnDate: true,
+        amount: true,
+        quantityPaid: true,
+        grainLoan: { select: { id: true, productId: true, direction: true, rate: true } },
+      },
+    }),
+  ]);
+  // Lent bags paid for are weighed against what that grain cost.
+  const lentCost = await lentCostRates(
+    db as unknown as Prisma.TransactionClient,
+    loanReturns.filter((r) => r.grainLoan.direction === "SHOP_LENT").map((r) => r.grainLoan)
+  );
+
+  // A deposit the shop bought beyond what was left of it (recorded
+  // before purchases moved the earlier sales) — that much of its sold
+  // grain was paid for at the deposit's purchase rate.
+  const overBought = new Map<string, { kg: number; rate: number }>();
+  const depositIds = [
+    ...new Set(items.flatMap((i) => i.batchAllocations.filter((a) => a.grainBatch.ownerCustomerId).map((a) => a.grainBatchId))),
+  ];
+  if (depositIds.length > 0) {
+    const deposits = await db.grainBatch.findMany({ where: { id: { in: depositIds } } });
+    for (const d of deposits) {
+      const remaining =
+        Number(d.quantityIn) - Number(d.quantitySold) - Number(d.quantityTransferred) - Number(d.quantityReturned);
+      if (remaining < -0.0001 && d.rate !== null) overBought.set(d.id, { kg: -remaining, rate: Number(d.rate) });
+    }
+  }
+
+  const entries: GrainProfitEntry[] = [];
+  for (const item of items) {
+    const revenue = Number(item.quantity) * Number(item.actualPrice) - Number(item.discount);
+    let cost = 0;
+    let uncostedKg = 0;
+    for (const a of item.batchAllocations) {
+      const q = Number(a.quantity);
+      if (a.grainBatch.ownerCustomerId) {
+        const ob = overBought.get(a.grainBatchId);
+        const costed = ob ? Math.min(ob.kg, q) : 0;
+        if (ob && costed > 0) {
+          cost += costed * ob.rate;
+          ob.kg -= costed;
+        }
+        uncostedKg += q - costed;
+      } else if (a.grainBatch.rate === null) uncostedKg += q;
+      else cost += q * Number(a.grainBatch.rate);
+    }
+    entries.push({
+      productId: item.productId,
+      date: item.visitAt,
+      kind: "SALE",
+      revenue: round2(revenue),
+      cost: round2(cost),
+      profit: round2(revenue - cost),
+      uncostedKg: round3(uncostedKg),
+    });
+  }
+  for (const r of loanReturns) {
+    const lent = r.grainLoan.direction === "SHOP_LENT";
+    const perKg = lent ? (lentCost.get(r.grainLoan.id) ?? Number(r.grainLoan.rate)) : Number(r.grainLoan.rate);
+    const value = Number(r.quantityPaid) * perKg;
+    const amount = Number(r.amount);
+    entries.push({
+      productId: r.grainLoan.productId,
+      date: r.returnDate,
+      kind: lent ? "LOAN_PAID_TO_SHOP" : "LOAN_PAID_BY_SHOP",
+      // Lent bags paid for: sold at `amount`, they were worth `value`.
+      // Borrowed bags paid for: owed `value` of grain, settled by paying `amount`.
+      revenue: round2(lent ? amount : value),
+      cost: round2(lent ? value : amount),
+      profit: round2(lent ? amount - value : value - amount),
+      uncostedKg: 0,
+    });
+  }
+  return entries;
 }

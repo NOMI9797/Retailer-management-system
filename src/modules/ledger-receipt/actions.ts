@@ -183,7 +183,7 @@ async function buildLedgerReceipt(
     list.push({
       productName: item.product.name,
       quantity: Number(item.quantity),
-      unitName: item.product.unit.name,
+      unitName: item.unitName ?? item.product.unit.name,
       price: Number(item.actualPrice),
       discount: Number(item.discount),
     });

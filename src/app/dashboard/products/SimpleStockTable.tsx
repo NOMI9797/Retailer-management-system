@@ -1,3 +1,4 @@
+import { formatStock, subUnitsPerUnit } from "@/modules/products/units";
 import { listProducts, getSoldQuantities, type listCategories, type listUnits } from "@/modules/products/actions";
 import { formatMoney } from "@/lib/utils";
 import { Pagination } from "@/modules/products/components/Pagination";
@@ -66,7 +67,14 @@ export async function SimpleStockTable({
                     <td>
                       <span className="cat-pill">{product.category.name}</span>
                     </td>
-                    <td>{product.unit.name}</td>
+                    <td>
+                      {product.unit.name}
+                      {subUnitsPerUnit(product) && (
+                        <span style={{ display: "block", fontSize: 12, color: "var(--ink-muted)" }}>
+                          1 = {subUnitsPerUnit(product)} {product.subUnit!.name}
+                        </span>
+                      )}
+                    </td>
                     <td>{formatMoney(Number(product.costPrice))}</td>
                     <td>{formatMoney(Number(product.sellPrice))}</td>
                     {/* Tracked: the stock in hand (low-stock colour only
@@ -80,7 +88,7 @@ export async function SimpleStockTable({
                     >
                       {product.tracksStock ? (
                         <>
-                          {quantity}
+                          {subUnitsPerUnit(product) ? formatStock(quantity, product) : Number(quantity.toFixed(3))}
                           {(sold[product.id] ?? 0) > 0 && (
                             <span className="pay-badge pay-mixed" style={{ marginLeft: 8 }}>
                               {sold[product.id]} sold

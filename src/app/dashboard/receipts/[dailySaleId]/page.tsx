@@ -87,7 +87,7 @@ export default async function ReceiptDetailPage({
                   <tr key={item.id}>
                     <td>{item.productName}</td>
                     <td className="num" style={{ textAlign: "right" }}>
-                      {item.quantity}
+                      {item.quantity} {item.unitName}
                     </td>
                     <td className="num" style={{ textAlign: "right" }}>
                       {formatMoney(item.actualPrice)}

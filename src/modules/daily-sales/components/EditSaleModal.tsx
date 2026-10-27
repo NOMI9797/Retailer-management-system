@@ -74,6 +74,7 @@ export function EditSaleModal({
               productId: item.productId,
               quantity: String(item.quantity),
               actualPrice: String(item.actualPrice),
+              unit: item.unit,
             }))
           );
         }
@@ -117,6 +118,7 @@ export function EditSaleModal({
               productId: i.productId,
               quantity: Number(i.quantity),
               actualPrice: Number(i.actualPrice),
+              unit: i.unit,
             }))
           : grainItems.map((i) => ({
               productId: i.productId,

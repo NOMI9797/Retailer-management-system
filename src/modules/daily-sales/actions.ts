@@ -1,5 +1,6 @@
 "use server";
 
+import { mainUnitsPer, subUnitsPerUnit } from "@/modules/products/units";
 import { db } from "@/lib/db";
 import { loadCustomerUdhaar, loadShopOwesCustomer, GRACE_PERIOD_DAYS } from "@/modules/debts/udhaarLedger";
 import { getCurrentShopId } from "@/lib/tenant";
@@ -85,8 +86,16 @@ async function applySaleItems(
   for (const [index, item] of items.entries()) {
     const lineDiscount = discountShares[index];
     const lineNet = grossOf(item) - lineDiscount;
-    const product = await tx.product.findFirst({ where: { id: item.productId, shopId } });
+    const product = await tx.product.findFirst({
+      where: { id: item.productId, shopId },
+      include: { unit: true, subUnit: true },
+    });
     if (!product) return { success: false, error: "Product not found" };
+    // A two-unit product sold in its small unit (e.g. 7 Kgs out of 50
+    // Kg bags): stock and cost are in bags, so convert.
+    const sub = product.stockKind === "SIMPLE" && item.unit === "SUB" && subUnitsPerUnit(product) ? true : false;
+    const perEntered = sub ? mainUnitsPer(product, "SUB") : 1;
+    const mainQuantity = item.quantity * perEntered;
 
     // SIMPLE stock: a sale is never blocked by stock. It takes what's
     // in hand (stock stops at 0 — anything beyond just counts as sold),
@@ -96,7 +105,7 @@ async function applySaleItems(
     const stockDeducted =
       product.stockKind === "SIMPLE"
         ? product.tracksStock
-          ? Math.min(Math.max(Number(product.quantity), 0), item.quantity)
+          ? Math.min(Math.max(Number(product.quantity), 0), mainQuantity)
           : 0
         : null;
 
@@ -107,12 +116,14 @@ async function applySaleItems(
         quantity: item.quantity,
         stockDeducted,
         actualPrice: item.actualPrice,
+        unitName: sub ? product.subUnit!.name : null,
         discount: lineDiscount,
         // Snapshot cost at sale time — only meaningful for SIMPLE
         // stock (grain COGS is derived later from batch rate ×
         // quantity via DailySaleItemBatch, since each batch already
         // permanently records its own rate).
-        costPriceAtSale: product.stockKind === "SIMPLE" ? product.costPrice : null,
+        // Per the unit this line is in (cost is kept per main unit).
+        costPriceAtSale: product.stockKind === "SIMPLE" && product.costPrice !== null ? Number(product.costPrice) * perEntered : null,
         // How much of THIS item's own price is Credit — only ever
         // meaningful for GRAIN (see dailySaleItemSchema's comment);
         // validated against the sale-level credit total in
@@ -1096,7 +1107,7 @@ export async function getCustomerPurchaseHistory(customerId: string) {
   const [sales, clearances, udhaarGiven, shopGrain, shopCleared, shopLedgers] = await Promise.all([
     db.dailySale.findMany({
       where: { customerId, shopId },
-      include: { items: { include: { product: true } }, payments: true },
+      include: { items: { include: { product: { include: { unit: true } } } }, payments: true },
       orderBy: { saleDate: "desc" },
     }),
     // Excludes isShopBorrowed (shown on the Udhaar to Shop tab
@@ -1182,6 +1193,7 @@ export async function getCustomerPurchaseHistory(customerId: string) {
         productName: item.product.name,
         quantity: Number(item.quantity),
         actualPrice: Number(item.actualPrice),
+        unitName: item.unitName ?? item.product.unit.name,
       }));
       const discount = visitItems.reduce((sum, i) => sum + Number(i.discount), 0);
       return {
@@ -1427,6 +1439,7 @@ export async function getDailySaleForEdit(saleId: string) {
       productName: item.product.name,
       quantity: Number(item.quantity),
       actualPrice: Number(item.actualPrice),
+      unit: (item.unitName ? "SUB" : "MAIN") as "MAIN" | "SUB",
       creditAmount: item.creditAmount !== null ? Number(item.creditAmount) : undefined,
       creditDueDate: item.creditDueDate ? toLocalDateString(item.creditDueDate) : undefined,
     })),
@@ -1559,7 +1572,7 @@ export async function getReceiptDetail(dailySaleId: string, visitAt: Date) {
   const [items, payments] = await Promise.all([
     db.dailySaleItem.findMany({
       where: { dailySaleId, visitAt },
-      include: { product: true },
+      include: { product: { include: { unit: true } } },
     }),
     db.dailySalePayment.findMany({
       where: { dailySaleId, visitAt },
@@ -1581,6 +1594,10 @@ export async function getReceiptDetail(dailySaleId: string, visitAt: Date) {
       productName: item.product.name,
       quantity: Number(item.quantity),
       actualPrice: Number(item.actualPrice),
+      // The unit this line was sold in (a two-unit product's small unit,
+      // or the product's own unit).
+      unit: (item.unitName ? "SUB" : "MAIN") as "MAIN" | "SUB",
+      unitName: item.unitName ?? item.product.unit.name,
       creditAmount: item.creditAmount ? Number(item.creditAmount) : null,
     })),
     payments: payments.map((p) => ({
