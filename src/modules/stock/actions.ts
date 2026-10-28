@@ -1379,6 +1379,7 @@ export async function listGrainLedger(productId: string) {
         sourceBatchId: null,
         grainLoanId: null,
         grainLoanReturnId: null,
+        grainWasteId: null,
         paymentTransactions: { none: {} },
       },
     }),

@@ -19,7 +19,8 @@ export function GrainPageHeader({
   // Grain tab's Add batch).
   tabAction?: React.ReactNode;
 }) {
-  const tab = searchParams.tab === "udhaar" || searchParams.tab === "pnl" ? searchParams.tab : "grain";
+  const tab =
+    searchParams.tab === "udhaar" || searchParams.tab === "pnl" || searchParams.tab === "waste" ? searchParams.tab : "grain";
   const activeId = (
     products.find((p) => p.id === searchParams.product) ?? products[0]
   )?.id;
@@ -62,6 +63,15 @@ export function GrainPageHeader({
           })}
         >
           Profit / Loss
+        </Link>
+        <Link
+          className={`tab${tab === "waste" ? " active" : ""}`}
+          href={buildGrainHref(searchParams, {
+            tab: "waste",
+            page: undefined,
+          })}
+        >
+          Waste grain
         </Link>
         {tabAction && (
           <div

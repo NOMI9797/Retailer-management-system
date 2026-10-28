@@ -9,6 +9,7 @@ import { GrainPageHeader } from "./GrainPageHeader";
 import { GrainStockList } from "./GrainStockList";
 import { GrainUdhaarSection } from "./GrainUdhaarSection";
 import { GrainSeasonSection } from "./GrainSeasonSection";
+import { GrainWasteSection } from "./GrainWasteSection";
 import { PageLoader } from "@/components/shared/PageLoader";
 import type { GrainSearchParams } from "./searchParamsHref";
 
@@ -31,7 +32,8 @@ export default async function GrainPage({
   searchParams: Promise<GrainSearchParams>;
 }) {
   const params = await searchParams;
-  const tab = params.tab === "udhaar" || params.tab === "pnl" ? params.tab : "grain";
+  const tab =
+    params.tab === "udhaar" || params.tab === "pnl" || params.tab === "waste" ? params.tab : "grain";
   const grainProducts = await listProducts({
     stockKind: "GRAIN",
     pageSize: 500,
@@ -49,7 +51,7 @@ export default async function GrainPage({
       : undefined;
   // The Profit / Loss tab shows the grain picked in the header too.
   const pnlProductId =
-    tab === "pnl" ? (products.find((p) => p.id === params.product) ?? products[0])?.id : undefined;
+    tab === "pnl" || tab === "waste" ? (products.find((p) => p.id === params.product) ?? products[0])?.id : undefined;
   const [areas, bankAccounts, dealers] = activeProductId
     ? await Promise.all([listAreas(), listBankAccounts(), listDealers({ type: "GRAIN" })])
     : [[], [], []];
@@ -81,7 +83,15 @@ export default async function GrainPage({
         }
       />
 
-      {tab === "pnl" ? (
+      {tab === "waste" ? (
+        pnlProductId ? (
+          <Suspense key={JSON.stringify(params)} fallback={<PageLoader label="Loading waste grain…" />}>
+            <GrainWasteSection productId={pnlProductId} />
+          </Suspense>
+        ) : (
+          <p style={{ color: "var(--ink-muted)", fontSize: 13.5 }}>No grain products yet.</p>
+        )
+      ) : tab === "pnl" ? (
         pnlProductId ? (
           <Suspense key={JSON.stringify(params)} fallback={<PageLoader label="Loading profit / loss…" />}>
             <GrainSeasonSection productId={pnlProductId} />

@@ -45,6 +45,7 @@ model Shop {
   saleReturns         SaleReturn[]
   purchaseReturns     PurchaseReturn[]
   grainPickups        GrainPickup[]
+  grainWastes         GrainWaste[]
 }
 
 // A login — email + hashed password, nothing more. Deliberately has
@@ -696,6 +697,7 @@ model Product {
   grainDepositReturns GrainDepositReturn[]
   grainSeasons        GrainSeason[]
   purchaseReturns     PurchaseReturn[]
+  grainWastes         GrainWaste[]
 }
 
 // Batches let one product (e.g. "Wheat") hold both shop-owned and
@@ -717,6 +719,11 @@ model GrainBatch {
   homeCustomer        Customer?        @relation("GrainBatchHome", fields: [homeCustomerId], references: [id])
   quantityAtHome      Decimal          @default(0) @db.Decimal(14, 3)
   pickups             GrainPickup[]
+  // The batch grain waste left behind: the shelf grain that remained,
+  // at the cost that now includes the wasted grain (GrainWaste).
+  grainWasteId        String?          @unique
+  grainWaste          GrainWaste?      @relation("WasteRemainder", fields: [grainWasteId], references: [id])
+  wasteDraws          GrainWasteDraw[]
   // A grain batch's source is EITHER a depositing customer
   // (ownerCustomerId, the existing "stored for safekeeping" flow) OR a
   // GRAIN-type dealer bought from in bulk — never both. A dealer batch
@@ -754,7 +761,9 @@ model GrainBatch {
   // transfer-purchase, or a settle-now deposit — a shop-owned batch is
   // the shop's actual inventory and must always have a real cost
   // basis. Once set, never reverts to null.
-  rate                Decimal?         @db.Decimal(12, 2)
+  // 6 decimals: the batch left after grain is wasted carries the
+  // spread-out cost (e.g. Rs 91.428571 a kg) so stock value stays exact.
+  rate                Decimal?         @db.Decimal(16, 6)
   receivedAt          DateTime         @default(now())
   // Slip / register reference for grain coming in (Add batch, a
   // customer's drop-off, a dealer purchase).
@@ -1397,3 +1406,39 @@ model GrainPickup {
 
   @@index([shopId, pickupDate])
 }
+
+// Grain of the shop's own that went to waste (spoiled / useless). The
+// wasted kg leave the stock but their cost stays: the shelf grain left
+// is gathered into one new batch (remainder) at the higher cost per
+// kg, so Stock value doesn't change and profit falls as that grain is
+// sold. Each old batch it took from is in draws, so deleting the waste
+// puts everything back.
+model GrainWaste {
+  id          String           @id @default(uuid())
+  shopId      String
+  shop        Shop             @relation(fields: [shopId], references: [id])
+  productId   String
+  product     Product          @relation(fields: [productId], references: [id])
+  quantity    Decimal          @db.Decimal(14, 3)
+  wasteDate   DateTime
+  reference   String
+  notes       String?
+  // The shelf stock just before: kg and what it cost.
+  kgBefore    Decimal          @db.Decimal(14, 3)
+  valueBefore Decimal          @db.Decimal(14, 2)
+  createdAt   DateTime         @default(now())
+  draws       GrainWasteDraw[]
+  remainder   GrainBatch?      @relation("WasteRemainder")
+
+  @@index([shopId, productId])
+}
+
+model GrainWasteDraw {
+  id           String     @id @default(uuid())
+  grainWasteId String
+  grainWaste   GrainWaste @relation(fields: [grainWasteId], references: [id])
+  grainBatchId String
+  grainBatch   GrainBatch @relation(fields: [grainBatchId], references: [id])
+  quantity     Decimal    @db.Decimal(14, 3)
+}
+

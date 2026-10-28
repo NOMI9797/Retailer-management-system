@@ -83,7 +83,7 @@ export async function getGrainAccount(productId: string) {
   if (overview.stockUdhaarOutstanding > 0.0005) {
     const last = await db.grainBatch.findFirst({
       // rate > 0: grain recorded at a customer's home without a rate (Rs 0) isn't a price.
-      where: { productId, ownerCustomerId: null, grainLoanId: null, grainLoanReturnId: null, rate: { gt: 0 } },
+      where: { productId, ownerCustomerId: null, grainLoanId: null, grainLoanReturnId: null, grainWasteId: null, rate: { gt: 0 } },
       orderBy: { receivedAt: "desc" },
       select: { rate: true },
     });
