@@ -2,74 +2,59 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { clearGrainRegisterStock, setGrainRegisterStock, type GrainRegisterStock } from "../actions";
+import { setGrainRegisterFigure } from "../actions";
+import type { RegisterCard } from "../schema";
 import { showToast } from "@/components/shared/toastStore";
-import { formatMoney } from "@/lib/utils";
 
-// Pencil on the Own stock / Stock value cards: type the grain's own
-// stock and stock value from the register. Display only — nothing else
-// in the system changes. "Use system figures" removes them again.
+// Pencil on a Grain page card: type that card's figure from the
+// register. Display only — nothing else in the system changes. "Use
+// system figure" removes it again.
 export function RegisterStockButton({
   productId,
   productName,
-  unitName,
+  card,
+  label,
+  unit,
   register,
   system,
 }: {
   productId: string;
   productName: string;
-  unitName: string;
-  register: GrainRegisterStock | null;
+  card: RegisterCard;
+  // The card's name, e.g. "Own stock".
+  label: string;
+  // "Rs" for money, otherwise the grain's unit.
+  unit: string;
+  register: number | undefined;
   // What the records add up to now, shown for comparison.
-  system: { ownKg: number; ownValue: number };
+  system: number;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [ownKg, setOwnKg] = useState("");
-  const [ownValue, setOwnValue] = useState("");
-  const [note, setNote] = useState("");
+  const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const show = (n: number) => (unit === "Rs" ? `Rs ${n.toLocaleString()}` : `${n} ${unit}`);
 
   function openModal() {
-    setOwnKg(register ? String(register.ownKg) : "");
-    setOwnValue(register ? String(register.ownValue) : "");
-    setNote(register?.note ?? "");
+    setValue(register !== undefined ? String(register) : "");
     setError(null);
     setOpen(true);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function save(figure: number | null) {
     setIsSaving(true);
     setError(null);
-    const result = await setGrainRegisterStock({
-      productId,
-      ownKg: Number(ownKg),
-      ownValue: Number(ownValue),
-      note: note || undefined,
-    });
+    const result = await setGrainRegisterFigure({ productId, card, value: figure });
     setIsSaving(false);
     if (!result.success) {
       setError(result.error);
       return;
     }
-    showToast(`${productName}: register figures saved`);
+    showToast(figure === null ? `${label}: back to system figure` : `${label}: register figure saved`);
     setOpen(false);
     router.refresh();
   }
-
-  async function handleClear() {
-    setIsSaving(true);
-    await clearGrainRegisterStock(productId);
-    setIsSaving(false);
-    showToast(`${productName}: back to system figures`);
-    setOpen(false);
-    router.refresh();
-  }
-
-  const kg = Number(ownKg) || 0;
-  const value = Number(ownValue) || 0;
 
   return (
     <>
@@ -87,62 +72,44 @@ export function RegisterStockButton({
       {open && (
         <div className="modal-backdrop" onClick={() => setOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{productName} — own stock from register</h2>
+            <h2>
+              {productName} — {label} from register
+            </h2>
             <p className="modal-sub">
-              Shown on the Own stock and Stock value cards only. Nothing else changes — customers, dealers, batches,
-              sales and money stay exactly as recorded.
+              Shown on this card only. Nothing else changes — customers, dealers, batches, sales and money stay exactly
+              as recorded.
             </p>
-            <form onSubmit={handleSubmit}>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                save(Number(value));
+              }}
+            >
               {error && <p className="form-banner error">{error}</p>}
-              <div className="field-row">
-                <div className="field">
-                  <label>Own stock ({unitName})</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={ownKg}
-                    onChange={(e) => setOwnKg(e.target.value)}
-                    required
-                    autoFocus
-                  />
-                  <span style={{ display: "block", fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
-                    System: {system.ownKg} {unitName}
-                  </span>
-                </div>
-                <div className="field">
-                  <label>Stock value (Rs)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={ownValue}
-                    onChange={(e) => setOwnValue(e.target.value)}
-                    required
-                  />
-                  <span style={{ display: "block", fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
-                    System: {formatMoney(system.ownValue)}
-                  </span>
-                </div>
-              </div>
               <div className="field">
-                <label>Note (optional)</label>
-                <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. register page 42" />
+                <label>
+                  {label} ({unit})
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  required
+                  autoFocus
+                />
+                <span style={{ display: "block", fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
+                  System: {show(system)}
+                </span>
               </div>
-              {kg > 0 && value > 0 && (
-                <p style={{ margin: "0 0 12px", fontSize: 13 }}>
-                  Cost per {unitName}: <strong>Rs {(value / kg).toLocaleString("en-US", { maximumFractionDigits: 2 })}</strong>
-                  {" · "}Difference from system: {Math.round((kg - system.ownKg) * 1000) / 1000} {unitName},{" "}
-                  {formatMoney(Math.round((value - system.ownValue) * 100) / 100)}
-                </p>
-              )}
               <div className="modal-actions">
                 <button type="submit" className="btn btn-primary" disabled={isSaving}>
                   {isSaving ? "Saving…" : "Save"}
                 </button>
-                {register && (
-                  <button type="button" className="btn btn-ghost" onClick={handleClear} disabled={isSaving}>
-                    Use system figures
+                {register !== undefined && (
+                  <button type="button" className="btn btn-ghost" onClick={() => save(null)} disabled={isSaving}>
+                    Use system figure
                   </button>
                 )}
                 <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)} disabled={isSaving}>

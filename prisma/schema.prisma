@@ -1459,10 +1459,17 @@ model GrainRegisterStock {
   shop      Shop     @relation(fields: [shopId], references: [id])
   productId String
   product   Product  @relation(fields: [productId], references: [id])
-  ownKg     Decimal  @db.Decimal(14, 3)
-  ownValue  Decimal  @db.Decimal(14, 2)
-  note      String?
-  updatedAt DateTime @updatedAt
+  // One figure per Grain page card; null = that card shows the system figure.
+  ownKg         Decimal? @db.Decimal(14, 3)
+  ownValue      Decimal? @db.Decimal(14, 2)
+  customerKg    Decimal? @db.Decimal(14, 3)
+  physicalKg    Decimal? @db.Decimal(14, 3)
+  stockUdhaarKg Decimal? @db.Decimal(14, 3)
+  pooledKg      Decimal? @db.Decimal(14, 3)
+  advanceKg     Decimal? @db.Decimal(14, 3)
+  borrowedKg    Decimal? @db.Decimal(14, 3)
+  note          String?
+  updatedAt     DateTime @updatedAt
 
   @@unique([shopId, productId])
 }

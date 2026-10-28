@@ -12,6 +12,7 @@
 // of a one-off widget.
 import { RegisterStockButton } from "@/modules/grain-register/components/RegisterStockButton";
 import type { GrainRegisterStock } from "@/modules/grain-register/actions";
+import type { RegisterCard } from "@/modules/grain-register/schema";
 
 export function StockSummary({
   totalRemaining,
@@ -43,89 +44,75 @@ export function StockSummary({
   // Shown in the grid's free cell under Stock Udhaar (the Grain page's
   // name search).
   searchSlot?: React.ReactNode;
-  // Own stock / stock value typed in from the register (display only);
-  // when set, those two cards show it, with the system figure below.
-  registerEdit?: { productId: string; productName: string; register: GrainRegisterStock | null };
+  // Figures typed in from the register (display only), one per card;
+  // a card with one shows it, with the system figure below.
+  registerEdit?: { productId: string; productName: string; register: GrainRegisterStock };
 }) {
-  const register = registerEdit?.register ?? null;
-  const editButton = registerEdit && (
-    <RegisterStockButton
-      productId={registerEdit.productId}
-      productName={registerEdit.productName}
-      unitName={unitName}
-      register={register}
-      system={{ ownKg: ownAvailable, ownValue: stockValue }}
-    />
-  );
-  const systemLine = (text: string) => (
-    <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
-      <span className="pay-badge pay-mixed" style={{ marginRight: 6 }}>
-        From register
-      </span>
-      System: {text}
-    </p>
-  );
+  const register = registerEdit?.register ?? {};
+  const advance = Math.round((lentOut + atCustomerHomes) * 1000) / 1000;
+
+  function card(
+    key: RegisterCard,
+    label: string,
+    system: number,
+    tone: (value: number) => string,
+    sub?: React.ReactNode
+  ) {
+    const fromRegister = register[key];
+    const value = fromRegister ?? system;
+    const money = key === "ownValue";
+    const show = (n: number) => (money ? `Rs ${n.toLocaleString()}` : `${n} ${unitName}`);
+    return (
+      <div className="stat-card" style={registerEdit ? { position: "relative" } : undefined}>
+        <p className="stat-label">{label}</p>
+        <p className={`stat-value${tone(value)}`}>{show(value)}</p>
+        {fromRegister !== undefined ? (
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
+            <span className="pay-badge pay-mixed" style={{ marginRight: 6 }}>
+              From register
+            </span>
+            System: {show(system)}
+          </p>
+        ) : (
+          sub
+        )}
+        {registerEdit && (
+          <RegisterStockButton
+            productId={registerEdit.productId}
+            productName={registerEdit.productName}
+            card={key}
+            label={label}
+            unit={money ? "Rs" : unitName}
+            register={fromRegister}
+            system={system}
+          />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="stat-grid" style={{ marginBottom: 22 }}>
-      <div className="stat-card" style={{ position: "relative" }}>
-        <p className="stat-label">Own stock</p>
-        <p className="stat-value tone-primary">
-          {register ? register.ownKg : ownAvailable} {unitName}
-        </p>
-        {register && systemLine(`${ownAvailable} ${unitName}`)}
-        {editButton}
-      </div>
-      <div className="stat-card">
-        <p className="stat-label">Customer stock</p>
-        <p className="stat-value tone-grain">
-          {customerClaim} {unitName}
-        </p>
-      </div>
-      <div className="stat-card">
-        <p className="stat-label">Total physical</p>
-        <p className="stat-value">
-          {totalRemaining} {unitName}
-        </p>
-      </div>
-      <div className="stat-card">
-        <p className="stat-label">Stock Udhaar</p>
-        <p className={`stat-value${stockUdhaarOutstanding ? " tone-consigned" : ""}`}>
-          {stockUdhaarOutstanding} {unitName}
-        </p>
-      </div>
-      <div className="stat-card">
-        <p className="stat-label">Pooled stock</p>
-        <p className="stat-value tone-grain">
-          {pooled.quantity} {unitName}
-        </p>
-      </div>
-      <div className="stat-card" style={{ position: "relative" }}>
-        <p className="stat-label">Stock value</p>
-        <p className="stat-value">Rs {(register ? register.ownValue : stockValue).toLocaleString()}</p>
-        {register && systemLine(`Rs ${stockValue.toLocaleString()}`)}
-        {editButton}
-      </div>
-      <div className="stat-card">
-        {/* The shop's own grain that isn't here: lent out on grain loans
-            (coming back), or bought but still at the seller's home (to
-            pick up) — counted in Own stock and Stock value, not in
-            Total physical. */}
-        <p className="stat-label">Advance stock</p>
-        <p className={`stat-value${lentOut || atCustomerHomes ? " tone-grain" : ""}`}>
-          {Math.round((lentOut + atCustomerHomes) * 1000) / 1000} {unitName}
-        </p>
+      {card("ownKg", "Own stock", ownAvailable, () => " tone-primary")}
+      {card("customerKg", "Customer stock", customerClaim, () => " tone-grain")}
+      {card("physicalKg", "Total physical", totalRemaining, () => "")}
+      {card("stockUdhaarKg", "Stock Udhaar", stockUdhaarOutstanding, (v) => (v ? " tone-consigned" : ""))}
+      {card("pooledKg", "Pooled stock", pooled.quantity, () => " tone-grain")}
+      {card("ownValue", "Stock value", stockValue, () => "")}
+      {/* The shop's own grain that isn't here: lent out on grain loans
+          (coming back), or bought but still at the seller's home (to
+          pick up) — counted in Own stock and Stock value, not in
+          Total physical. */}
+      {card(
+        "advanceKg",
+        "Advance stock",
+        advance,
+        (v) => (v ? " tone-grain" : ""),
         <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
-          {atCustomerHomes > 0
-            ? `Lent ${lentOut} · At customers' homes ${atCustomerHomes}`
-            : "Shop's grain lent out"}
+          {atCustomerHomes > 0 ? `Lent ${lentOut} · At customers' homes ${atCustomerHomes}` : "Shop's grain lent out"}
         </p>
-      </div>
-      <div className="stat-card">
-        <p className="stat-label">Borrowed (loans)</p>
-        <p className={`stat-value${borrowed ? " tone-consigned" : ""}`}>
-          {borrowed} {unitName}
-        </p>
-      </div>
+      )}
+      {card("borrowedKg", "Borrowed (loans)", borrowed, (v) => (v ? " tone-consigned" : ""))}
       {searchSlot && <div className="grain-search-cell">{searchSlot}</div>}
     </div>
   );

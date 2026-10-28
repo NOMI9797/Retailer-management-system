@@ -53,7 +53,7 @@ export function GrainBatchList({
   loanOptions: LoanOptions;
   homeGrain: HomeGrainRow[];
   // Own stock / value typed in from the register, if any.
-  register: GrainRegisterStock | null;
+  register: GrainRegisterStock;
 }) {
   const unit = product.unit.name;
 

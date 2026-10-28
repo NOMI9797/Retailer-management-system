@@ -216,8 +216,9 @@ export async function getProductStats() {
   const shopId = await getCurrentShopId();
 
   const [simpleCount, grainCount, categoryCount, simpleProducts] = await Promise.all([
-    db.product.count({ where: { shopId, stockKind: "SIMPLE" } }),
-    db.product.count({ where: { shopId, stockKind: "GRAIN" } }),
+    // Deleted products are gone from every list — not counted here either.
+    db.product.count({ where: { shopId, stockKind: "SIMPLE", isDeleted: false } }),
+    db.product.count({ where: { shopId, stockKind: "GRAIN", isDeleted: false } }),
     db.category.count({ where: { shopId } }),
     // Stock value = quantity × cost price, summed across simple-stock
     // products only (grain isn't priced per-product — each batch
@@ -226,7 +227,7 @@ export async function getProductStats() {
     // not sell price: this is what the shopkeeper has tied up in
     // inventory, not potential revenue.
     db.product.findMany({
-      where: { shopId, stockKind: "SIMPLE" },
+      where: { shopId, stockKind: "SIMPLE", isDeleted: false },
       select: { quantity: true, costPrice: true },
     }),
   ]);
