@@ -55,7 +55,17 @@ function paymentLabel(method: string) {
 // Shop tab), one row per item; a multi-item visit shows its date once,
 // on its first item. Edit/Delete act on the whole visit (not a single
 // item), so they only appear once, on that visit's last item row.
-export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sales: Sale[]; products: Product[]; bankAccounts?: { id: string; name: string }[] }) {
+export function PurchaseHistoryList({
+  sales,
+  products,
+  bankAccounts = [],
+  emptyText = "No purchases yet.",
+}: {
+  sales: Sale[];
+  products: Product[];
+  bankAccounts?: { id: string; name: string }[];
+  emptyText?: string;
+}) {
   // A grain purchase from the customer — edited through the same
   // settlement edit the Grain tab uses (it also moves stock).
   const [editingGrain, setEditingGrain] = useState<Extract<Sale, { kind: "SHOP_GRAIN" }> | null>(null);
@@ -64,7 +74,7 @@ export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sa
   if (sales.length === 0) {
     return (
       <div className="panel">
-        <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>No purchases yet.</p>
+        <p style={{ padding: 16, color: "var(--ink-muted)", fontSize: 13.5 }}>{emptyText}</p>
       </div>
     );
   }

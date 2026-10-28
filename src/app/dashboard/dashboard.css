@@ -3461,3 +3461,62 @@
   background: var(--surface-muted, #f7f5f0);
   border-top: none;
 }
+
+/* Product dropdown you can type into (sale lines). */
+.shop-app .product-search {
+  position: relative;
+}
+
+.shop-app .product-search-required {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.shop-app .product-search-list {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+}
+
+.shop-app .product-search-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.shop-app .product-search-option.active {
+  background: var(--primary-50, #e8f3ef);
+}
+
+.shop-app .product-search-option.selected {
+  font-weight: 600;
+  color: var(--primary-600);
+}
+
+.shop-app .product-search-empty {
+  padding: 10px;
+  font-size: 13px;
+  color: var(--ink-muted);
+}

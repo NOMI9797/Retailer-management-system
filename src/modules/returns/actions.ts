@@ -4,7 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { ok, fail, type ActionResult } from "@/lib/actionResult";
-import { parseLocalDateStart } from "@/lib/utils";
+import { parseLocalDateNow } from "@/lib/utils";
 import { postToBankAccount } from "@/modules/settings/bankAccounts.actions";
 import { postToPooledGrainStock } from "@/modules/stock/actions";
 import { mainUnitsPer, subUnitsPerUnit } from "@/modules/products/units";
@@ -123,7 +123,7 @@ export async function createSaleReturn(input: SaleReturnInput): Promise<ActionRe
     });
     const payments = await tx.dailySalePayment.findMany({ where: { dailySaleId: sale.id, visitAt: data.visitAt } });
 
-    const returnDate = data.returnDate ? parseLocalDateStart(data.returnDate) : new Date();
+    const returnDate = data.returnDate ? parseLocalDateNow(data.returnDate) : new Date();
     const lines: {
       item: (typeof items)[number];
       quantity: number;
@@ -449,7 +449,7 @@ export async function createPurchaseReturn(input: PurchaseReturnInput): Promise<
   const data = parsed.data;
 
   return inTransaction(async (tx) => {
-    const returnDate = data.returnDate ? parseLocalDateStart(data.returnDate) : new Date();
+    const returnDate = data.returnDate ? parseLocalDateNow(data.returnDate) : new Date();
     let dealerId: string;
     let productId: string;
     let rate: number;

@@ -3,7 +3,7 @@
 // of stock. Shared by the Dashboard's Needs attention list and the Low
 // stock page so both always count the same products.
 // Plain module (no server / client marker) — used by both sides.
-export const LOW_STOCK_LIMIT = 5;
+export const LOW_STOCK_LIMIT = 10;
 
 export function lowStockWhere(shopId: string) {
   return {

@@ -4,6 +4,7 @@ import {
   ShopUdhaarPaymentModal,
 } from "@/modules/customers/components/CustomerUdhaarPayment";
 import type { getCustomerRelationshipSummary } from "@/modules/customers/actions";
+import { AdvanceStockCard, type AdvanceStockByGrain } from "./AdvanceStockCard";
 
 type Summary = Awaited<ReturnType<typeof getCustomerRelationshipSummary>>;
 
@@ -24,11 +25,18 @@ export function CustomerRelationshipStats({
   customerId,
   customerName,
   bankAccounts,
+  advanceStock = [],
+  selectedGrain,
 }: {
   summary: Summary;
   customerId: string;
   customerName: string;
   bankAccounts: { id: string; name: string }[];
+  // The shop's grain at this customer's home, per grain — a fourth card
+  // when there is any.
+  advanceStock?: AdvanceStockByGrain[];
+  // The grain picked in the filter beside the tabs — the card shows it.
+  selectedGrain?: string;
 }) {
   const { customerOwesShop, shopOwesCustomer, netAmount, netOwedBy } = summary;
 
@@ -68,6 +76,9 @@ export function CustomerRelationshipStats({
           />
         )}
       </div>
+      {advanceStock.length > 0 && (
+        <AdvanceStockCard key={selectedGrain ?? ""} grains={advanceStock} selectedGrain={selectedGrain} />
+      )}
     </div>
   );
 }

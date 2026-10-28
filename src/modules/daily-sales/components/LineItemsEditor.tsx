@@ -1,5 +1,6 @@
 "use client";
 
+import { ProductSearchSelect } from "@/components/shared/ProductSearchSelect";
 import { useMemo } from "react";
 import type { listProducts } from "@/modules/products/actions";
 import { subUnitsPerUnit } from "@/modules/products/units";
@@ -15,7 +16,20 @@ export type LineItemDraft = {
   categoryId?: string;
   // A two-unit product (Bag / Kgs): which unit quantity and price are in.
   unit?: "MAIN" | "SUB";
+  // Sold by amount ("Rs 300 of DAP"): the Rs the customer asked for;
+  // quantity is worked out from it (amount ÷ price) and kept in sync.
+  byAmount?: boolean;
+  amount?: string;
 };
+
+// The quantity an amount buys at a price, to 6 decimals (what a sale
+// line stores) — so the line bills exactly that amount.
+function quantityForAmount(amount: string | undefined, price: string): string {
+  const a = Number(amount);
+  const p = Number(price);
+  if (!(a > 0) || !(p > 0)) return "";
+  return String(Math.round((a / p) * 1e6) / 1e6);
+}
 
 // Filtering by category first is purely a narrowing aid for the
 // product dropdown — categoryId never gets sent to createDailySale,
@@ -75,6 +89,8 @@ export function LineItemsEditor({
           updated.actualPrice = String(Math.round(next * 100) / 100);
         }
       }
+      // By amount: the quantity follows the amount and the price.
+      if (updated.byAmount) updated.quantity = quantityForAmount(updated.amount, updated.actualPrice);
       return updated;
     });
     onChange(next);
@@ -119,28 +135,74 @@ export function LineItemsEditor({
               </select>
             </div>
             <div className="field" style={{ marginBottom: 0, flex: 1 }}>
-              <select value={item.productId} onChange={(e) => updateItem(i, { productId: e.target.value })} required>
-                <option value="" disabled>
-                  Select product
-                </option>
-                {filteredProducts.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.unit.name}
-                    {subUnitsPerUnit(p) ? ` / ${p.subUnit!.name}` : ""})
-                  </option>
-                ))}
+              <ProductSearchSelect
+                value={item.productId}
+                onChange={(id) => updateItem(i, { productId: id })}
+                options={filteredProducts.map((p) => ({
+                  id: p.id,
+                  label: `${p.name} (${p.unit.name}${subUnitsPerUnit(p) ? ` / ${p.subUnit!.name}` : ""})`,
+                }))}
+              />
+            </div>
+            <div className="field" style={{ marginBottom: 0, flex: "0 1 92px" }}>
+              {/* Qty = how many; Rs = the amount the customer wants, the
+                  quantity is worked out from the price. */}
+              <select
+                value={item.byAmount ? "AMOUNT" : "QTY"}
+                onChange={(e) => {
+                  const byAmount = e.target.value === "AMOUNT";
+                  if (byAmount) {
+                    // Asked for by amount it's sold loose — a two-unit
+                    // product switches to its small unit (Kgs).
+                    const amount = item.quantity && item.actualPrice
+                      ? String(Math.round(Number(item.quantity) * Number(item.actualPrice) * 100) / 100)
+                      : "";
+                    updateItem(i, { byAmount: true, amount, ...(twoUnit ? { unit: "SUB" as const } : {}) });
+                  } else {
+                    updateItem(i, {
+                      byAmount: false,
+                      quantity: item.quantity ? String(Math.round(Number(item.quantity) * 1000) / 1000) : "",
+                    });
+                  }
+                }}
+                aria-label="Sell by"
+                title="Sell by quantity, or by amount (Rs)"
+              >
+                <option value="QTY">Qty</option>
+                <option value="AMOUNT">Rs</option>
               </select>
             </div>
             <div className="field" style={{ marginBottom: 0, flex: "0 1 180px" }}>
-              <input
-                type="number"
-                min="0"
-                step="any"
-                placeholder={`Qty${product ? ` (${unitLabel})` : ""}`}
-                value={item.quantity}
-                onChange={(e) => updateItem(i, { quantity: e.target.value })}
-                required
-              />
+              {item.byAmount ? (
+                <>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="Amount (Rs)"
+                    value={item.amount ?? ""}
+                    onChange={(e) => updateItem(i, { amount: e.target.value })}
+                    required
+                  />
+                  <span style={{ display: "block", fontSize: 11.5, color: "var(--primary-600)", marginTop: 2 }}>
+                    {item.quantity
+                      ? `= ${Number(Number(item.quantity).toFixed(3))} ${unitLabel}`
+                      : product
+                        ? `Enter the price per ${unitLabel}`
+                        : ""}
+                  </span>
+                </>
+              ) : (
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder={`Qty${product ? ` (${unitLabel})` : ""}`}
+                  value={item.quantity}
+                  onChange={(e) => updateItem(i, { quantity: e.target.value })}
+                  required
+                />
+              )}
             </div>
             {twoUnit && (
               <div className="field" style={{ marginBottom: 0, flex: "0 1 120px" }}>

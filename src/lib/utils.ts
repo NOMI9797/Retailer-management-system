@@ -65,6 +65,15 @@ export function parseLocalDateStart(dateStr: string): Date {
   return new Date(year, month - 1, day, 0, 0, 0, 0);
 }
 
+// A picked day ("YYYY-MM-DD") at the current time of day — so an entry
+// dated today (or back-dated) sits where it was recorded among that
+// day's entries instead of at midnight, below everything else.
+export function parseLocalDateNow(dateStr: string): Date {
+  const now = new Date();
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(year, month - 1, day, now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+}
+
 export function parseLocalDateEnd(dateStr: string): Date {
   const [year, month, day] = dateStr.split("-").map(Number);
   return new Date(year, month - 1, day, 23, 59, 59, 999);

@@ -24,6 +24,8 @@ import { listAreas } from "@/modules/settings/areas.actions";
 import { CustomerGrainSection } from "@/modules/stock/components/CustomerGrainSection";
 import { HomeGrainRecords } from "@/modules/stock/components/HomeGrainRecords";
 import { listHomeGrain } from "@/modules/stock/homeGrain.actions";
+import type { AdvanceStockByGrain } from "./AdvanceStockCard";
+import { GrainFilter } from "./GrainFilter";
 import { GrainLoansPanel } from "@/modules/grain-loans/components/GrainLoansPanel";
 import { listGrainLoans } from "@/modules/grain-loans/actions";
 import { PageLoader } from "@/components/shared/PageLoader";
@@ -73,9 +75,14 @@ export default async function CustomerDetailPage({
   searchParams: Promise<CustomerDetailSearchParams>;
 }) {
   const { id } = await params;
-  const { tab: rawTab } = await searchParams;
+  const { tab: rawTab, grain } = await searchParams;
   const tab: Tab =
     rawTab && rawTab in TAB_LABELS ? (rawTab as Tab) : "purchase-history";
+  // The grains the filter beside the tabs offers.
+  const grainOptions = (await listProducts({ stockKind: "GRAIN", pageSize: 500 })).products.map((p) => ({
+    id: p.id,
+    name: p.name,
+  }));
 
   return (
     <div>
@@ -99,7 +106,7 @@ export default async function CustomerDetailPage({
           tabs rather than inside any one of them. */}
       <div style={{ marginTop: 24 }}>
         <Suspense fallback={<PageLoader label="Loading totals…" />}>
-          <CustomerOverallStats customerId={id} />
+          <CustomerOverallStats customerId={id} grain={grain} />
         </Suspense>
       </div>
 
@@ -108,24 +115,25 @@ export default async function CustomerDetailPage({
           <Link
             key={t}
             className={`tab${tab === t ? " active" : ""}`}
-            href={buildCustomerDetailHref(id, { tab: t })}
+            href={buildCustomerDetailHref(id, { tab: t, grain })}
           >
             {TAB_LABELS[t]}
           </Link>
         ))}
+        <GrainFilter customerId={id} tab={tab} grain={grain} grains={grainOptions} />
       </div>
 
       {tab === "purchase-history" && (
         <Suspense
-          key="purchase-history"
+          key={`purchase-history:${grain ?? ""}`}
           fallback={<PageLoader label="Loading purchase history…" />}
         >
-          <PurchaseHistorySection customerId={id} />
+          <PurchaseHistorySection customerId={id} grain={grain} />
         </Suspense>
       )}
       {tab === "grain" && (
-        <Suspense key="grain" fallback={<PageLoader label="Loading grain…" />}>
-          <GrainSectionLoader customerId={id} />
+        <Suspense key={`grain:${grain ?? ""}`} fallback={<PageLoader label="Loading grain…" />}>
+          <GrainSectionLoader customerId={id} grain={grain} />
         </Suspense>
       )}
       {tab === "udhaar-to-shop" && (
@@ -138,33 +146,64 @@ export default async function CustomerDetailPage({
       )}
       {tab === "grain-loans" && (
         <Suspense
-          key="grain-loans"
+          key={`grain-loans:${grain ?? ""}`}
           fallback={<PageLoader label="Loading grain loans…" />}
         >
-          <GrainLoansSectionLoader customerId={id} />
+          <GrainLoansSectionLoader customerId={id} grain={grain} />
         </Suspense>
       )}
       {tab === "at-home" && (
-        <Suspense key="at-home" fallback={<PageLoader label="Loading grain at their home…" />}>
-          <HomeGrainSectionLoader customerId={id} />
+        <Suspense key={`at-home:${grain ?? ""}`} fallback={<PageLoader label="Loading grain at their home…" />}>
+          <HomeGrainSectionLoader customerId={id} grain={grain} />
         </Suspense>
       )}
     </div>
   );
 }
 
-async function CustomerOverallStats({ customerId }: { customerId: string }) {
-  const [summary, customer, bankAccounts] = await Promise.all([
+async function CustomerOverallStats({ customerId, grain }: { customerId: string; grain?: string }) {
+  const [summary, customer, bankAccounts, homeGrain] = await Promise.all([
     getCustomerRelationshipSummary(customerId),
     getCustomer(customerId),
     listBankAccounts(),
+    listHomeGrain({ customerId }),
   ]);
+  // The shop's grain at their home, added up per grain.
+  const byGrain = new Map<string, AdvanceStockByGrain>();
+  for (const h of homeGrain) {
+    const g = byGrain.get(h.product.id) ?? {
+      productId: h.product.id,
+      name: h.product.name,
+      unitName: h.unitName,
+      remaining: 0,
+      bought: 0,
+      pickedUp: 0,
+      soldFromHome: 0,
+    };
+    g.remaining += h.remaining;
+    g.bought += h.quantity;
+    g.pickedUp += h.pickedUp;
+    g.soldFromHome += h.soldFromHome;
+    byGrain.set(h.product.id, g);
+  }
+  const round3 = (n: number) => Math.round(n * 1000) / 1000;
+  const advanceStock = [...byGrain.values()]
+    .map((g) => ({
+      ...g,
+      remaining: round3(g.remaining),
+      bought: round3(g.bought),
+      pickedUp: round3(g.pickedUp),
+      soldFromHome: round3(g.soldFromHome),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
   return (
     <CustomerRelationshipStats
       summary={summary}
       customerId={customerId}
       customerName={customer.name}
       bankAccounts={bankAccounts}
+      advanceStock={advanceStock}
+      selectedGrain={grain}
     />
   );
 }
@@ -215,7 +254,7 @@ async function CustomerDetail({ id }: { id: string }) {
 // vs. CustomerAccount/AccountTransaction), per the milestone's
 // explicit "two distinct panels that must not be collapsed into one"
 // requirement.
-async function PurchaseHistorySection({ customerId }: { customerId: string }) {
+async function PurchaseHistorySection({ customerId, grain }: { customerId: string; grain?: string }) {
   const [
     sales,
     categories,
@@ -235,9 +274,25 @@ async function PurchaseHistorySection({ customerId }: { customerId: string }) {
     listBankAccounts(),
   ]);
 
+  // One grain only: its sale lines (bills without it drop out) and the
+  // shop's grain dealings in it; money-only rows don't belong to a grain.
+  const shown = grain
+    ? sales.flatMap((entry): typeof sales => {
+        if (entry.kind === "SALE") {
+          const visits = entry.visits
+            .map((v) => ({ ...v, items: v.items.filter((i) => i.productId === grain) }))
+            .filter((v) => v.items.length > 0);
+          return visits.length > 0 ? [{ ...entry, visits }] : [];
+        }
+        if (entry.kind === "SHOP_GRAIN") return entry.productId === grain ? [entry] : [];
+        return [];
+      })
+    : sales;
+
   return (
     <PurchaseHistoryList
-      sales={sales}
+      sales={shown}
+      emptyText={grain ? "No purchases or sales of this grain with this customer." : undefined}
       products={[...simpleProducts.products, ...grainProducts.products]}
       bankAccounts={bankAccounts}
     />
@@ -257,7 +312,7 @@ async function PurchaseHistorySection({ customerId }: { customerId: string }) {
 // account balance above (which nets every account together) or with
 // Stock Udhaar (a quantity obligation, shown shop-wide on the Grain
 // page instead — see this file's header comment).
-async function GrainSectionLoader({ customerId }: { customerId: string }) {
+async function GrainSectionLoader({ customerId, grain }: { customerId: string; grain?: string }) {
   const [
     customer,
     deposits,
@@ -271,7 +326,7 @@ async function GrainSectionLoader({ customerId }: { customerId: string }) {
     getShopOwedForGrainByProduct(customerId),
     // includePaid — the Grain tab keeps a paid-off grain sale listed
     // (as "Paid") instead of dropping it.
-    getCustomerGrainCreditPurchases(customerId, undefined, {
+    getCustomerGrainCreditPurchases(customerId, grain, {
       includePaid: true,
     }),
     listBankAccounts(),
@@ -282,7 +337,7 @@ async function GrainSectionLoader({ customerId }: { customerId: string }) {
   ]);
   return (
     <CustomerGrainSection
-      deposits={deposits}
+      deposits={grain ? { ...deposits, batches: deposits.batches.filter((b) => b.product.id === grain) } : deposits}
       moneyOwedByProduct={moneyOwedByProduct}
       creditPurchases={creditPurchases}
       customerId={customerId}
@@ -295,8 +350,11 @@ async function GrainSectionLoader({ customerId }: { customerId: string }) {
 
 // Grain the shop bought from this customer that was left at their home
 // — its own tab: what's still there, each pickup trip, Pick up.
-async function HomeGrainSectionLoader({ customerId }: { customerId: string }) {
-  const [homeGrain, bankAccounts] = await Promise.all([listHomeGrain({ customerId }), listBankAccounts()]);
+async function HomeGrainSectionLoader({ customerId, grain }: { customerId: string; grain?: string }) {
+  const [homeGrain, bankAccounts] = await Promise.all([
+    listHomeGrain({ customerId, productId: grain }),
+    listBankAccounts(),
+  ]);
   return (
     <section className="panel">
       <HomeGrainRecords
@@ -312,10 +370,10 @@ async function HomeGrainSectionLoader({ customerId }: { customerId: string }) {
 
 // Grain lent to / borrowed from this customer, every grain — its own
 // tab, like Udhaar to Shop.
-async function GrainLoansSectionLoader({ customerId }: { customerId: string }) {
+async function GrainLoansSectionLoader({ customerId, grain }: { customerId: string; grain?: string }) {
   const [customer, loans, bankAccounts, grainProducts] = await Promise.all([
     getCustomer(customerId),
-    listGrainLoans({ customerId }),
+    listGrainLoans({ customerId, productId: grain }),
     listBankAccounts(),
     listProducts({ stockKind: "GRAIN", pageSize: 500 }),
   ]);

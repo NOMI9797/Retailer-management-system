@@ -6,6 +6,8 @@
 // merged into one chronological list (see CustomerGrainSection).
 export type CustomerDetailSearchParams = {
   tab?: string;
+  // One grain's records only, on whichever tab is open.
+  grain?: string;
 };
 
 export function buildCustomerDetailHref(
@@ -14,6 +16,7 @@ export function buildCustomerDetailHref(
 ) {
   const params = new URLSearchParams();
   if (overrides.tab && overrides.tab !== "purchase-history") params.set("tab", overrides.tab);
+  if (overrides.grain) params.set("grain", overrides.grain);
   const qs = params.toString();
   return `/dashboard/customers/${customerId}${qs ? `?${qs}` : ""}`;
 }

@@ -1302,6 +1302,7 @@ export async function getCustomerPurchaseHistory(customerId: string) {
     direction: txn.direction,
     amount: Number(txn.amount),
     paymentMethod: txn.paymentMethod,
+    productId: txn.linkedGrainBatch?.productId ?? txn.linkedProductId ?? null,
     productName: txn.linkedGrainBatch?.product.name ?? txn.linkedProduct?.name ?? null,
     quantity: txn.direction === "OUT" ? Number(txn.quantity) : null,
     unitName: txn.linkedGrainBatch?.product.unit.name ?? null,

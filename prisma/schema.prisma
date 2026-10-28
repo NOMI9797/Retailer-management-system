@@ -1147,7 +1147,9 @@ model DailySaleItem {
   dailySale       DailySale @relation(fields: [dailySaleId], references: [id])
   productId       String
   product         Product   @relation(fields: [productId], references: [id])
-  quantity        Decimal   @db.Decimal(14, 3)
+  // 6 decimals: a line sold by amount ("Rs 300 of DAP") works out
+  // its quantity from the price, so it bills exactly that amount.
+  quantity        Decimal   @db.Decimal(16, 6)
   // How much of this line actually came out of the product's stock
   // (SIMPLE only) — less than quantity when the sale went past what was
   // in stock, 0 for an untracked product. Editing/deleting the sale puts

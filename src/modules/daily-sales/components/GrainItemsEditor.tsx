@@ -1,5 +1,6 @@
 "use client";
 
+import { ProductSearchSelect } from "@/components/shared/ProductSearchSelect";
 import { useMemo, useState } from "react";
 import type { listProducts } from "@/modules/products/actions";
 import { formatDate, toLocalDateString } from "@/lib/utils";
@@ -145,16 +146,12 @@ export function GrainItemsEditor({
                 </select>
               </div>
               <div className="field" style={{ marginBottom: 0, flex: 1 }}>
-                <select value={item.productId} onChange={(e) => updateItem(i, { productId: e.target.value })} required>
-                  <option value="" disabled>
-                    Select grain
-                  </option>
-                  {filteredProducts.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.unit.name})
-                    </option>
-                  ))}
-                </select>
+                <ProductSearchSelect
+                  value={item.productId}
+                  onChange={(id) => updateItem(i, { productId: id })}
+                  placeholder="Search grain…"
+                  options={filteredProducts.map((p) => ({ id: p.id, label: `${p.name} (${p.unit.name})` }))}
+                />
               </div>
               <div className="field" style={{ marginBottom: 0, flex: "0 1 150px" }}>
                 <input
