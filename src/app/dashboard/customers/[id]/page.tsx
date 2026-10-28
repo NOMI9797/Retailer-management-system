@@ -22,6 +22,8 @@ import {
 import { listBankAccounts } from "@/modules/settings/bankAccounts.actions";
 import { listAreas } from "@/modules/settings/areas.actions";
 import { CustomerGrainSection } from "@/modules/stock/components/CustomerGrainSection";
+import { HomeGrainRecords } from "@/modules/stock/components/HomeGrainRecords";
+import { listHomeGrain } from "@/modules/stock/homeGrain.actions";
 import { GrainLoansPanel } from "@/modules/grain-loans/components/GrainLoansPanel";
 import { listGrainLoans } from "@/modules/grain-loans/actions";
 import { PageLoader } from "@/components/shared/PageLoader";
@@ -40,6 +42,7 @@ const TAB_LABELS = {
   grain: "Grain",
   "udhaar-to-shop": "Udhaar to Shop",
   "grain-loans": "Grain loans",
+  "at-home": "Bought — at their home",
 } as const;
 type Tab = keyof typeof TAB_LABELS;
 
@@ -139,6 +142,11 @@ export default async function CustomerDetailPage({
           fallback={<PageLoader label="Loading grain loans…" />}
         >
           <GrainLoansSectionLoader customerId={id} />
+        </Suspense>
+      )}
+      {tab === "at-home" && (
+        <Suspense key="at-home" fallback={<PageLoader label="Loading grain at their home…" />}>
+          <HomeGrainSectionLoader customerId={id} />
         </Suspense>
       )}
     </div>
@@ -282,6 +290,23 @@ async function GrainSectionLoader({ customerId }: { customerId: string }) {
       bankAccounts={bankAccounts}
       products={grainProducts.products}
     />
+  );
+}
+
+// Grain the shop bought from this customer that was left at their home
+// — its own tab: what's still there, each pickup trip, Pick up.
+async function HomeGrainSectionLoader({ customerId }: { customerId: string }) {
+  const [homeGrain, bankAccounts] = await Promise.all([listHomeGrain({ customerId }), listBankAccounts()]);
+  return (
+    <section className="panel">
+      <HomeGrainRecords
+        rows={homeGrain}
+        showCustomer={false}
+        showProduct
+        bankAccounts={bankAccounts}
+        emptyText="Nothing bought from this customer is at their home. Record one from New entry → Buy/Keep stock → Bought — still at their home."
+      />
+    </section>
   );
 }
 

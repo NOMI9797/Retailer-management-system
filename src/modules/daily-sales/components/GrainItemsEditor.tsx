@@ -24,6 +24,18 @@ export type GrainItemDraft = {
   // never typed directly, same "no free date picker" precedent
   // Long-term Udhaar/Shop-Borrowed loans set.
   creditDueDate?: string;
+  // Deliver straight from a customer's home where grain the shop bought
+  // is still lying (that purchase's batch) — empty = from the shop.
+  fromHomeBatchId?: string;
+};
+
+// Grain the shop bought that's still at a seller's home — a sale line
+// can be delivered from there instead of from the shop.
+export type HomeGrainSource = {
+  id: string;
+  productId: string;
+  customerName: string;
+  remaining: number;
 };
 
 function computeDueDate(durationValue: number, durationUnit: DurationUnit): string {
@@ -53,6 +65,7 @@ export function GrainItemsEditor({
   // on each item itself (creditAmount).
   saleCreditAmount = 0,
   lastPrices = {},
+  homeSources = [],
 }: {
   products: Product[];
   items: GrainItemDraft[];
@@ -61,6 +74,7 @@ export function GrainItemsEditor({
   // What this buyer paid last time for each grain — a picked grain
   // opens at that rate instead of the catalog one.
   lastPrices?: Record<string, LastPrice>;
+  homeSources?: HomeGrainSource[];
 }) {
   const showPerItemCredit = items.length > 1 && saleCreditAmount > 0;
   const allocatedCredit = items.reduce((sum, item) => sum + (Number(item.creditAmount) || 0), 0);
@@ -78,6 +92,8 @@ export function GrainItemsEditor({
     const next = items.map((item, i) => {
       if (i !== index) return item;
       const updated = { ...item, ...patch };
+      // Another grain: a home source picked for the old one no longer fits.
+      if (patch.productId && patch.productId !== item.productId) updated.fromHomeBatchId = undefined;
       if (patch.productId) {
         const product = products.find((p) => p.id === patch.productId);
         const last = lastPrices[patch.productId];
@@ -189,6 +205,32 @@ export function GrainItemsEditor({
             </div>
 
             <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>Total: {total}</p>
+
+            {(() => {
+              // Grain of this kind still at a seller's home (or the one
+              // this line already takes from, when editing).
+              const sources = homeSources.filter(
+                (h) => h.productId === item.productId && (h.remaining > 0 || h.id === item.fromHomeBatchId)
+              );
+              if (sources.length === 0) return null;
+              return (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                  <span style={{ fontSize: 12.5, color: "var(--ink-muted)" }}>Deliver from</span>
+                  <select
+                    style={{ maxWidth: 360 }}
+                    value={item.fromHomeBatchId ?? ""}
+                    onChange={(e) => updateItem(i, { fromHomeBatchId: e.target.value || undefined })}
+                  >
+                    <option value="">Shop stock</option>
+                    {sources.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.customerName}&apos;s home — {h.remaining} {product?.unit.name ?? ""} there
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })()}
 
             {showDueDatePicker && (
               <GrainDueDatePicker

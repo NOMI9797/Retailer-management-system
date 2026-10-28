@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LineItemsEditor, type LineItemDraft } from "./LineItemsEditor";
-import { GrainItemsEditor, type GrainItemDraft } from "./GrainItemsEditor";
+import { GrainItemsEditor, type GrainItemDraft, type HomeGrainSource } from "./GrainItemsEditor";
 import { PaymentSplitEditor, type PaymentSplitDraft } from "./PaymentSplitEditor";
 import { BillSummary } from "./BillSummary";
 import { updateReceipt } from "../actions";
@@ -24,11 +24,13 @@ export function EditReceiptModal({
   receipt,
   products,
   bankAccounts = [],
+  homeSources = [],
   onClose,
 }: {
   receipt: ReceiptDetail;
   products: Product[];
   bankAccounts?: { id: string; name: string }[];
+  homeSources?: HomeGrainSource[];
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -57,6 +59,7 @@ export function EditReceiptModal({
           quantity: String(item.quantity),
           actualPrice: String(item.actualPrice),
           creditAmount: item.creditAmount !== null ? String(item.creditAmount) : undefined,
+          fromHomeBatchId: item.fromHomeBatchId,
         }))
       : []
   );
@@ -127,6 +130,7 @@ export function EditReceiptModal({
             quantity: Number(i.quantity),
             actualPrice: Number(i.actualPrice),
             creditAmount: i.creditAmount ? Number(i.creditAmount) : undefined,
+            fromHomeBatchId: i.fromHomeBatchId,
           }))
         : productItems.map((i) => ({
             productId: i.productId,
@@ -166,6 +170,7 @@ export function EditReceiptModal({
               items={grainItems}
               onChange={setGrainItems}
               saleCreditAmount={Number(payments.credit) || 0}
+              homeSources={homeSources}
             />
           ) : (
             <LineItemsEditor products={simpleProducts} items={productItems} onChange={setProductItems} />

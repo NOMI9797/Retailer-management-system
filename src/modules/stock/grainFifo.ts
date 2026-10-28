@@ -43,12 +43,14 @@ export async function drawGrainFifo(
     // that stock is now that other batch's row to deplete. Always 0
     // for shop-owned batches, so this is a no-op there.
     // Grain given back to a depositor unsettled (quantityReturned) has
-    // left the shop too.
+    // left the shop too; grain bought but still at a customer's home
+    // (quantityAtHome) isn't on the shelf yet.
     const available =
       Number(batch.quantityIn) -
       Number(batch.quantitySold) -
       Number(batch.quantityTransferred) -
-      Number(batch.quantityReturned);
+      Number(batch.quantityReturned) -
+      Number(batch.quantityAtHome);
     if (available <= 0) continue;
 
     const take = Math.min(available, remaining);
@@ -109,7 +111,13 @@ export async function coverStockUdhaarFromBatch(
   options?: { onlyDepositId?: string; tag?: boolean }
 ) {
   const newBatch = await tx.grainBatch.findUniqueOrThrow({ where: { id: newBatchId } });
-  let free = Number(newBatch.quantityIn) - Number(newBatch.quantitySold) - Number(newBatch.quantityReturned);
+  // Only grain on the shelf can refill a deposit — what's still at a
+  // customer's home waits until it's picked up.
+  let free =
+    Number(newBatch.quantityIn) -
+    Number(newBatch.quantitySold) -
+    Number(newBatch.quantityReturned) -
+    Number(newBatch.quantityAtHome);
   if (free <= 0.0001 || newBatch.ownerCustomerId) return;
 
   const entries = await tx.stockUdhaarEntry.findMany({
@@ -216,7 +224,10 @@ export async function coverDepositFromOwnStock(
       where: { productId: params.productId, ownerCustomerId: null },
       orderBy: { receivedAt: "asc" },
     })
-  ).map((b) => ({ id: b.id, free: Number(b.quantityIn) - Number(b.quantitySold) - Number(b.quantityReturned) }));
+  ).map((b) => ({
+    id: b.id,
+    free: Number(b.quantityIn) - Number(b.quantitySold) - Number(b.quantityReturned) - Number(b.quantityAtHome),
+  }));
 
   const saleAllocs = await tx.dailySaleItemBatch.findMany({
     where: { grainBatchId: deposit.id },

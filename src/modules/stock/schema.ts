@@ -52,6 +52,9 @@ export const depositWithSettlementSchema = z
     // Slip / register reference, required on every payment.
     reference: z.string().trim().min(1, "Enter a reference"),
     notes: z.string().optional(),
+    // Bought, but the grain is still at the customer's home — the shop
+    // picks it up later (GrainPickup), in trips.
+    atHome: z.boolean().optional(),
   })
   .refine((data) => data.paymentMethod !== "ACCOUNT" || !!data.bankAccountId, {
     message: "Select which bank account this was paid through",
@@ -107,3 +110,38 @@ export const updateDepositReturnSchema = depositReturnSchema.omit({ grainBatchId
   id: z.string().uuid(),
 });
 export type UpdateDepositReturnInput = z.infer<typeof updateDepositReturnSchema>;
+
+// One trip picking up grain the shop bought that was still at the
+// customer's home — up to what's still there.
+export const grainPickupSchema = z.object({
+  grainBatchId: z.string().uuid(),
+  quantity: z.number().positive("Quantity must be positive"),
+  // "YYYY-MM-DD" — defaults to today.
+  pickupDate: z.string().optional(),
+  reference: z.string().trim().min(1, "Enter a reference"),
+  notes: z.string().optional(),
+});
+export type GrainPickupInput = z.infer<typeof grainPickupSchema>;
+
+export const updateGrainPickupSchema = grainPickupSchema.omit({ grainBatchId: true }).extend({
+  id: z.string().uuid(),
+});
+export type UpdateGrainPickupInput = z.infer<typeof updateGrainPickupSchema>;
+
+// Grain at a customer's home recorded as a quantity only (no rate, no
+// payment — see HOME_GRAIN_RATES_ENABLED).
+export const homeGrainImportSchema = z.object({
+  productId: z.string().uuid(),
+  customerId: z.string().uuid(),
+  quantity: z.number().positive("Quantity must be positive"),
+  reference: z.string().trim().min(1, "Enter a reference"),
+  notes: z.string().optional(),
+});
+export type HomeGrainImportInput = z.infer<typeof homeGrainImportSchema>;
+
+export const updateHomeGrainImportSchema = z.object({
+  id: z.string().uuid(),
+  quantity: z.number().positive("Quantity must be positive"),
+  reference: z.string().trim().min(1, "Enter a reference"),
+});
+export type UpdateHomeGrainImportInput = z.infer<typeof updateHomeGrainImportSchema>;

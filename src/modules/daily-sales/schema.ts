@@ -23,6 +23,10 @@ export const dailySaleItemSchema = z.object({
   // actualPrice are in ("SUB" = e.g. Kgs out of a Bag). Default main.
   unit: z.enum(["MAIN", "SUB"]).optional(),
   batchRateOverrides: z.record(z.string().uuid(), z.number().positive()).optional(),
+  // GRAIN only: deliver this line straight from a customer's home
+  // where grain the shop bought is still lying (that purchase's batch)
+  // instead of from the shop's shelf.
+  fromHomeBatchId: z.string().uuid().optional(),
   // How much of THIS item's own price is being paid via Credit —
   // only ever meaningful for a GRAIN item, and only ever REQUIRED
   // when the sale has more than one grain item and the sale-level

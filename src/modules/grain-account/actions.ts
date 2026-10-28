@@ -82,7 +82,8 @@ export async function getGrainAccount(productId: string) {
   let estimate: { rate: number; kg: number; profit: number } | null = null;
   if (overview.stockUdhaarOutstanding > 0.0005) {
     const last = await db.grainBatch.findFirst({
-      where: { productId, ownerCustomerId: null, grainLoanId: null, grainLoanReturnId: null, rate: { not: null } },
+      // rate > 0: grain recorded at a customer's home without a rate (Rs 0) isn't a price.
+      where: { productId, ownerCustomerId: null, grainLoanId: null, grainLoanReturnId: null, rate: { gt: 0 } },
       orderBy: { receivedAt: "desc" },
       select: { rate: true },
     });
@@ -152,10 +153,12 @@ export async function getGrainAccount(productId: string) {
     otherAdjustments,
     uncostedKg: round3(daysAsc.reduce((s, [, d]) => s + d.uncostedKg, 0)),
     ownKg,
-    // Shop's grain on its shelf (excludes Advance stock out on loan).
-    shelfKg: round3(overview.ownAvailable - overview.lentOut),
+    // Shop's grain on its shelf (excludes Advance stock: out on loan,
+    // or bought but still at the seller's home).
+    shelfKg: round3(overview.ownAvailable - overview.lentOut - overview.atCustomerHomes),
     stockUdhaar: overview.stockUdhaarOutstanding,
     lentOut: overview.lentOut,
+    atCustomerHomes: overview.atCustomerHomes,
     borrowed: overview.borrowed,
     toRecover,
     breakEvenRate,

@@ -123,6 +123,7 @@ export async function getDashboard() {
         value: o.ownValue,
         stockUdhaar: o.stockUdhaarOutstanding,
         lentOut: o.lentOut,
+        atHomes: o.atCustomerHomes,
         borrowed: o.borrowed,
       };
     })

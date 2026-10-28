@@ -44,6 +44,7 @@ model Shop {
   grainLoanReturns    GrainLoanReturn[]
   saleReturns         SaleReturn[]
   purchaseReturns     PurchaseReturn[]
+  grainPickups        GrainPickup[]
 }
 
 // A login — email + hashed password, nothing more. Deliberately has
@@ -186,7 +187,8 @@ model Customer {
 
   accounts     CustomerAccount[]
   dailySales   DailySale[]
-  ownedBatches GrainBatch[]
+  ownedBatches GrainBatch[] @relation("GrainBatchOwner")
+  homeBatches  GrainBatch[] @relation("GrainBatchHome")
   stockUdhaars StockUdhaarEntry[]
   grainLoans   GrainLoan[]
   ledgerReceipts SavedLedgerReceipt[]
@@ -706,7 +708,15 @@ model GrainBatch {
   productId           String
   product             Product          @relation(fields: [productId], references: [id])
   ownerCustomerId     String?
-  ownerCustomer       Customer?        @relation(fields: [ownerCustomerId], references: [id])
+  ownerCustomer       Customer?        @relation("GrainBatchOwner", fields: [ownerCustomerId], references: [id])
+  // Bought by the shop but still lying at this customer's home: the
+  // shop owns it (own stock, value) but it isn't on the shelf yet.
+  // quantityAtHome is what's still there — it goes down as the shop
+  // picks it up (GrainPickup) or sells it straight from the home.
+  homeCustomerId      String?
+  homeCustomer        Customer?        @relation("GrainBatchHome", fields: [homeCustomerId], references: [id])
+  quantityAtHome      Decimal          @default(0) @db.Decimal(14, 3)
+  pickups             GrainPickup[]
   // A grain batch's source is EITHER a depositing customer
   // (ownerCustomerId, the existing "stored for safekeeping" flow) OR a
   // GRAIN-type dealer bought from in bulk — never both. A dealer batch
@@ -1248,6 +1258,9 @@ model DailySaleItemBatch {
   grainBatchId    String
   grainBatch      GrainBatch    @relation(fields: [grainBatchId], references: [id])
   quantity        Decimal       @db.Decimal(14, 3)
+  // Delivered straight from the customer's home the batch is lying at
+  // (never on the shop's shelf) — undoing it puts it back at the home.
+  fromHome        Boolean       @default(false)
 }
 
 // ── Expenses ─────────────────────────────────────────────
@@ -1363,4 +1376,22 @@ model DailyCashRegister {
   openingBalanceIsManual Boolean   @default(false)
 
   @@unique([shopId, date])
+}
+
+// One trip picking up grain the shop bought that was still at the
+// customer's home (GrainBatch.homeCustomerId): it moves from the home
+// onto the shop's shelf. Edit / delete change quantityAtHome back.
+model GrainPickup {
+  id           String     @id @default(uuid())
+  shopId       String
+  shop         Shop       @relation(fields: [shopId], references: [id])
+  grainBatchId String
+  grainBatch   GrainBatch @relation(fields: [grainBatchId], references: [id])
+  quantity     Decimal    @db.Decimal(14, 3)
+  pickupDate   DateTime
+  reference    String
+  notes        String?
+  createdAt    DateTime   @default(now())
+
+  @@index([shopId, pickupDate])
 }

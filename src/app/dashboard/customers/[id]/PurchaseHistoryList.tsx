@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Fragment, useState } from "react";
 import { formatMoney, formatDate } from "@/lib/utils";
 import { SaleVisitActions } from "@/modules/daily-sales/components/SaleVisitActions";
@@ -240,7 +241,19 @@ export function PurchaseHistoryList({ sales, products, bankAccounts = [] }: { sa
                         <tr key={item.id}>
                           <td>{itemIndex === 0 ? formatDate(visit.visitAt) : null}</td>
                           <td>{itemIndex === 0 && <ByBadge by="CUSTOMER" />}</td>
-                          <td>{item.productName}</td>
+                          <td>
+                            {item.productName}
+                            {/* Delivered straight from the seller's home, not the shop. */}
+                            {item.fromHomeOf && (
+                              <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
+                                From{" "}
+                                <Link href={`/dashboard/customers/${item.fromHomeOf.id}`} className="name-link">
+                                  {item.fromHomeOf.name}
+                                </Link>
+                                &apos;s home
+                              </div>
+                            )}
+                          </td>
                           <td className="num" style={{ textAlign: "right" }}>
                             {item.quantity} {item.unitName}
                           </td>

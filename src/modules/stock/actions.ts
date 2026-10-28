@@ -370,6 +370,9 @@ export async function createDepositWithSettlement(
         quantityIn: data.quantity,
         rate: data.rate,
         reference: data.reference,
+        // Bought but still at the customer's home: the shop's grain,
+        // not on the shelf until it's picked up.
+        ...(data.atHome ? { homeCustomerId: data.customerId, quantityAtHome: data.quantity } : {}),
         // No sourceBatchId — there's no customer batch to trace back
         // to, since the deposit and the purchase are the same event
         // here (see createTransferPurchase's sourceBatchId comment
@@ -443,6 +446,12 @@ export async function deleteGrainSettlement(accountTransactionId: string): Promi
   if (!txn || !txn.linkedGrainBatch) return { success: false, error: "Settlement not found" };
 
   const newShopBatch = txn.linkedGrainBatch;
+  if (await db.grainPickup.count({ where: { grainBatchId: newShopBatch.id } })) {
+    return {
+      success: false,
+      error: "Some of this grain has already been picked up from the customer's home — delete those pickups first.",
+    };
+  }
   // Grain this purchase took over from deposits (already sold before
   // it was bought) counts as "sold" on the batch but moves back on
   // delete — only grain sold out of the purchase itself blocks it.
@@ -592,13 +601,30 @@ export async function updateGrainSettlement(
   // customer's unpriced grain — same shape createTransferPurchase
   // leaves behind.
   const splitDeposit =
-    !sourceBatchId && data.depositQuantity !== undefined && data.depositQuantity > data.quantity + 0.0001
+    !sourceBatchId &&
+    !newShopBatch.homeCustomerId &&
+    data.depositQuantity !== undefined &&
+    data.depositQuantity > data.quantity + 0.0001
       ? data.depositQuantity
       : null;
 
   const oldAmount = Number(txn.amount);
   const oldQuantity = Number(txn.quantity ?? newShopBatch.quantityIn);
   const oldRate = Number(newShopBatch.rate);
+  // Bought while still at the customer's home: whatever has already
+  // left the home (picked up, or sold straight from it) can't be
+  // un-bought — the change only moves what's still there.
+  let newAtHome: number | null = null;
+  if (newShopBatch.homeCustomerId) {
+    const leftHome = Number(newShopBatch.quantityIn) - Number(newShopBatch.quantityAtHome);
+    if (data.quantity + 0.0001 < leftHome) {
+      return {
+        success: false,
+        error: `${leftHome} has already been picked up from the customer's home — the quantity bought can't be less than that.`,
+      };
+    }
+    newAtHome = Math.round((data.quantity - leftHome) * 1000) / 1000;
+  }
 
   try {
     return await db.$transaction(async (tx) => {
@@ -652,7 +678,7 @@ export async function updateGrainSettlement(
       }
       await tx.grainBatch.update({
         where: { id: newShopBatch.id },
-        data: { quantityIn: data.quantity, rate: data.rate },
+        data: { quantityIn: data.quantity, rate: data.rate, ...(newAtHome !== null ? { quantityAtHome: newAtHome } : {}) },
       });
 
       const payment = await payCustomerForGrain(tx, shopId, {
@@ -708,7 +734,13 @@ export async function getGrainSettlementDetails(accountTransactionId: string) {
   const source = batch.sourceBatch;
   const quantity = Number(batch.quantityIn);
   return {
-    kind: source ? ("FROM_DEPOSIT" as const) : ("SETTLE_NOW" as const),
+    // AT_HOME: bought but (some of it) still at the customer's home —
+    // there's no deposit behind it to edit.
+    kind: batch.homeCustomerId
+      ? ("AT_HOME" as const)
+      : source
+        ? ("FROM_DEPOSIT" as const)
+        : ("SETTLE_NOW" as const),
     quantity,
     rate: batch.rate !== null ? Number(batch.rate) : 0,
     paymentMethod: txn.paymentMethod,
@@ -973,6 +1005,8 @@ export async function getStockOverview(productId: string) {
   let ownValue = 0;
   let customerClaim = 0;
   let totalPhysical = 0;
+  // Bought by the shop, still lying at the seller's home.
+  let atCustomerHomes = 0;
   for (const batch of batches) {
     const quantityIn = Number(batch.quantityIn);
     const quantitySold = Number(batch.quantitySold);
@@ -1003,7 +1037,11 @@ export async function getStockOverview(productId: string) {
     } else {
       // Grain sent back to the dealer (purchase return) has left too.
       const available = quantityIn - quantitySold - quantityReturned;
-      totalPhysical += available;
+      // Still at the customer's home: the shop's (own stock, value)
+      // but not physically here yet.
+      const atHome = Number(batch.quantityAtHome);
+      totalPhysical += available - atHome;
+      atCustomerHomes += atHome;
       ownAvailable += available;
       // What the grain the shop owns is worth: each own batch's
       // remaining quantity at the rate it was bought at (an own batch
@@ -1063,6 +1101,7 @@ export async function getStockOverview(productId: string) {
     ownAvailable: round3(ownAvailable + lentOut - borrowed),
     ownValue: Math.round((ownValue + lentOutValue - borrowedValue) * 100) / 100,
     lentOut: round3(lentOut),
+    atCustomerHomes: round3(atCustomerHomes),
     borrowed: round3(borrowed),
     customerClaim,
     totalPhysical,
@@ -1293,6 +1332,8 @@ export type GrainLedgerRow = {
   paymentTone: "cash" | "account" | "credit" | "mixed";
   // Slip / register reference, where the entry has one.
   reference?: string | null;
+  // A sale delivered straight from a seller's home: whose home.
+  fromHomeOf?: { name: string; href: string } | null;
 };
 
 const METHOD_LABEL: Record<string, { label: string; tone: GrainLedgerRow["paymentTone"] }> = {
@@ -1307,7 +1348,10 @@ export async function listGrainLedger(productId: string) {
   const [saleItems, customerPurchases, dealerBatches, ownBatches] = await Promise.all([
     db.dailySaleItem.findMany({
       where: { productId, product: { shopId } },
-      include: { dailySale: { include: { customer: true, dealer: true, payments: true } } },
+      include: {
+        dailySale: { include: { customer: true, dealer: true, payments: true } },
+        batchAllocations: { where: { fromHome: true }, include: { grainBatch: { include: { homeCustomer: true } } } },
+      },
     }),
     // The shop buying this grain from a customer — every settlement's
     // payment row (OUT with a quantity and its new shop batch).
@@ -1375,6 +1419,10 @@ export async function listGrainLedger(productId: string) {
       amount,
       payment: pay.label,
       paymentTone: pay.tone,
+      fromHomeOf: (() => {
+        const home = item.batchAllocations[0]?.grainBatch.homeCustomer;
+        return home ? { name: home.name, href: `/dashboard/customers/${home.id}` } : null;
+      })(),
     };
   });
 
@@ -1492,7 +1540,11 @@ async function takeUnsettledGrain(
   if (fromShopStock > 0) {
     const own = await tx.grainBatch.findMany({ where: { productId: batch.productId, ownerCustomerId: null } });
     const ownFree = round3(
-      own.reduce((s, b) => s + Math.max(Number(b.quantityIn) - Number(b.quantitySold) - Number(b.quantityReturned), 0), 0)
+      own.reduce(
+        (s, b) =>
+          s + Math.max(Number(b.quantityIn) - Number(b.quantitySold) - Number(b.quantityReturned) - Number(b.quantityAtHome), 0),
+        0
+      )
     );
     if (ownFree + 0.0001 < fromShopStock) {
       throw new Error(

@@ -63,6 +63,8 @@ export function EditGrainSettlementModal({
     });
   }, [accountTransactionId]);
 
+  // Bought at the customer's home: no deposit behind it to edit.
+  const hasDeposit = !!details && details.kind !== "AT_HOME";
   const parsedQuantity = Number(quantity) || 0;
   const parsedRate = Number(rate) || 0;
   const total = parsedQuantity * parsedRate;
@@ -80,7 +82,7 @@ export function EditGrainSettlementModal({
     setIsSaving(true);
     const result = await updateGrainSettlement({
       accountTransactionId,
-      depositQuantity: details ? parsedDeposit : undefined,
+      depositQuantity: hasDeposit ? parsedDeposit : undefined,
       quantity: parsedQuantity,
       rate: parsedRate,
       paymentMethod,
@@ -106,7 +108,7 @@ export function EditGrainSettlementModal({
         <form onSubmit={handleSubmit}>
           {error && <p className="form-banner error">{error}</p>}
 
-          {details && (
+          {hasDeposit && (
             <div className="field">
               <label>Total deposited by customer ({unitName})</label>
               <input
@@ -180,7 +182,7 @@ export function EditGrainSettlementModal({
           )}
 
           <div className="settlement-summary">
-            {details && (
+            {hasDeposit && (
               <>
                 <div>
                   <span>Deposited</span>

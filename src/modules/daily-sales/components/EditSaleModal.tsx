@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LineItemsEditor, type LineItemDraft } from "./LineItemsEditor";
-import { GrainItemsEditor, type GrainItemDraft } from "./GrainItemsEditor";
+import { GrainItemsEditor, type GrainItemDraft, type HomeGrainSource } from "./GrainItemsEditor";
 import { PaymentSplitEditor, type PaymentSplitDraft } from "./PaymentSplitEditor";
 import { BillSummary } from "./BillSummary";
 import { getDailySaleForEdit, updateDailySale } from "../actions";
@@ -31,11 +31,13 @@ export function EditSaleModal({
   saleId,
   products,
   bankAccounts = [],
+  homeSources = [],
   onClose,
 }: {
   saleId: string;
   products: Product[];
   bankAccounts?: { id: string; name: string }[];
+  homeSources?: HomeGrainSource[];
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -66,6 +68,7 @@ export function EditSaleModal({
               actualPrice: String(item.actualPrice),
               creditAmount: item.creditAmount !== undefined ? String(item.creditAmount) : undefined,
               creditDueDate: item.creditDueDate,
+              fromHomeBatchId: item.fromHomeBatchId,
             }))
           );
         } else {
@@ -126,6 +129,7 @@ export function EditSaleModal({
               actualPrice: Number(i.actualPrice),
               creditAmount: i.creditAmount ? Number(i.creditAmount) : undefined,
               creditDueDate: i.creditDueDate,
+              fromHomeBatchId: i.fromHomeBatchId,
             })),
       payments: { cash, account, credit, bankAccountId: payments.bankAccountId },
       discount: discountAmount,
@@ -203,6 +207,7 @@ export function EditSaleModal({
                 items={grainItems}
                 onChange={setGrainItems}
                 saleCreditAmount={Number(payments.credit) || 0}
+                homeSources={homeSources}
               />
             )}
 

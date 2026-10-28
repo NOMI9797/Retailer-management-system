@@ -291,7 +291,11 @@ export async function deleteSaleReturn(id: string): Promise<ActionResult<null>> 
       for (const b of item.batches) {
         const batch = await tx.grainBatch.findUniqueOrThrow({ where: { id: b.grainBatchId } });
         const available =
-          Number(batch.quantityIn) - Number(batch.quantitySold) - Number(batch.quantityTransferred) - Number(batch.quantityReturned);
+          Number(batch.quantityIn) -
+          Number(batch.quantitySold) -
+          Number(batch.quantityTransferred) -
+          Number(batch.quantityReturned) -
+          Number(batch.quantityAtHome);
         if (available + 1e-6 < Number(b.quantity)) {
           throw new Refused("Some of the returned grain has been sold again since — this return can't be deleted.");
         }

@@ -167,7 +167,7 @@ export default async function DashboardPage() {
                     {g.own} {g.unit} · {formatMoney(g.value)}
                   </span>
                 </div>
-                {(g.stockUdhaar > 0 || g.lentOut > 0 || g.borrowed > 0) && (
+                {(g.stockUdhaar > 0 || g.lentOut > 0 || g.atHomes > 0 || g.borrowed > 0) && (
                   <div className="dash-grain-tags">
                     {g.stockUdhaar > 0 && (
                       <span className="pay-badge pay-credit">
@@ -177,6 +177,11 @@ export default async function DashboardPage() {
                     {g.lentOut > 0 && (
                       <span className="pay-badge pay-account">
                         Lent {g.lentOut} {g.unit}
+                      </span>
+                    )}
+                    {g.atHomes > 0 && (
+                      <span className="pay-badge pay-account">
+                        At customers&apos; homes {g.atHomes} {g.unit}
                       </span>
                     )}
                     {g.borrowed > 0 && (

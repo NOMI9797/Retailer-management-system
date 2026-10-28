@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { getCustomerGrainDeposits, getShopOwedForGrainByProduct } from "@/modules/stock/actions";
 import { createCustomer } from "@/modules/customers/actions";
 import { CustomerGrainSection } from "@/modules/stock/components/CustomerGrainSection";
+import { HomeGrainRecords } from "@/modules/stock/components/HomeGrainRecords";
+import { listHomeGrain, type HomeGrainRow } from "@/modules/stock/homeGrain.actions";
 import { GrainBatchForm } from "@/modules/products/components/GrainBatchForm";
 import { CustomerPicker, type CustomerSelection } from "./CustomerPicker";
 import { showToast } from "@/components/shared/toastStore";
@@ -137,23 +139,27 @@ function CustomerGrainPanel({
   const [moneyOwedByProduct, setMoneyOwedByProduct] = useState<
     Awaited<ReturnType<typeof getShopOwedForGrainByProduct>>
   >(new Map());
+  // Grain bought from them that's (partly) still at their home.
+  const [homeGrain, setHomeGrain] = useState<HomeGrainRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [productId, setProductId] = useState(grainProducts[0]?.id ?? "");
   // Selection-based instead of both sections stacked — a shopkeeper
   // picks EITHER "look up what's already here" OR "record something
   // new" at a time, same "one thing on screen at once" pattern the
   // New Sale form's own Product/Grain sale-type toggle uses.
-  const [view, setView] = useState<"deposits" | "new">("deposits");
+  const [view, setView] = useState<"deposits" | "home" | "new">("deposits");
 
   async function loadDeposits() {
     setIsLoading(true);
     try {
-      const [result, owedByProduct] = await Promise.all([
+      const [result, owedByProduct, home] = await Promise.all([
         getCustomerGrainDeposits(customerId),
         getShopOwedForGrainByProduct(customerId),
+        listHomeGrain({ customerId }),
       ]);
       setDeposits(result);
       setMoneyOwedByProduct(owedByProduct);
+      setHomeGrain(home);
     } finally {
       setIsLoading(false);
     }
@@ -170,12 +176,30 @@ function CustomerGrainPanel({
         <button type="button" className={view === "deposits" ? "active" : ""} onClick={() => setView("deposits")}>
           Existing deposits
         </button>
+        <button type="button" className={view === "home" ? "active" : ""} onClick={() => setView("home")}>
+          Bought — at their home{homeGrain.some((h) => h.remaining > 0) ? ` (${homeGrain.filter((h) => h.remaining > 0).length})` : ""}
+        </button>
         <button type="button" className={view === "new" ? "active" : ""} onClick={() => setView("new")}>
           Record a new deposit
         </button>
       </div>
 
-      {view === "deposits" ? (
+      {view === "home" ? (
+        isLoading ? (
+          <p style={{ color: "var(--ink-muted)", fontSize: 13.5 }}>Loading…</p>
+        ) : (
+          <section className="panel">
+            <HomeGrainRecords
+              rows={homeGrain}
+              showCustomer={false}
+              showProduct
+              bankAccounts={bankAccounts}
+              onChanged={loadDeposits}
+              emptyText="Nothing bought from this customer is at their home. Record one from Record a new deposit → Bought — still at their home."
+            />
+          </section>
+        )
+      ) : view === "deposits" ? (
         isLoading ? (
           <p style={{ color: "var(--ink-muted)", fontSize: 13.5 }}>Loading…</p>
         ) : (
@@ -208,6 +232,7 @@ function CustomerGrainPanel({
             key={productId}
             productId={productId}
             forCustomerId={customerId}
+            bankAccounts={bankAccounts}
             onSaved={() => {
               loadDeposits();
               setView("deposits");

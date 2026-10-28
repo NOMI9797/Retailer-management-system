@@ -147,6 +147,29 @@ async function applySaleItems(
           data: { quantity: { decrement: stockDeducted } },
         });
       }
+    } else if (item.fromHomeBatchId) {
+      // Grain the shop bought that's still at the seller's home,
+      // delivered from there straight to this buyer — never on the
+      // shelf. Only what's still at that home can go.
+      const home = await tx.grainBatch.findFirst({
+        where: { id: item.fromHomeBatchId, productId: product.id, homeCustomerId: { not: null } },
+        include: { homeCustomer: true },
+      });
+      if (!home) return { success: false, error: "That customer's-home grain wasn't found." };
+      if (item.quantity > Number(home.quantityAtHome) + 0.0001) {
+        return {
+          success: false,
+          error: `Only ${Number(home.quantityAtHome)} ${product.unit.name} of ${product.name} is still at ${home.homeCustomer?.name ?? "the customer"}'s home.`,
+        };
+      }
+      await tx.grainBatch.update({
+        where: { id: home.id },
+        data: { quantitySold: { increment: item.quantity }, quantityAtHome: { decrement: item.quantity } },
+      });
+      await tx.dailySaleItemBatch.create({
+        data: { dailySaleItemId: saleItem.id, grainBatchId: home.id, quantity: item.quantity, fromHome: true },
+      });
+      await postToPooledGrainStock(tx, product.id, -item.quantity, -lineNet);
     } else {
       // Grain: the shop's own stock first, then customers' deposits,
       // oldest batch first within each (shared with grain loans — see
@@ -440,7 +463,11 @@ async function reverseSaleContents(
       for (const allocation of item.batchAllocations) {
         await tx.grainBatch.update({
           where: { id: allocation.grainBatchId },
-          data: { quantitySold: { decrement: allocation.quantity } },
+          // Delivered from a customer's home: it goes back to being there.
+          data: {
+            quantitySold: { decrement: allocation.quantity },
+            ...(allocation.fromHome ? { quantityAtHome: { increment: allocation.quantity } } : {}),
+          },
         });
       }
       // Symmetric undo of the pooled-stock posting applySaleItems
@@ -633,7 +660,11 @@ async function reverseVisitContents(
       for (const allocation of item.batchAllocations) {
         await tx.grainBatch.update({
           where: { id: allocation.grainBatchId },
-          data: { quantitySold: { decrement: allocation.quantity } },
+          // Delivered from a customer's home: it goes back to being there.
+          data: {
+            quantitySold: { decrement: allocation.quantity },
+            ...(allocation.fromHome ? { quantityAtHome: { increment: allocation.quantity } } : {}),
+          },
         });
       }
       await postToPooledGrainStock(
@@ -1114,7 +1145,16 @@ export async function getCustomerPurchaseHistory(customerId: string) {
   const [sales, clearances, udhaarGiven, shopGrain, shopCleared, shopLedgers] = await Promise.all([
     db.dailySale.findMany({
       where: { customerId, shopId },
-      include: { items: { include: { product: { include: { unit: true } } } }, payments: true },
+      include: {
+        items: {
+          include: {
+            product: { include: { unit: true } },
+            // Delivered straight from a seller's home — whose.
+            batchAllocations: { where: { fromHome: true }, include: { grainBatch: { include: { homeCustomer: true } } } },
+          },
+        },
+        payments: true,
+      },
       orderBy: { saleDate: "desc" },
     }),
     // Excludes isShopBorrowed (shown on the Udhaar to Shop tab
@@ -1201,6 +1241,11 @@ export async function getCustomerPurchaseHistory(customerId: string) {
         quantity: Number(item.quantity),
         actualPrice: Number(item.actualPrice),
         unitName: item.unitName ?? item.product.unit.name,
+        // The seller whose home this grain was delivered from, if any.
+        fromHomeOf: (() => {
+          const home = item.batchAllocations[0]?.grainBatch.homeCustomer;
+          return home ? { id: home.id, name: home.name } : null;
+        })(),
       }));
       const discount = visitItems.reduce((sum, i) => sum + Number(i.discount), 0);
       return {
@@ -1429,7 +1474,7 @@ export async function getDailySaleForEdit(saleId: string) {
 
   const sale = await db.dailySale.findFirst({
     where: { id: saleId, shopId },
-    include: { items: { include: { product: true } }, payments: true },
+    include: { items: { include: { product: true, batchAllocations: true } }, payments: true },
   });
   if (!sale) throw new Error("Sale not found");
 
@@ -1449,6 +1494,7 @@ export async function getDailySaleForEdit(saleId: string) {
       unit: (item.unitName ? "SUB" : "MAIN") as "MAIN" | "SUB",
       creditAmount: item.creditAmount !== null ? Number(item.creditAmount) : undefined,
       creditDueDate: item.creditDueDate ? toLocalDateString(item.creditDueDate) : undefined,
+      fromHomeBatchId: item.batchAllocations.find((a) => a.fromHome)?.grainBatchId,
     })),
     payments: {
       cash: paymentsByMethod.CASH ?? 0,
@@ -1579,7 +1625,7 @@ export async function getReceiptDetail(dailySaleId: string, visitAt: Date) {
   const [items, payments] = await Promise.all([
     db.dailySaleItem.findMany({
       where: { dailySaleId, visitAt },
-      include: { product: { include: { unit: true } } },
+      include: { product: { include: { unit: true } }, batchAllocations: true },
     }),
     db.dailySalePayment.findMany({
       where: { dailySaleId, visitAt },
@@ -1606,6 +1652,8 @@ export async function getReceiptDetail(dailySaleId: string, visitAt: Date) {
       unit: (item.unitName ? "SUB" : "MAIN") as "MAIN" | "SUB",
       unitName: item.unitName ?? item.product.unit.name,
       creditAmount: item.creditAmount ? Number(item.creditAmount) : null,
+      // Delivered straight from a customer's home (that purchase's batch).
+      fromHomeBatchId: item.batchAllocations.find((a) => a.fromHome)?.grainBatchId,
     })),
     payments: payments.map((p) => ({
       paymentMethod: p.paymentMethod,

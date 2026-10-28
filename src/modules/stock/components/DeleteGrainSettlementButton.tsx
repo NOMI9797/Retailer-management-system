@@ -7,7 +7,14 @@ import { showToast } from "@/components/shared/toastStore";
 
 // Same confirm-inline pattern as SaleVisitActions/
 // DeleteAccountTransactionButton, pointed at deleteGrainSettlement.
-export function DeleteGrainSettlementButton({ accountTransactionId }: { accountTransactionId: string }) {
+export function DeleteGrainSettlementButton({
+  accountTransactionId,
+  onDeleted,
+}: {
+  accountTransactionId: string;
+  // For a caller holding its own fetched rows (Buy/Keep stock).
+  onDeleted?: () => void;
+}) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -26,6 +33,7 @@ export function DeleteGrainSettlementButton({ accountTransactionId }: { accountT
     showToast("Settlement deleted");
     setIsDeleting(false);
     router.refresh();
+    onDeleted?.();
   }
 
   if (confirming) {

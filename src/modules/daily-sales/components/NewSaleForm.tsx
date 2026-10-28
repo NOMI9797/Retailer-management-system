@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { CustomerPicker, type CustomerSelection } from "./CustomerPicker";
 import { DealerPicker } from "@/modules/dealers/components/DealerPicker";
 import { LineItemsEditor, type LineItemDraft } from "./LineItemsEditor";
-import { GrainItemsEditor, type GrainItemDraft } from "./GrainItemsEditor";
+import { GrainItemsEditor, type GrainItemDraft, type HomeGrainSource } from "./GrainItemsEditor";
 import { BillSummary } from "./BillSummary";
 import { PaymentSplitEditor, type PaymentSplitDraft } from "./PaymentSplitEditor";
 import { createCustomer } from "@/modules/customers/actions";
@@ -33,6 +33,7 @@ export function NewSaleForm({
   initialCustomer,
   initialDealerId,
   initialLastPrices = {},
+  homeSources = [],
 }: {
   areas: Awaited<ReturnType<typeof listAreas>>;
   products: Product[];
@@ -45,6 +46,9 @@ export function NewSaleForm({
   // The picked customer's / dealer's last price per product (loaded
   // with the page when the screen opens with them already chosen).
   initialLastPrices?: Record<string, LastPrice>;
+  // Grain bought that's still at sellers' homes — a grain line can be
+  // delivered from there.
+  homeSources?: HomeGrainSource[];
 }) {
   const initialDealer = dealers.find((d) => d.id === initialDealerId);
   const router = useRouter();
@@ -169,6 +173,7 @@ export function NewSaleForm({
               actualPrice: Number(i.actualPrice),
               creditAmount: i.creditAmount ? Number(i.creditAmount) : undefined,
               creditDueDate: i.creditDueDate,
+              fromHomeBatchId: i.fromHomeBatchId,
             })),
       payments: { cash, account, credit, bankAccountId: payments.bankAccountId },
       discount: discountAmount > 0 ? discountAmount : undefined,
@@ -332,6 +337,7 @@ export function NewSaleForm({
           onChange={setGrainItems}
           saleCreditAmount={Number(payments.credit) || 0}
           lastPrices={lastPrices}
+          homeSources={homeSources}
         />
       )}
 

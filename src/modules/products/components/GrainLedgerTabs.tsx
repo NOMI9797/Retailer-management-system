@@ -8,6 +8,8 @@ import { BuyFromCustomerModal } from "@/modules/stock/components/BuyFromCustomer
 import { GiveBackGrainModal } from "@/modules/stock/components/GiveBackGrainModal";
 import { GrainLoanRecords } from "@/modules/grain-loans/components/GrainLoanRecords";
 import type { GrainLoanRow } from "@/modules/grain-loans/actions";
+import { HomeGrainRecords } from "@/modules/stock/components/HomeGrainRecords";
+import type { HomeGrainRow } from "@/modules/stock/homeGrain.actions";
 import type { listAreas } from "@/modules/settings/areas.actions";
 import type {
   listGrainLedger,
@@ -46,6 +48,7 @@ export function GrainLedgerTabs({
   productName,
   loans,
   loanOptions,
+  homeGrain = [],
 }: {
   ledger: Ledger;
   customerBatches: CustomerBatch[];
@@ -53,8 +56,10 @@ export function GrainLedgerTabs({
   productName: string;
   loans: GrainLoanRow[];
   loanOptions: LoanOptions;
+  // Bought but (some still) at the seller's home.
+  homeGrain?: HomeGrainRow[];
 }) {
-  const [tab, setTab] = useState<"CREDIT" | "DEBIT" | "UNSETTLED" | "LOANS">("CREDIT");
+  const [tab, setTab] = useState<"CREDIT" | "DEBIT" | "UNSETTLED" | "LOANS" | "HOMES">("CREDIT");
   // Name search across whichever tab is open (customer or dealer) —
   // typed into GrainNameSearch above the tabs, shared via ?name=.
   const search = useSearchParams().get("name") ?? "";
@@ -102,10 +107,27 @@ export function GrainLedgerTabs({
           >
             Loans ({loans.filter((l) => l.outstanding > 0).length})
           </button>
+          <button
+            type="button"
+            className={`tab${tab === "HOMES" ? " active" : ""}`}
+            onClick={() => setTab("HOMES")}
+          >
+            At customers&apos; homes ({homeGrain.filter((h) => h.remaining > 0).length})
+          </button>
         </div>
       </div>
 
-      {tab === "LOANS" ? (
+      {tab === "HOMES" ? (
+        <HomeGrainRecords
+          rows={homeGrain.filter((h) => matchesSearch(search, h.customer.name))}
+          bankAccounts={loanOptions.bankAccounts}
+          emptyText={
+            search
+              ? `No matches for "${search}".`
+              : "No grain of this kind bought that's still at a customer's home. Record one from Add batch → Customer → Bought — still at their home."
+          }
+        />
+      ) : tab === "LOANS" ? (
         <GrainLoanRecords
           loans={loans.filter((l) => matchesSearch(search, l.party.name))}
           areas={loanOptions.areas}
@@ -265,6 +287,15 @@ export function GrainLedgerTabs({
                       {row.reference && (
                         <span style={{ display: "block", fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
                           Ref: {row.reference}
+                        </span>
+                      )}
+                      {row.fromHomeOf && (
+                        <span style={{ display: "block", fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
+                          From{" "}
+                          <Link href={row.fromHomeOf.href} className="name-link">
+                            {row.fromHomeOf.name}
+                          </Link>
+                          &apos;s home
                         </span>
                       )}
                     </td>

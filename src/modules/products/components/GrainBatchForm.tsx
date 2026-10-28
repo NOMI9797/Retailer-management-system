@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { createGrainBatch } from "../actions";
 import { createDepositWithSettlement } from "@/modules/stock/actions";
+import { createHomeGrainImport } from "@/modules/stock/homeGrain.actions";
+import { HOME_GRAIN_RATES_ENABLED } from "@/modules/stock/homeGrainSettings";
 import { createCustomer } from "@/modules/customers/actions";
 import {
   CustomerPicker,
@@ -20,8 +22,10 @@ type Owner = "SHOP" | "CUSTOMER";
 // = the customer wants to sell right at drop-off, a shortcut for what
 // would otherwise be a deposit followed by a separate "Buy from
 // customer" action later (see GrainBatchList.tsx's TransferPurchaseForm,
-// which still exists for exactly that later-settlement case).
-type Settlement = "LATER" | "NOW";
+// which still exists for exactly that later-settlement case). HOME =
+// the shop buys it now but the grain stays at the customer's home
+// until the shop picks it up (in trips).
+type Settlement = "LATER" | "NOW" | "HOME";
 
 // Add a batch to a grain product — owner toggle maps directly to
 // ownerCustomerId being omitted (shop-owned) or set (a customer
@@ -71,7 +75,12 @@ export function GrainBatchForm({
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  const sellingNow = owner === "CUSTOMER" && settlement === "NOW";
+  const atHome = owner === "CUSTOMER" && settlement === "HOME";
+  // At their home with rates switched off: a quantity only — no rate,
+  // no payment, Rs 0 of value (see HOME_GRAIN_RATES_ENABLED).
+  const quantityOnly = atHome && !HOME_GRAIN_RATES_ENABLED;
+  // Bought now (at a rate, paid) — whether it's here or still at their home.
+  const sellingNow = owner === "CUSTOMER" && (settlement === "NOW" || (atHome && !quantityOnly));
 
   function resetForm() {
     setQuantityIn("");
@@ -111,7 +120,19 @@ export function GrainBatchForm({
               ).id;
       }
 
-      if (sellingNow) {
+      if (quantityOnly) {
+        const result = await createHomeGrainImport({
+          productId,
+          customerId: effectiveCustomerId!,
+          quantity: Number(quantityIn),
+          reference,
+        });
+        if (!result.success) {
+          setError(result.error);
+          return;
+        }
+        showToast("Recorded — the shop's grain at the customer's home. Pick it up from the records.");
+      } else if (sellingNow) {
         const result = await createDepositWithSettlement({
           productId,
           customerId: effectiveCustomerId!,
@@ -120,12 +141,17 @@ export function GrainBatchForm({
           paymentMethod,
           bankAccountId: bankAccountId || undefined,
           reference,
+          atHome,
         });
         if (!result.success) {
           setError(result.error);
           return;
         }
-        showToast("Purchased from customer — added to shop stock");
+        showToast(
+          atHome
+            ? "Bought — still at the customer's home. Pick it up from the records."
+            : "Purchased from customer — added to shop stock"
+        );
       } else {
         const result = await createGrainBatch({
           productId,
@@ -196,13 +222,27 @@ export function GrainBatchForm({
             >
               Selling now
             </button>
+            <button
+              type="button"
+              className={settlement === "HOME" ? "active" : ""}
+              onClick={() => setSettlement("HOME")}
+            >
+              Bought — still at their home
+            </button>
           </div>
+          {atHome && (
+            <p style={{ margin: "-6px 0 14px", fontSize: 12.5, color: "var(--ink-muted)" }}>
+              {quantityOnly
+                ? "The shop's grain lying at their home. Its rate and value were already settled in the past, so only the quantity is recorded here — no payment now, nothing added to Stock value. It counts in Own stock and Advance stock, and joins physical stock as it's picked up, in one trip or several."
+                : "The shop pays now and owns this grain (Own stock, Stock value, Advance stock), but it isn't here yet — it joins physical stock as it's picked up from their home, in one trip or several."}
+            </p>
+          )}
         </>
       )}
 
       <div className="field-row">
         <div className="field">
-          <label>Quantity received</label>
+          <label>{quantityOnly ? "Quantity at their home" : atHome ? "Quantity bought" : "Quantity received"}</label>
           <input
             type="number"
             min="0"
@@ -271,7 +311,15 @@ export function GrainBatchForm({
       </div>
       <div className="modal-actions">
         <button type="submit" className="btn btn-primary" disabled={isSaving}>
-          {isSaving ? "Saving…" : sellingNow ? "Record purchase" : "Add batch"}
+          {isSaving
+            ? "Saving…"
+            : quantityOnly
+              ? "Record grain at their home"
+              : atHome
+                ? "Record purchase (at their home)"
+                : sellingNow
+                  ? "Record purchase"
+                  : "Add batch"}
         </button>
       </div>
     </form>

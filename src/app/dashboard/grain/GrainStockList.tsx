@@ -1,3 +1,4 @@
+import { listHomeGrain } from "@/modules/stock/homeGrain.actions";
 import { listProducts, getGrainStockSummary } from "@/modules/products/actions";
 import {
   getStockOverview,
@@ -61,7 +62,7 @@ export async function GrainStockList({
   const activeProduct =
     products.find((p) => p.id === searchParams.product) ?? products[0];
 
-  const [summary, overview, customerBatches, ledger, loans, areas, dealers, bankAccounts] = await Promise.all([
+  const [summary, overview, customerBatches, ledger, loans, areas, dealers, bankAccounts, homeGrain] = await Promise.all([
     getGrainStockSummary(activeProduct.id),
     getStockOverview(activeProduct.id),
     listCustomerBatchesForProduct(activeProduct.id),
@@ -70,6 +71,7 @@ export async function GrainStockList({
     listAreas(),
     listDealers({ type: "GRAIN" }),
     listBankAccounts(),
+    listHomeGrain({ productId: activeProduct.id }),
   ]);
 
   return (
@@ -81,6 +83,7 @@ export async function GrainStockList({
         overview={overview}
         ledger={ledger}
         loans={loans}
+        homeGrain={homeGrain}
         loanOptions={{
           areas,
           dealers: dealers.map((d) => ({ id: d.id, name: d.name })),

@@ -19,6 +19,7 @@ export function StockSummary({
   pooled,
   stockValue,
   lentOut,
+  atCustomerHomes = 0,
   borrowed,
   searchSlot,
 }: {
@@ -32,6 +33,8 @@ export function StockSummary({
   stockValue: number;
   // Grain loans still to come back to the shop / still to give back.
   lentOut: number;
+  // Bought but still at the seller's home — also Advance stock.
+  atCustomerHomes?: number;
   borrowed: number;
   // Shown in the grid's free cell under Stock Udhaar (the Grain page's
   // name search).
@@ -74,13 +77,19 @@ export function StockSummary({
         <p className="stat-value">Rs {stockValue.toLocaleString()}</p>
       </div>
       <div className="stat-card">
-        {/* The shop's own grain lent out on grain loans — still counted
-            in Own stock (it's coming back), but not in Total physical. */}
+        {/* The shop's own grain that isn't here: lent out on grain loans
+            (coming back), or bought but still at the seller's home (to
+            pick up) — counted in Own stock and Stock value, not in
+            Total physical. */}
         <p className="stat-label">Advance stock</p>
-        <p className={`stat-value${lentOut ? " tone-grain" : ""}`}>
-          {lentOut} {unitName}
+        <p className={`stat-value${lentOut || atCustomerHomes ? " tone-grain" : ""}`}>
+          {Math.round((lentOut + atCustomerHomes) * 1000) / 1000} {unitName}
         </p>
-        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>Shop&apos;s grain lent out</p>
+        <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
+          {atCustomerHomes > 0
+            ? `Lent ${lentOut} · At customers' homes ${atCustomerHomes}`
+            : "Shop's grain lent out"}
+        </p>
       </div>
       <div className="stat-card">
         <p className="stat-label">Borrowed (loans)</p>

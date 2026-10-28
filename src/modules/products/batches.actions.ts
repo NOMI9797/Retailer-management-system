@@ -138,6 +138,7 @@ function summarizeBatches(
     quantitySold: Prisma.Decimal;
     quantityTransferred: Prisma.Decimal;
     quantityReturned: Prisma.Decimal;
+    quantityAtHome: Prisma.Decimal;
   }[]
 ) {
   const totalIn = batches.reduce((sum, b) => sum + Number(b.quantityIn), 0);
@@ -150,12 +151,14 @@ function summarizeBatches(
   const totalTransferred = batches.reduce((sum, b) => sum + Number(b.quantityTransferred), 0);
   // Given back to the customer unsettled — left the shop.
   const totalReturned = batches.reduce((sum, b) => sum + Number(b.quantityReturned), 0);
+  // Bought but still at a customer's home — not here yet.
+  const totalAtHomes = batches.reduce((sum, b) => sum + Number(b.quantityAtHome), 0);
 
   return {
     batchCount: batches.length,
     totalIn,
     totalSold,
-    totalRemaining: totalIn - totalSold - totalTransferred - totalReturned,
+    totalRemaining: totalIn - totalSold - totalTransferred - totalReturned - totalAtHomes,
   };
 }
 

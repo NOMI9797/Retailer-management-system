@@ -66,9 +66,15 @@ export async function GrainSeasonSection({ productId }: { productId: string }) {
           <p className="stat-value tone-primary">
             {a.ownKg} {unit}
           </p>
-          {a.lentOut > 0 && (
+          {(a.lentOut > 0 || a.atCustomerHomes > 0) && (
             <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
-              incl. {a.lentOut} {unit} lent out
+              incl.{" "}
+              {[
+                a.lentOut > 0 ? `${a.lentOut} ${unit} lent out` : null,
+                a.atCustomerHomes > 0 ? `${a.atCustomerHomes} ${unit} still at customers' homes` : null,
+              ]
+                .filter(Boolean)
+                .join(" and ")}
             </p>
           )}
         </div>

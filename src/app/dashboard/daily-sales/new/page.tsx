@@ -1,3 +1,4 @@
+import { listHomeGrain } from "@/modules/stock/homeGrain.actions";
 import { Suspense } from "react";
 import Link from "next/link";
 import { listProducts } from "@/modules/products/actions";
@@ -329,7 +330,7 @@ async function EntryBody({ tab, person }: { tab: string; person: Person | null }
 
   switch (tab) {
     case "new-sale": {
-      const [areas, simpleProducts, grainProducts, bankAccounts, dealers, lastPrices] = await Promise.all([
+      const [areas, simpleProducts, grainProducts, bankAccounts, dealers, lastPrices, homeGrain] = await Promise.all([
         listAreas(),
         listProducts({ stockKind: "SIMPLE", pageSize: 500 }),
         listProducts({ stockKind: "GRAIN", pageSize: 500 }),
@@ -337,10 +338,15 @@ async function EntryBody({ tab, person }: { tab: string; person: Person | null }
         listDealers(),
         // The person already picked: their last price for each product.
         getLastPrices({ customerId: customer?.id, dealerId }),
+        // Grain bought that's still at sellers' homes — deliverable from there.
+        listHomeGrain(),
       ]);
       return (
         <NewSaleForm
           initialLastPrices={lastPrices}
+          homeSources={homeGrain
+            .filter((h) => h.remaining > 0)
+            .map((h) => ({ id: h.id, productId: h.product.id, customerName: h.customer.name, remaining: h.remaining }))}
           areas={areas}
           products={[...simpleProducts.products, ...grainProducts.products]}
           dealers={dealers}
