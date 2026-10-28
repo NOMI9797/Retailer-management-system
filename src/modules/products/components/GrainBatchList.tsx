@@ -9,6 +9,7 @@ import { GrainNameSearch } from "./GrainNameSearch";
 import type { GrainLoanRow } from "@/modules/grain-loans/actions";
 import type { LoanOptions } from "./GrainLedgerTabs";
 import type { HomeGrainRow } from "@/modules/stock/homeGrain.actions";
+import type { GrainRegisterStock } from "@/modules/grain-register/actions";
 
 type GrainProduct = {
   id: string;
@@ -41,6 +42,7 @@ export function GrainBatchList({
   loans,
   loanOptions,
   homeGrain,
+  register,
 }: {
   product: GrainProduct;
   batchCount: number;
@@ -50,6 +52,8 @@ export function GrainBatchList({
   loans: GrainLoanRow[];
   loanOptions: LoanOptions;
   homeGrain: HomeGrainRow[];
+  // Own stock / value typed in from the register, if any.
+  register: GrainRegisterStock | null;
 }) {
   const unit = product.unit.name;
 
@@ -73,6 +77,7 @@ export function GrainBatchList({
         atCustomerHomes={overview.atCustomerHomes}
         borrowed={overview.borrowed}
         searchSlot={<GrainNameSearch />}
+        registerEdit={{ productId: product.id, productName: product.name, register }}
       />
 
       <GrainLedgerTabs

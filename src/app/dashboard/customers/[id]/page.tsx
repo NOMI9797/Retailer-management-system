@@ -26,6 +26,7 @@ import { HomeGrainRecords } from "@/modules/stock/components/HomeGrainRecords";
 import { listHomeGrain } from "@/modules/stock/homeGrain.actions";
 import type { AdvanceStockByGrain } from "./AdvanceStockCard";
 import { GrainFilter } from "./GrainFilter";
+import { getAdvanceRegister } from "@/modules/grain-register/actions";
 import { GrainLoansPanel } from "@/modules/grain-loans/components/GrainLoansPanel";
 import { listGrainLoans } from "@/modules/grain-loans/actions";
 import { PageLoader } from "@/components/shared/PageLoader";
@@ -162,11 +163,13 @@ export default async function CustomerDetailPage({
 }
 
 async function CustomerOverallStats({ customerId, grain }: { customerId: string; grain?: string }) {
-  const [summary, customer, bankAccounts, homeGrain] = await Promise.all([
+  const [summary, customer, bankAccounts, homeGrain, grainProducts, advanceRegister] = await Promise.all([
     getCustomerRelationshipSummary(customerId),
     getCustomer(customerId),
     listBankAccounts(),
     listHomeGrain({ customerId }),
+    listProducts({ stockKind: "GRAIN", pageSize: 500 }),
+    getAdvanceRegister(customerId),
   ]);
   // The shop's grain at their home, added up per grain.
   const byGrain = new Map<string, AdvanceStockByGrain>();
@@ -203,6 +206,8 @@ async function CustomerOverallStats({ customerId, grain }: { customerId: string;
       customerName={customer.name}
       bankAccounts={bankAccounts}
       advanceStock={advanceStock}
+      allGrains={grainProducts.products.map((p) => ({ id: p.id, name: p.name, unitName: p.unit.name }))}
+      advanceRegister={advanceRegister}
       selectedGrain={grain}
     />
   );

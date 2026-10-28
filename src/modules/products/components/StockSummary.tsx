@@ -10,6 +10,9 @@
 // ProductsStatRow.tsx, DebtSummaryCards.tsx) rather than a bespoke
 // strip, so this reads like every other stat row in the app instead
 // of a one-off widget.
+import { RegisterStockButton } from "@/modules/grain-register/components/RegisterStockButton";
+import type { GrainRegisterStock } from "@/modules/grain-register/actions";
+
 export function StockSummary({
   totalRemaining,
   unitName,
@@ -22,6 +25,7 @@ export function StockSummary({
   atCustomerHomes = 0,
   borrowed,
   searchSlot,
+  registerEdit,
 }: {
   totalRemaining: number;
   unitName: string;
@@ -39,14 +43,37 @@ export function StockSummary({
   // Shown in the grid's free cell under Stock Udhaar (the Grain page's
   // name search).
   searchSlot?: React.ReactNode;
+  // Own stock / stock value typed in from the register (display only);
+  // when set, those two cards show it, with the system figure below.
+  registerEdit?: { productId: string; productName: string; register: GrainRegisterStock | null };
 }) {
+  const register = registerEdit?.register ?? null;
+  const editButton = registerEdit && (
+    <RegisterStockButton
+      productId={registerEdit.productId}
+      productName={registerEdit.productName}
+      unitName={unitName}
+      register={register}
+      system={{ ownKg: ownAvailable, ownValue: stockValue }}
+    />
+  );
+  const systemLine = (text: string) => (
+    <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
+      <span className="pay-badge pay-mixed" style={{ marginRight: 6 }}>
+        From register
+      </span>
+      System: {text}
+    </p>
+  );
   return (
     <div className="stat-grid" style={{ marginBottom: 22 }}>
-      <div className="stat-card">
+      <div className="stat-card" style={{ position: "relative" }}>
         <p className="stat-label">Own stock</p>
         <p className="stat-value tone-primary">
-          {ownAvailable} {unitName}
+          {register ? register.ownKg : ownAvailable} {unitName}
         </p>
+        {register && systemLine(`${ownAvailable} ${unitName}`)}
+        {editButton}
       </div>
       <div className="stat-card">
         <p className="stat-label">Customer stock</p>
@@ -72,9 +99,11 @@ export function StockSummary({
           {pooled.quantity} {unitName}
         </p>
       </div>
-      <div className="stat-card">
+      <div className="stat-card" style={{ position: "relative" }}>
         <p className="stat-label">Stock value</p>
-        <p className="stat-value">Rs {stockValue.toLocaleString()}</p>
+        <p className="stat-value">Rs {(register ? register.ownValue : stockValue).toLocaleString()}</p>
+        {register && systemLine(`Rs ${stockValue.toLocaleString()}`)}
+        {editButton}
       </div>
       <div className="stat-card">
         {/* The shop's own grain that isn't here: lent out on grain loans

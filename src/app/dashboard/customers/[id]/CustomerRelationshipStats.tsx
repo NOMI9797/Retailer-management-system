@@ -26,6 +26,8 @@ export function CustomerRelationshipStats({
   customerName,
   bankAccounts,
   advanceStock = [],
+  allGrains = [],
+  advanceRegister = {},
   selectedGrain,
 }: {
   summary: Summary;
@@ -35,6 +37,10 @@ export function CustomerRelationshipStats({
   // The shop's grain at this customer's home, per grain — a fourth card
   // when there is any.
   advanceStock?: AdvanceStockByGrain[];
+  // Every grain, and this customer's advance stock typed in from the
+  // register (display only).
+  allGrains?: { id: string; name: string; unitName: string }[];
+  advanceRegister?: Record<string, number>;
   // The grain picked in the filter beside the tabs — the card shows it.
   selectedGrain?: string;
 }) {
@@ -76,9 +82,14 @@ export function CustomerRelationshipStats({
           />
         )}
       </div>
-      {advanceStock.length > 0 && (
-        <AdvanceStockCard key={selectedGrain ?? ""} grains={advanceStock} selectedGrain={selectedGrain} />
-      )}
+      <AdvanceStockCard
+        key={selectedGrain ?? ""}
+        customerId={customerId}
+        grains={advanceStock}
+        allGrains={allGrains}
+        register={advanceRegister}
+        selectedGrain={selectedGrain}
+      />
     </div>
   );
 }

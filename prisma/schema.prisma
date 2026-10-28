@@ -46,6 +46,8 @@ model Shop {
   purchaseReturns     PurchaseReturn[]
   grainPickups        GrainPickup[]
   grainWastes         GrainWaste[]
+  grainRegisterStocks GrainRegisterStock[]
+  grainAdvanceRegisters GrainAdvanceRegister[]
 }
 
 // A login — email + hashed password, nothing more. Deliberately has
@@ -190,6 +192,7 @@ model Customer {
   dailySales   DailySale[]
   ownedBatches GrainBatch[] @relation("GrainBatchOwner")
   homeBatches  GrainBatch[] @relation("GrainBatchHome")
+  grainAdvanceRegisters GrainAdvanceRegister[]
   stockUdhaars StockUdhaarEntry[]
   grainLoans   GrainLoan[]
   ledgerReceipts SavedLedgerReceipt[]
@@ -698,6 +701,8 @@ model Product {
   grainSeasons        GrainSeason[]
   purchaseReturns     PurchaseReturn[]
   grainWastes         GrainWaste[]
+  grainRegisterStocks GrainRegisterStock[]
+  grainAdvanceRegisters GrainAdvanceRegister[]
 }
 
 // Batches let one product (e.g. "Wheat") hold both shop-owned and
@@ -1440,5 +1445,45 @@ model GrainWasteDraw {
   grainBatchId String
   grainBatch   GrainBatch @relation(fields: [grainBatchId], references: [id])
   quantity     Decimal    @db.Decimal(14, 3)
+}
+
+// A grain's own stock and stock value as written in the shop's
+// register, entered by hand while old records are being brought into
+// the system. Display only: shown on the Grain page's Own stock / Stock
+// value cards (beside what the records add up to) and touches nothing
+// else — no batch, sale, customer, dealer or money. Later replaced by
+// one opening adjustment once the records are lined up.
+model GrainRegisterStock {
+  id        String   @id @default(uuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id])
+  productId String
+  product   Product  @relation(fields: [productId], references: [id])
+  ownKg     Decimal  @db.Decimal(14, 3)
+  ownValue  Decimal  @db.Decimal(14, 2)
+  note      String?
+  updatedAt DateTime @updatedAt
+
+  @@unique([shopId, productId])
+}
+
+// How much of the shop's grain is lying at one customer's home, as
+// written in the register, entered by hand while old records are being
+// brought in. Display only — shown on the customer page's Advance stock
+// card beside what the records add up to; never part of the shop's own
+// stock or anything else.
+model GrainAdvanceRegister {
+  id         String   @id @default(uuid())
+  shopId     String
+  shop       Shop     @relation(fields: [shopId], references: [id])
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  kg         Decimal  @db.Decimal(14, 3)
+  note       String?
+  updatedAt  DateTime @updatedAt
+
+  @@unique([shopId, customerId, productId])
 }
 
