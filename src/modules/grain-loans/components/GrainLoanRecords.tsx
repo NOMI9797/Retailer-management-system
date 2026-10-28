@@ -14,6 +14,8 @@ import { showToast } from "@/components/shared/toastStore";
 import { formatMoney, formatDate } from "@/lib/utils";
 import type { ActionResult } from "@/lib/actionResult";
 import type { listAreas } from "@/modules/settings/areas.actions";
+import type { AdvanceRegisterRow } from "@/modules/grain-register/actions";
+import { AdvanceRegisterActions, RegisterBadge } from "@/modules/grain-register/components/AdvanceRegisterActions";
 
 type Area = Awaited<ReturnType<typeof listAreas>>[number];
 
@@ -26,6 +28,9 @@ type TableProps = {
   dealers?: { id: string; name: string }[];
   bankAccounts?: { id: string; name: string }[];
   emptyText?: string;
+  // Grain lent to this customer per the register (customer page) —
+  // listed among the loans, newest first, marked "From register".
+  registerRows?: AdvanceRegisterRow[];
 };
 
 // Grain loan records — on the Grain page's Loans tab (all parties, one
@@ -46,7 +51,7 @@ export function GrainLoanRecords(props: TableProps) {
             className={view === "LOANS" ? "active" : ""}
             onClick={() => setView("LOANS")}
           >
-            Loans ({props.loans.length})
+            Loans ({props.loans.length + (props.registerRows?.length ?? 0)})
           </button>
           <button
             type="button"
@@ -75,8 +80,13 @@ function GrainLoansTable({
   dealers = [],
   bankAccounts = [],
   emptyText = "No grain loans yet.",
+  registerRows = [],
 }: TableProps) {
   const columns = 8 + (showParty ? 1 : 0) + (showProduct ? 1 : 0);
+  const items = [
+    ...loans.map((loan) => ({ kind: "loan" as const, date: new Date(loan.loanDate).getTime(), loan })),
+    ...registerRows.map((e) => ({ kind: "register" as const, date: new Date(e.date).getTime(), e })),
+  ].sort((a, b) => b.date - a.date);
 
   return (
     <table>
@@ -95,12 +105,45 @@ function GrainLoansTable({
         </tr>
       </thead>
       <tbody>
-        {loans.length === 0 ? (
+        {items.length === 0 ? (
           <tr className="empty-row">
             <td colSpan={columns}>{emptyText}</td>
           </tr>
         ) : (
-          loans.map((loan) => {
+          items.map((item) => {
+            if (item.kind === "register") {
+              const e = item.e;
+              return (
+                <tr key={e.id}>
+                  <td>{formatDate(e.date)}</td>
+                  {showParty && <td></td>}
+                  {showProduct && <td>{e.productName}</td>}
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    <span className="pay-badge pay-account" style={{ marginRight: 6 }}>
+                      Lent
+                    </span>
+                    <RegisterBadge />
+                  </td>
+                  <td className="num" style={{ textAlign: "right" }}>
+                    {e.kg} {e.unitName}
+                  </td>
+                  <td className="num" style={{ textAlign: "right" }}>
+                    <span className="dash">—</span>
+                  </td>
+                  <td className="num" style={{ textAlign: "right" }}>
+                    <span className="dash">—</span>
+                  </td>
+                  <td className="num" style={{ textAlign: "right", fontWeight: 600, color: "var(--grain-600)" }}>
+                    {e.kg} {e.unitName}
+                  </td>
+                  <td style={{ color: "var(--ink-muted)", fontSize: 13 }}>{e.note}</td>
+                  <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                    <AdvanceRegisterActions row={e} grains={products} />
+                  </td>
+                </tr>
+              );
+            }
+            const loan = item.loan;
             const lent = loan.direction === "SHOP_LENT";
             return (
               <tr key={loan.id}>

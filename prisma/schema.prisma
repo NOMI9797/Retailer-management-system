@@ -1474,23 +1474,32 @@ model GrainRegisterStock {
   @@unique([shopId, productId])
 }
 
-// How much of the shop's grain is lying at one customer's home, as
-// written in the register, entered by hand while old records are being
-// brought in. Display only — shown on the customer page's Advance stock
-// card beside what the records add up to; never part of the shop's own
-// stock or anything else.
+// The shop's grain with one customer (lent, or bought and left at their
+// home) as written in the register, one entry at a time, entered by
+// hand while old records are being brought in. Display only — listed
+// in its section's tab on the customer page and added up on the
+// Advance stock card; never part of the shop's own stock or anything else.
 model GrainAdvanceRegister {
-  id         String   @id @default(uuid())
+  id         String                 @id @default(uuid())
   shopId     String
-  shop       Shop     @relation(fields: [shopId], references: [id])
+  shop       Shop                   @relation(fields: [shopId], references: [id])
   customerId String
-  customer   Customer @relation(fields: [customerId], references: [id])
+  customer   Customer               @relation(fields: [customerId], references: [id])
   productId  String
-  product    Product  @relation(fields: [productId], references: [id])
-  kg         Decimal  @db.Decimal(14, 3)
+  product    Product                @relation(fields: [productId], references: [id])
+  // Which customer-page tab the entry is listed in.
+  section    AdvanceRegisterSection @default(HOME)
+  kg         Decimal                @db.Decimal(14, 3)
+  entryDate  DateTime               @default(now())
   note       String?
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
 
-  @@unique([shopId, customerId, productId])
+  @@index([shopId, customerId])
+}
+
+enum AdvanceRegisterSection {
+  LOAN // Grain loans tab
+  HOME // Bought — at their home tab
 }
 

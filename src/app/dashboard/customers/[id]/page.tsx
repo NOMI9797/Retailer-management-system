@@ -26,7 +26,7 @@ import { HomeGrainRecords } from "@/modules/stock/components/HomeGrainRecords";
 import { listHomeGrain } from "@/modules/stock/homeGrain.actions";
 import type { AdvanceStockByGrain } from "./AdvanceStockCard";
 import { GrainFilter } from "./GrainFilter";
-import { getAdvanceRegister } from "@/modules/grain-register/actions";
+import { getAdvanceRegister, listAdvanceRegister } from "@/modules/grain-register/actions";
 import { GrainLoansPanel } from "@/modules/grain-loans/components/GrainLoansPanel";
 import { listGrainLoans } from "@/modules/grain-loans/actions";
 import { PageLoader } from "@/components/shared/PageLoader";
@@ -356,9 +356,11 @@ async function GrainSectionLoader({ customerId, grain }: { customerId: string; g
 // Grain the shop bought from this customer that was left at their home
 // — its own tab: what's still there, each pickup trip, Pick up.
 async function HomeGrainSectionLoader({ customerId, grain }: { customerId: string; grain?: string }) {
-  const [homeGrain, bankAccounts] = await Promise.all([
+  const [homeGrain, bankAccounts, grainProducts, register] = await Promise.all([
     listHomeGrain({ customerId, productId: grain }),
     listBankAccounts(),
+    listProducts({ stockKind: "GRAIN", pageSize: 500 }),
+    listAdvanceRegister({ customerId, section: "HOME", productId: grain }),
   ]);
   return (
     <section className="panel">
@@ -367,6 +369,8 @@ async function HomeGrainSectionLoader({ customerId, grain }: { customerId: strin
         showCustomer={false}
         showProduct
         bankAccounts={bankAccounts}
+        registerRows={register}
+        registerGrains={grainProducts.products.map((p) => ({ id: p.id, name: p.name }))}
         emptyText="Nothing bought from this customer is at their home. Record one from New entry → Buy/Keep stock → Bought — still at their home."
       />
     </section>
@@ -376,18 +380,21 @@ async function HomeGrainSectionLoader({ customerId, grain }: { customerId: strin
 // Grain lent to / borrowed from this customer, every grain — its own
 // tab, like Udhaar to Shop.
 async function GrainLoansSectionLoader({ customerId, grain }: { customerId: string; grain?: string }) {
-  const [customer, loans, bankAccounts, grainProducts] = await Promise.all([
+  const [customer, loans, bankAccounts, grainProducts, register] = await Promise.all([
     getCustomer(customerId),
     listGrainLoans({ customerId, productId: grain }),
     listBankAccounts(),
     listProducts({ stockKind: "GRAIN", pageSize: 500 }),
+    listAdvanceRegister({ customerId, section: "LOAN", productId: grain }),
   ]);
+  const products = grainProducts.products.map((p) => ({ id: p.id, name: p.name }));
   return (
     <GrainLoansPanel
       party={{ kind: "CUSTOMER", id: customerId, name: customer.name }}
       loans={loans}
-      products={grainProducts.products.map((p) => ({ id: p.id, name: p.name }))}
+      products={products}
       bankAccounts={bankAccounts}
+      registerRows={register}
     />
   );
 }

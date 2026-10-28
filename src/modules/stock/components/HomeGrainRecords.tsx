@@ -14,6 +14,8 @@ import { EditGrainSettlementModal } from "./EditGrainSettlementModal";
 import { DeleteGrainSettlementButton } from "./DeleteGrainSettlementButton";
 import { showToast } from "@/components/shared/toastStore";
 import { formatDate, formatMoney } from "@/lib/utils";
+import type { AdvanceRegisterRow } from "@/modules/grain-register/actions";
+import { AdvanceRegisterActions, RegisterBadge } from "@/modules/grain-register/components/AdvanceRegisterActions";
 
 const PAY_LABEL = { CASH: "Cash", ACCOUNT: "Bank", CREDIT: "Udhaar" } as const;
 const PAY_CLASS = { CASH: "pay-cash", ACCOUNT: "pay-account", CREDIT: "pay-credit" } as const;
@@ -29,6 +31,8 @@ export function HomeGrainRecords({
   bankAccounts = [],
   emptyText = "No grain bought that's still at a customer's home.",
   onChanged,
+  registerRows = [],
+  registerGrains = [],
 }: {
   rows: HomeGrainRow[];
   showCustomer?: boolean;
@@ -38,10 +42,18 @@ export function HomeGrainRecords({
   // For a caller holding its own fetched rows (Buy/Keep stock) — called
   // after any pickup / purchase change; pages just refresh.
   onChanged?: () => void;
+  // Advance stock entries from the register (customer page) — listed
+  // among the records, newest first, marked "From register".
+  registerRows?: AdvanceRegisterRow[];
+  registerGrains?: { id: string; name: string }[];
 }) {
   const [openTrips, setOpenTrips] = useState<string | null>(null);
   const [editing, setEditing] = useState<HomeGrainRow | null>(null);
   const columns = 8 + (showCustomer ? 1 : 0) + (showProduct ? 1 : 0);
+  const items = [
+    ...rows.map((r) => ({ kind: "record" as const, date: new Date(r.date).getTime(), r })),
+    ...registerRows.map((e) => ({ kind: "register" as const, date: new Date(e.date).getTime(), e })),
+  ].sort((a, b) => b.date - a.date);
 
   return (
     <>
@@ -61,12 +73,50 @@ export function HomeGrainRecords({
           </tr>
         </thead>
         <tbody>
-          {rows.length === 0 ? (
+          {items.length === 0 ? (
             <tr className="empty-row">
               <td colSpan={columns}>{emptyText}</td>
             </tr>
           ) : (
-            rows.map((r) => (
+            items.map((item) => {
+              if (item.kind === "register") {
+                const e = item.e;
+                return (
+                  <tr key={e.id}>
+                    <td>
+                      {formatDate(e.date)}
+                      {e.note && (
+                        <span style={{ display: "block", fontSize: 12, color: "var(--ink-muted)" }}>{e.note}</span>
+                      )}
+                    </td>
+                    {showCustomer && <td></td>}
+                    {showProduct && <td>{e.productName}</td>}
+                    <td className="num" style={{ textAlign: "right" }}>
+                      {e.kg} {e.unitName}
+                    </td>
+                    <td className="num" style={{ textAlign: "right" }}>
+                      <span className="dash">—</span>
+                    </td>
+                    <td className="num" style={{ textAlign: "right" }}>
+                      <RegisterBadge />
+                    </td>
+                    <td className="num" style={{ textAlign: "right" }}>
+                      —
+                    </td>
+                    <td style={{ fontSize: 13 }}>—</td>
+                    <td className="num" style={{ textAlign: "right", fontWeight: 600, color: "var(--grain-600)" }}>
+                      {e.kg} {e.unitName}
+                    </td>
+                    <td>
+                      <div className="row-actions" style={{ justifyContent: "flex-end" }}>
+                        <AdvanceRegisterActions row={e} grains={registerGrains} />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }
+              const r = item.r;
+              return (
               <Fragment key={r.id}>
                 <tr>
                   <td>
@@ -204,7 +254,8 @@ export function HomeGrainRecords({
                     </tr>
                   ))}
               </Fragment>
-            ))
+              );
+            })
           )}
         </tbody>
       </table>

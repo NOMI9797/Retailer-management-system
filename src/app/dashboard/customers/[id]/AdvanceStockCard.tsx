@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { setAdvanceRegister } from "@/modules/grain-register/actions";
+import { createAdvanceRegister } from "@/modules/grain-register/actions";
+import type { AdvanceSection } from "@/modules/grain-register/schema";
+import { toLocalDateString } from "@/lib/utils";
 import { showToast } from "@/components/shared/toastStore";
 
 export type AdvanceStockByGrain = {
@@ -19,9 +21,9 @@ export type AdvanceStockByGrain = {
 type Grain = { id: string; name: string; unitName: string };
 
 // Advance stock at this customer's home — the shop's grain still lying
-// there, one grain at a time (picked from the dropdown). A figure typed
-// in from the register (pencil, every grain at once) shows instead,
-// with what the records add up to below — display only.
+// there, one grain at a time (picked from the dropdown). Entries typed
+// in from the register (pencil) show instead, added up, with what the
+// records add up to below — display only.
 export function AdvanceStockCard({
   customerId,
   grains,
@@ -83,33 +85,30 @@ export function AdvanceStockCard({
           System: {system} {grain?.unitName}
         </p>
       )}
-      <AdvanceRegisterButton customerId={customerId} allGrains={allGrains} grains={grains} register={register} />
+      <AdvanceRegisterButton customerId={customerId} allGrains={allGrains} />
     </div>
   );
 }
 
-// Pencil: this customer's advance stock from the register, every grain
-// in one go. Blank = no register figure for that grain (the card shows
-// the system figure).
-function AdvanceRegisterButton({
-  customerId,
-  allGrains,
-  grains,
-  register,
-}: {
-  customerId: string;
-  allGrains: Grain[];
-  grains: AdvanceStockByGrain[];
-  register: Record<string, number>;
-}) {
+// Pencil: add this customer's advance stock from the register, every
+// grain in one go, into one section — each grain with a quantity becomes
+// an entry in that section's tab (Grain loans / Bought — at their home).
+// Display only: nothing outside this card and those two tabs changes.
+function AdvanceRegisterButton({ customerId, allGrains }: { customerId: string; allGrains: Grain[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [section, setSection] = useState<AdvanceSection>("HOME");
+  const [entryDate, setEntryDate] = useState("");
+  const [note, setNote] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   function openModal() {
-    setValues(Object.fromEntries(allGrains.map((g) => [g.id, register[g.id] !== undefined ? String(register[g.id]) : ""])));
+    setSection("HOME");
+    setEntryDate(toLocalDateString(new Date()));
+    setNote("");
+    setValues({});
     setError(null);
     setOpen(true);
   }
@@ -118,16 +117,21 @@ function AdvanceRegisterButton({
     e.preventDefault();
     setIsSaving(true);
     setError(null);
-    const result = await setAdvanceRegister({
+    const result = await createAdvanceRegister({
       customerId,
-      entries: allGrains.map((g) => ({ productId: g.id, kg: values[g.id]?.trim() ? Number(values[g.id]) : null })),
+      section,
+      entryDate,
+      note: note || undefined,
+      entries: allGrains
+        .filter((g) => Number(values[g.id]) > 0)
+        .map((g) => ({ productId: g.id, kg: Number(values[g.id]) })),
     });
     setIsSaving(false);
     if (!result.success) {
       setError(result.error);
       return;
     }
-    showToast("Advance stock from register saved");
+    showToast(section === "LOAN" ? "Added to Grain loans" : "Added to Bought — at their home");
     setOpen(false);
     router.refresh();
   }
@@ -148,29 +152,47 @@ function AdvanceRegisterButton({
       {open && (
         <div className="modal-backdrop" onClick={() => setOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Advance stock at their home — from register</h2>
+            <h2>Advance stock — from register</h2>
             <p className="modal-sub">
-              Shown on this card only — the shop&apos;s own stock and every other record stay as they are. Leave a grain
-              blank to show the system figure.
+              Goes on the Advance stock card and in the tab you pick here — nothing else (own stock, cash, other
+              records) changes.
             </p>
+            <div className="tabs" style={{ marginTop: 4, marginBottom: 16 }}>
+              {(["LOAN", "HOME"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={`tab${section === s ? " active" : ""}`}
+                  onClick={() => setSection(s)}
+                >
+                  {s === "LOAN" ? "Grain loan" : "Bought — at their home"}
+                </button>
+              ))}
+            </div>
             <form onSubmit={handleSubmit}>
               {error && <p className="form-banner error">{error}</p>}
+              <div className="field-row">
+                <div className="field">
+                  <label>Date</label>
+                  <input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} required />
+                </div>
+                <div className="field">
+                  <label>Note (optional)</label>
+                  <input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. register page 42" />
+                </div>
+              </div>
               <div className="panel" style={{ marginBottom: 14, maxHeight: 360, overflowY: "auto" }}>
                 <table>
                   <thead>
                     <tr>
                       <th>Grain</th>
-                      <th style={{ textAlign: "right" }}>System</th>
-                      <th style={{ width: 170 }}>From register</th>
+                      <th style={{ width: 170 }}>Quantity</th>
                     </tr>
                   </thead>
                   <tbody>
                     {allGrains.map((g) => (
                       <tr key={g.id}>
                         <td>{g.name}</td>
-                        <td className="num" style={{ textAlign: "right", color: "var(--ink-muted)" }}>
-                          {grains.find((x) => x.productId === g.id)?.remaining ?? 0} {g.unitName}
-                        </td>
                         <td>
                           <input
                             type="number"

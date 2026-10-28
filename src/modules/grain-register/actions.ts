@@ -3,13 +3,17 @@
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { ok, fail, type ActionResult } from "@/lib/actionResult";
+import { parseLocalDateNow } from "@/lib/utils";
 import {
   REGISTER_CARDS,
   grainRegisterFigureSchema,
-  grainAdvanceRegisterSchema,
+  advanceRegisterSchema,
+  updateAdvanceRegisterSchema,
   type RegisterCard,
+  type AdvanceSection,
   type GrainRegisterFigureInput,
-  type GrainAdvanceRegisterInput,
+  type AdvanceRegisterInput,
+  type UpdateAdvanceRegisterInput,
 } from "./schema";
 
 // The register figure on each Grain page card; a card left out shows
@@ -44,41 +48,116 @@ export async function setGrainRegisterFigure(input: GrainRegisterFigureInput): P
   return ok(null);
 }
 
-// One customer's advance stock from the register, per grain id.
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+// One customer's advance stock from the register, added up per grain id
+// (both sections) — what the Advance stock card shows.
 export async function getAdvanceRegister(customerId: string): Promise<Record<string, number>> {
   const shopId = await getCurrentShopId();
   const rows = await db.grainAdvanceRegister.findMany({ where: { shopId, customerId } });
-  return Object.fromEntries(rows.map((r) => [r.productId, Number(r.kg)]));
+  const totals: Record<string, number> = {};
+  for (const r of rows) totals[r.productId] = round3((totals[r.productId] ?? 0) + Number(r.kg));
+  return totals;
 }
 
-// Saves a customer's advance stock from the register for every grain in
-// one go: a figure is saved (or replaced), a blank one is removed.
-// Display only — nothing else changes.
-export async function setAdvanceRegister(input: GrainAdvanceRegisterInput): Promise<ActionResult<null>> {
+export type AdvanceRegisterRow = {
+  id: string;
+  section: AdvanceSection;
+  productId: string;
+  productName: string;
+  unitName: string;
+  kg: number;
+  date: Date;
+  note: string | null;
+};
+
+// One customer's register entries in one section (one tab), newest first.
+export async function listAdvanceRegister({
+  customerId,
+  section,
+  productId,
+}: {
+  customerId: string;
+  section: AdvanceSection;
+  productId?: string;
+}): Promise<AdvanceRegisterRow[]> {
   const shopId = await getCurrentShopId();
-  const parsed = grainAdvanceRegisterSchema.safeParse(input);
-  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the figures");
-  const { customerId, entries } = parsed.data;
-  const customer = await db.customer.findFirst({ where: { id: customerId, shopId } });
-  if (!customer) return fail("Customer not found");
+  const rows = await db.grainAdvanceRegister.findMany({
+    where: { shopId, customerId, section, ...(productId ? { productId } : {}) },
+    include: { product: { include: { unit: true } } },
+    orderBy: [{ entryDate: "desc" }, { createdAt: "desc" }],
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    section: r.section,
+    productId: r.productId,
+    productName: r.product.name,
+    unitName: r.product.unit.name,
+    kg: Number(r.kg),
+    date: r.entryDate,
+    note: r.note,
+  }));
+}
+
+async function shopGrainIds(shopId: string, ids: string[]) {
   const grains = await db.product.findMany({
-    where: { shopId, stockKind: "GRAIN", id: { in: entries.map((e) => e.productId) } },
+    where: { shopId, stockKind: "GRAIN", id: { in: ids } },
     select: { id: true },
   });
-  const valid = new Set(grains.map((g) => g.id));
-  await db.$transaction(
-    entries
-      .filter((e) => valid.has(e.productId))
-      .map((e) =>
-        e.kg === null
-          ? db.grainAdvanceRegister.deleteMany({ where: { shopId, customerId, productId: e.productId } })
-          : db.grainAdvanceRegister.upsert({
-              where: { shopId_customerId_productId: { shopId, customerId, productId: e.productId } },
-              create: { shopId, customerId, productId: e.productId, kg: e.kg },
-              update: { kg: e.kg },
-            })
-      )
-  );
+  return new Set(grains.map((g) => g.id));
+}
+
+// Adds register entries for one customer, one per grain, all in the
+// picked section. Display only — nothing else changes.
+export async function createAdvanceRegister(input: AdvanceRegisterInput): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+  const parsed = advanceRegisterSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the figures");
+  const { customerId, section, entryDate, note, entries } = parsed.data;
+  const customer = await db.customer.findFirst({ where: { id: customerId, shopId } });
+  if (!customer) return fail("Customer not found");
+  const valid = await shopGrainIds(shopId, entries.map((e) => e.productId));
+  if (entries.some((e) => !valid.has(e.productId))) return fail("Grain not found");
+  const date = parseLocalDateNow(entryDate);
+  await db.grainAdvanceRegister.createMany({
+    data: entries.map((e) => ({
+      shopId,
+      customerId,
+      productId: e.productId,
+      section,
+      kg: e.kg,
+      entryDate: date,
+      note: note?.trim() || null,
+    })),
+  });
   return ok(null);
 }
 
+export async function updateAdvanceRegister(input: UpdateAdvanceRegisterInput): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+  const parsed = updateAdvanceRegisterSchema.safeParse(input);
+  if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the figures");
+  const data = parsed.data;
+  const row = await db.grainAdvanceRegister.findFirst({ where: { id: data.id, shopId } });
+  if (!row) return fail("Entry not found");
+  const valid = await shopGrainIds(shopId, [data.productId]);
+  if (!valid.has(data.productId)) return fail("Grain not found");
+  await db.grainAdvanceRegister.update({
+    where: { id: row.id },
+    data: {
+      section: data.section,
+      productId: data.productId,
+      kg: data.kg,
+      entryDate: parseLocalDateNow(data.entryDate),
+      note: data.note?.trim() || null,
+    },
+  });
+  return ok(null);
+}
+
+export async function deleteAdvanceRegister(id: string): Promise<ActionResult<null>> {
+  const shopId = await getCurrentShopId();
+  const result = await db.grainAdvanceRegister.deleteMany({ where: { id, shopId } });
+  if (result.count === 0) return fail("Entry not found");
+  return ok(null);
+}
