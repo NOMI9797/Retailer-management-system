@@ -171,7 +171,7 @@ export async function listGrainBatches(productId: string) {
   if (!product) throw new Error("Product not found");
 
   const batches = await db.grainBatch.findMany({
-    where: { productId },
+    where: { productId, removedFromGrain: false },
     include: { ownerCustomer: true },
     orderBy: { receivedAt: "asc" },
   });
@@ -186,7 +186,7 @@ export async function getGrainStockSummary(productId: string) {
   });
   if (!product) throw new Error("Product not found");
 
-  const batches = await db.grainBatch.findMany({ where: { productId } });
+  const batches = await db.grainBatch.findMany({ where: { productId, removedFromGrain: false } });
   return summarizeBatches(batches);
 }
 
@@ -203,7 +203,7 @@ export async function getGrainProductDetail(productId: string) {
   if (!product) throw new Error("Product not found");
 
   const batches = await db.grainBatch.findMany({
-    where: { productId },
+    where: { productId, removedFromGrain: false },
     include: { ownerCustomer: true },
     orderBy: { receivedAt: "asc" },
   });
@@ -250,7 +250,7 @@ export async function listGrainProductDetails(productIds: string[]) {
   const validIds = new Set(products.map((p) => p.id));
 
   const batches = await db.grainBatch.findMany({
-    where: { productId: { in: [...validIds] } },
+    where: { productId: { in: [...validIds] }, removedFromGrain: false },
     include: { ownerCustomer: true },
     orderBy: { receivedAt: "asc" },
   });
@@ -287,7 +287,7 @@ export async function listGrainProductDetailsForShop(options?: { page?: number; 
   ]);
 
   const batches = await db.grainBatch.findMany({
-    where: { productId: { in: products.map((p) => p.id) } },
+    where: { productId: { in: products.map((p) => p.id) }, removedFromGrain: false },
     include: { ownerCustomer: true },
     orderBy: { receivedAt: "asc" },
   });

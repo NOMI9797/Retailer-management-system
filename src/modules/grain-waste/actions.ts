@@ -22,7 +22,7 @@ type Tx = Prisma.TransactionClient;
 // home) and what it cost.
 async function shelfBatches(tx: Tx, productId: string) {
   const batches = await tx.grainBatch.findMany({
-    where: { productId, ownerCustomerId: null },
+    where: { productId, ownerCustomerId: null, removedFromGrain: false },
     orderBy: { receivedAt: "asc" },
   });
   return batches

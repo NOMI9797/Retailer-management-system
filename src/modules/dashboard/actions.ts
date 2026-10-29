@@ -1,6 +1,7 @@
 "use server";
 
 import { db } from "@/lib/db";
+import type { Prisma } from "@prisma/client";
 import { getCurrentShopId } from "@/lib/tenant";
 import { parseLocalDateStart, parseLocalDateEnd, toLocalDateString } from "@/lib/utils";
 import { collectLedgerRows, type LedgerRow } from "@/modules/ledger/ledgerRows";
@@ -149,6 +150,37 @@ export async function getDashboard() {
     })
   );
 
+  // Each grain as its Grain page cards show it (the register figure
+  // where one is entered, else the records): one owing Stock Udhaar is
+  // listed by what that's worth; otherwise by the stock it holds and its
+  // value. Owing first, then biggest value first.
+  const registerRows = await db.grainRegisterStock.findMany({ where: { shopId } });
+  const registerFor = new Map(registerRows.map((r) => [r.productId, r]));
+  const figure = (v: Prisma.Decimal | null | undefined, fallback: number) => (v != null ? Number(v) : fallback);
+  const grainPositions = grain
+    .map((g) => {
+      const r = registerFor.get(g.id);
+      const udhaarKg = figure(r?.stockUdhaarKg, g.stockUdhaar);
+      return {
+        id: g.id,
+        name: g.name,
+        unit: g.unit,
+        status: udhaarKg > 0 ? ("UDHAAR" as const) : ("STOCK" as const),
+        udhaarKg,
+        udhaarValue: r?.stockUdhaarValue != null ? Number(r.stockUdhaarValue) : null,
+        stockKg: figure(r?.ownKg, g.own),
+        stockValue: figure(r?.ownValue, Math.max(g.value, 0)),
+      };
+    })
+    .filter((g) => g.status === "UDHAAR" || g.stockKg > 0)
+    .sort((a, b) =>
+      a.status !== b.status
+        ? a.status === "UDHAAR" ? -1 : 1
+        : a.status === "UDHAAR"
+          ? (b.udhaarValue ?? 0) - (a.udhaarValue ?? 0)
+          : b.stockValue - a.stockValue
+    );
+
   const cashInHand =
     register.isClosed && register.actualClosing !== null ? register.actualClosing : register.expectedClosing;
   const cashInHandRegister = await getCashInHandRegister();
@@ -227,7 +259,7 @@ export async function getDashboard() {
       dealersOwe: round(dealers.netDealersOwe),
       shopOwesDealers: round(dealers.netShopOwes),
     },
-    grain: grain.filter((g) => g.own !== 0 || g.stockUdhaar > 0 || g.lentOut > 0 || g.borrowed > 0),
+    grainPositions,
     overdue: overdue.slice(0, 5),
     lowStock: lowStock.map((p) => ({
       id: p.id,

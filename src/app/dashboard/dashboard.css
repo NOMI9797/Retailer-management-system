@@ -2952,6 +2952,13 @@
   grid-template-columns: 1fr 1fr;
 }
 
+.shop-app .dash-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
 .shop-app .dash-panel {
   padding: 16px 18px;
 }
@@ -3047,30 +3054,114 @@
   color: var(--ink-muted);
 }
 
-.shop-app .dash-grain {
+/* Dashboard Grain panel: one row per grain — red (▼) when it owes
+   Stock Udhaar, with what that's worth; green (▲) when it holds stock,
+   with its value. */
+.shop-app .dash-grain-totals {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.shop-app .dash-grain-totals span {
+  flex: 1;
+  padding: 7px 10px;
+  border-radius: 8px;
+}
+
+.shop-app .dash-grain-totals strong {
   display: block;
-  padding: 8px 0;
+  font-size: 14.5px;
+}
+
+.shop-app .dash-grain-totals .owed {
+  background: var(--consigned-50);
+}
+
+.shop-app .dash-grain-totals .owed strong {
+  color: var(--consigned-600);
+}
+
+.shop-app .dash-grain-totals .held {
+  background: var(--primary-50);
+}
+
+.shop-app .dash-grain-totals .held strong {
+  color: var(--primary-600);
+}
+
+.shop-app .dash-grain-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
   border-bottom: 0.5px solid var(--border);
   color: inherit;
   text-decoration: none;
   font-size: 13.5px;
 }
 
-.shop-app .dash-grain:last-child {
+.shop-app .dash-grain-row:last-child {
   border-bottom: none;
 }
 
-.shop-app .dash-grain-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+.shop-app .dash-grain-sign {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 10px;
 }
 
-.shop-app .dash-grain-tags {
+.shop-app .dash-grain-row.owed .dash-grain-sign {
+  background: var(--consigned-50);
+  color: var(--consigned-600);
+}
+
+.shop-app .dash-grain-row.held .dash-grain-sign {
+  background: var(--primary-50);
+  color: var(--primary-600);
+}
+
+.shop-app .dash-grain-name {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 5px;
+  flex-direction: column;
+}
+
+.shop-app .dash-grain-name .num {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.shop-app .dash-grain-row.owed .dash-grain-name .num {
+  color: var(--consigned-600);
+}
+
+.shop-app .dash-grain-value {
+  text-align: right;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.shop-app .dash-grain-value small {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+
+.shop-app .dash-grain-row.owed .dash-grain-value {
+  color: var(--consigned-600);
+}
+
+.shop-app .dash-grain-row.held .dash-grain-value {
+  color: var(--primary-600);
 }
 
 .shop-app .dash-entry {

@@ -23,6 +23,7 @@ export function StockSummary({
   stockValue,
   lentOut,
   atCustomerHomes = 0,
+  customerAdvance = { LOAN: 0, HOME: 0 },
   borrowed,
   searchSlot,
   registerEdit,
@@ -38,6 +39,9 @@ export function StockSummary({
   lentOut: number;
   // Bought but still at the seller's home — also Advance stock.
   atCustomerHomes?: number;
+  // Customers' Advance stock entries (customer pages), per section —
+  // part of Advance stock.
+  customerAdvance?: { LOAN: number; HOME: number };
   borrowed: number;
   // Shown in the grid's free cell under Stock Udhaar (the Grain page's
   // name search).
@@ -47,7 +51,13 @@ export function StockSummary({
   registerEdit?: { productId: string; productName: string; register: GrainRegisterStock };
 }) {
   const register = registerEdit?.register ?? {};
-  const advance = Math.round((lentOut + atCustomerHomes) * 1000) / 1000;
+  const round3 = (n: number) => Math.round(n * 1000) / 1000;
+  // Advance stock's two sections: grain loans (lent out + customers'
+  // Grain loan entries) and bought — at their home (at customers' homes
+  // + customers' entries for it).
+  const advanceLoans = round3(lentOut + customerAdvance.LOAN);
+  const advanceHome = round3(atCustomerHomes + customerAdvance.HOME);
+  const advance = round3(advanceLoans + advanceHome);
 
   function card(
     key: RegisterCard,
@@ -55,7 +65,9 @@ export function StockSummary({
     // null = register only, no system figure behind it.
     system: number | null,
     tone: (value: number) => string,
-    sub?: React.ReactNode
+    sub?: React.ReactNode,
+    // Shown under the figures either way.
+    breakdown?: React.ReactNode
   ) {
     const fromRegister = register[key];
     const value = fromRegister ?? system ?? 0;
@@ -79,6 +91,7 @@ export function StockSummary({
         ) : (
           sub
         )}
+        {breakdown}
         {registerEdit && (
           <RegisterStockButton
             productId={registerEdit.productId}
@@ -113,8 +126,9 @@ export function StockSummary({
         "Advance stock",
         advance,
         (v) => (v ? " tone-grain" : ""),
+        undefined,
         <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
-          {atCustomerHomes > 0 ? `Lent ${lentOut} · At customers' homes ${atCustomerHomes}` : "Shop's grain lent out"}
+          Grain loans {advanceLoans} · Bought — at their home {advanceHome}
         </p>
       )}
       {card("borrowedKg", "Borrowed (loans)", borrowed, (v) => (v ? " tone-consigned" : ""))}

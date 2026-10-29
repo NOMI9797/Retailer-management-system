@@ -129,170 +129,176 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
-      {/* 3 — trend and grain */}
+      {/* 3 — trend and what to act on (left), grain and what just happened
+          (right): two independent columns, so a tall panel never leaves
+          a gap under its neighbour */}
       <div className="dash-grid two">
-        <section className="panel dash-panel">
-          <div className="dash-panel-head">
-            <h3>Last 7 days</h3>
-            <span className="cf-legend">
-              <i className="in" /> In <i className="out" /> Out
-            </span>
-          </div>
-          <div className="cf-days dash-week">
-            {d.week.map((w) => {
-              const dayNet = w.in - w.out;
-              return (
-                <Link key={w.date} href={`/dashboard/cash-flow?date=${w.date}`} className="cf-day" title={formatDate(w.date)}>
-                  <div className="cf-day-bars">
-                    <div className="cf-day-bar in" style={{ height: `${(w.in / biggestDay) * 100}%` }} />
-                    <div className="cf-day-bar out" style={{ height: `${(w.out / biggestDay) * 100}%` }} />
-                  </div>
-                  <span className="cf-day-label">
-                    {new Date(`${w.date}T00:00:00`).toLocaleDateString("en-GB", { weekday: "short" })}
-                  </span>
-                  <span className={`cf-day-net ${dayNet >= 0 ? "up" : "down"}`}>
-                    {w.in > 0 || w.out > 0 ? (dayNet >= 0 ? "▲" : "▼") : " "}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="panel dash-panel">
-          <div className="dash-panel-head">
-            <h3>Grain</h3>
-            <Link href="/dashboard/grain" className="dash-link">
-              Grain →
-            </Link>
-          </div>
-          {d.grain.length === 0 ? (
-            <p className="dash-empty">No grain in stock.</p>
-          ) : (
-            d.grain.map((g) => (
-              <Link key={g.id} href={`/dashboard/grain?product=${g.id}`} className="dash-grain">
-                <div className="dash-grain-top">
-                  <strong>{g.name}</strong>
-                  <span className="num">
-                    {g.own} {g.unit} · {formatMoney(g.value)}
-                  </span>
+        <div className="dash-col">
+          <section className="panel dash-panel">
+            <div className="dash-panel-head">
+              <h3>Last 7 days</h3>
+              <span className="cf-legend">
+                <i className="in" /> In <i className="out" /> Out
+              </span>
+            </div>
+            <div className="cf-days dash-week">
+              {d.week.map((w) => {
+                const dayNet = w.in - w.out;
+                return (
+                  <Link key={w.date} href={`/dashboard/cash-flow?date=${w.date}`} className="cf-day" title={formatDate(w.date)}>
+                    <div className="cf-day-bars">
+                      <div className="cf-day-bar in" style={{ height: `${(w.in / biggestDay) * 100}%` }} />
+                      <div className="cf-day-bar out" style={{ height: `${(w.out / biggestDay) * 100}%` }} />
+                    </div>
+                    <span className="cf-day-label">
+                      {new Date(`${w.date}T00:00:00`).toLocaleDateString("en-GB", { weekday: "short" })}
+                    </span>
+                    <span className={`cf-day-net ${dayNet >= 0 ? "up" : "down"}`}>
+                      {w.in > 0 || w.out > 0 ? (dayNet >= 0 ? "▲" : "▼") : " "}
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+          <section className="panel dash-panel">
+            <div className="dash-panel-head">
+              <h3>Needs attention</h3>
+            </div>
+            <p className="dash-sub">Overdue Udhaar</p>
+            {d.overdue.length === 0 ? (
+              <p className="dash-empty">Nobody is overdue. 👍</p>
+            ) : (
+              d.overdue.map((o) => (
+                <div key={o.customerId} className="dash-row">
+                  <Link href={`/dashboard/customers/${o.customerId}`} className="name-link">
+                    {o.name}
+                  </Link>
+                  <span className="num dash-row-amount out">{formatMoney(o.overdue)} overdue</span>
+                  <Link href={`/dashboard/daily-sales/new?tab=udhaar-clearance&customer=${o.customerId}`} className="btn btn-primary dash-row-btn">
+                    Receive
+                  </Link>
                 </div>
-                {(g.stockUdhaar > 0 || g.lentOut > 0 || g.atHomes > 0 || g.borrowed > 0) && (
-                  <div className="dash-grain-tags">
-                    {g.stockUdhaar > 0 && (
-                      <span className="pay-badge pay-credit">
-                        Stock Udhaar {g.stockUdhaar} {g.unit}
-                      </span>
-                    )}
-                    {g.lentOut > 0 && (
-                      <span className="pay-badge pay-account">
-                        Lent {g.lentOut} {g.unit}
-                      </span>
-                    )}
-                    {g.atHomes > 0 && (
-                      <span className="pay-badge pay-account">
-                        At customers&apos; homes {g.atHomes} {g.unit}
-                      </span>
-                    )}
-                    {g.borrowed > 0 && (
-                      <span className="pay-badge pay-mixed">
-                        Borrowed {g.borrowed} {g.unit}
-                      </span>
-                    )}
-                  </div>
+              ))
+            )}
+            <div className="dash-sub-head">
+              <p className="dash-sub">
+                Low stock ({LOW_STOCK_LIMIT} or less)
+                {d.lowStockCount > 0 && (
+                  <>
+                    {" "}
+                    · {d.lowStockCount} product{d.lowStockCount === 1 ? "" : "s"}
+                    {d.outOfStockCount > 0 && <>, {d.outOfStockCount} out of stock</>}
+                  </>
                 )}
-              </Link>
-            ))
-          )}
-        </section>
-      </div>
-
-      {/* 4 — what to act on, and what just happened */}
-      <div className="dash-grid two">
-        <section className="panel dash-panel">
-          <div className="dash-panel-head">
-            <h3>Needs attention</h3>
-          </div>
-          <p className="dash-sub">Overdue Udhaar</p>
-          {d.overdue.length === 0 ? (
-            <p className="dash-empty">Nobody is overdue. 👍</p>
-          ) : (
-            d.overdue.map((o) => (
-              <div key={o.customerId} className="dash-row">
-                <Link href={`/dashboard/customers/${o.customerId}`} className="name-link">
-                  {o.name}
-                </Link>
-                <span className="num dash-row-amount out">{formatMoney(o.overdue)} overdue</span>
-                <Link href={`/dashboard/daily-sales/new?tab=udhaar-clearance&customer=${o.customerId}`} className="btn btn-primary dash-row-btn">
-                  Receive
-                </Link>
-              </div>
-            ))
-          )}
-          <div className="dash-sub-head">
-            <p className="dash-sub">
-              Low stock ({LOW_STOCK_LIMIT} or less)
+              </p>
               {d.lowStockCount > 0 && (
-                <>
-                  {" "}
-                  · {d.lowStockCount} product{d.lowStockCount === 1 ? "" : "s"}
-                  {d.outOfStockCount > 0 && <>, {d.outOfStockCount} out of stock</>}
-                </>
+                <Link href="/dashboard/products/low-stock" className="dash-link">
+                  View all →
+                </Link>
               )}
-            </p>
-            {d.lowStockCount > 0 && (
-              <Link href="/dashboard/products/low-stock" className="dash-link">
-                View all →
+            </div>
+            {d.lowStock.length === 0 ? (
+              <p className="dash-empty">All products are stocked.</p>
+            ) : (
+              d.lowStock.map((p) => (
+                <div key={p.id} className="dash-row">
+                  <span>{p.name}</span>
+                  <span className={`num dash-row-amount ${p.quantity <= 0 ? "out" : ""}`}>
+                    {p.quantity <= 0 ? "Out of stock" : `${p.left} left`}
+                  </span>
+                  <Link href="/dashboard/daily-sales/new?tab=dealer-products" className="btn btn-ghost dash-row-btn">
+                    Buy
+                  </Link>
+                </div>
+              ))
+            )}
+            {d.lowStockCount > d.lowStock.length && (
+              <Link href="/dashboard/products/low-stock" className="dash-more">
+                + {d.lowStockCount - d.lowStock.length} more — see all low stock →
               </Link>
             )}
-          </div>
-          {d.lowStock.length === 0 ? (
-            <p className="dash-empty">All products are stocked.</p>
-          ) : (
-            d.lowStock.map((p) => (
-              <div key={p.id} className="dash-row">
-                <span>{p.name}</span>
-                <span className={`num dash-row-amount ${p.quantity <= 0 ? "out" : ""}`}>
-                  {p.quantity <= 0 ? "Out of stock" : `${p.left} left`}
-                </span>
-                <Link href="/dashboard/daily-sales/new?tab=dealer-products" className="btn btn-ghost dash-row-btn">
-                  Buy
-                </Link>
-              </div>
-            ))
-          )}
-          {d.lowStockCount > d.lowStock.length && (
-            <Link href="/dashboard/products/low-stock" className="dash-more">
-              + {d.lowStockCount - d.lowStock.length} more — see all low stock →
-            </Link>
-          )}
-        </section>
-
-        <section className="panel dash-panel">
-          <div className="dash-panel-head">
-            <h3>Today&apos;s entries</h3>
-            <Link href="/dashboard/daily-sales" className="dash-link">
-              View all →
-            </Link>
-          </div>
-          {d.recent.length === 0 ? (
-            <p className="dash-empty">Nothing recorded yet today.</p>
-          ) : (
-            d.recent.map((r) => (
-              <div key={r.id} className="dash-row">
-                <span className="dash-entry">
-                  <Link href={r.href} className="name-link">
-                    {r.name}
-                  </Link>
-                  <span className="dash-entry-label">{r.label}</span>
-                </span>
-                <span className={`num dash-row-amount ${r.side === "CREDIT" ? "in" : "out"}`}>
-                  {r.stockOnly ? r.detail : `${r.side === "CREDIT" ? "+" : "−"} ${formatMoney(r.amount)}`}
-                </span>
-              </div>
-            ))
-          )}
-        </section>
+          </section>
+        </div>
+        <div className="dash-col">
+          <section className="panel dash-panel">
+            <div className="dash-panel-head">
+              <h3>Grain</h3>
+              <Link href="/dashboard/grain" className="dash-link">
+                Grain →
+              </Link>
+            </div>
+            {d.grainPositions.length === 0 ? (
+              <p className="dash-empty">No grain in stock or owed.</p>
+            ) : (
+              <>
+                <div className="dash-grain-totals">
+                  <span className="owed">
+                    Stock Udhaar{" "}
+                    <strong className="num">
+                      {formatMoney(d.grainPositions.reduce((s, g) => s + (g.udhaarValue ?? 0), 0))}
+                    </strong>
+                  </span>
+                  <span className="held">
+                    In stock{" "}
+                    <strong className="num">
+                      {formatMoney(d.grainPositions.filter((g) => g.status === "STOCK").reduce((s, g) => s + g.stockValue, 0))}
+                    </strong>
+                  </span>
+                </div>
+                {d.grainPositions.map((g) => {
+                  const owed = g.status === "UDHAAR";
+                  return (
+                    <Link
+                      key={g.id}
+                      href={`/dashboard/grain?product=${g.id}`}
+                      className={`dash-grain-row ${owed ? "owed" : "held"}`}
+                    >
+                      <span className="dash-grain-sign" aria-hidden>
+                        {owed ? "▼" : "▲"}
+                      </span>
+                      <span className="dash-grain-name">
+                        <strong>{g.name}</strong>
+                        <span className="num">
+                          {owed ? `Stock Udhaar ${g.udhaarKg.toLocaleString()} ${g.unit}` : `${g.stockKg.toLocaleString()} ${g.unit} in stock`}
+                        </span>
+                      </span>
+                      <span className="dash-grain-value num">
+                        {owed ? (g.udhaarValue !== null ? formatMoney(g.udhaarValue) : "—") : formatMoney(g.stockValue)}
+                        <small>{owed ? "to give" : "stock value"}</small>
+                      </span>
+                    </Link>
+                  );
+                })}
+              </>
+            )}
+          </section>
+          <section className="panel dash-panel">
+            <div className="dash-panel-head">
+              <h3>Today&apos;s entries</h3>
+              <Link href="/dashboard/daily-sales" className="dash-link">
+                View all →
+              </Link>
+            </div>
+            {d.recent.length === 0 ? (
+              <p className="dash-empty">Nothing recorded yet today.</p>
+            ) : (
+              d.recent.map((r) => (
+                <div key={r.id} className="dash-row">
+                  <span className="dash-entry">
+                    <Link href={r.href} className="name-link">
+                      {r.name}
+                    </Link>
+                    <span className="dash-entry-label">{r.label}</span>
+                  </span>
+                  <span className={`num dash-row-amount ${r.side === "CREDIT" ? "in" : "out"}`}>
+                    {r.stockOnly ? r.detail : `${r.side === "CREDIT" ? "+" : "−"} ${formatMoney(r.amount)}`}
+                  </span>
+                </div>
+              ))
+            )}
+          </section>
+        </div>
       </div>
     </>
   );

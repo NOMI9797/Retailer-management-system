@@ -60,6 +60,20 @@ export async function getAdvanceRegister(customerId: string): Promise<Record<str
   return totals;
 }
 
+// Every customer's Advance stock entries for one grain, added up per
+// section — the Grain page's Advance stock card counts them in its
+// system figure.
+export async function getAdvanceRegisterTotal(productId: string): Promise<Record<AdvanceSection, number>> {
+  const shopId = await getCurrentShopId();
+  const rows = await db.grainAdvanceRegister.groupBy({
+    by: ["section"],
+    where: { shopId, productId },
+    _sum: { kg: true },
+  });
+  const kg = (section: AdvanceSection) => round3(Number(rows.find((r) => r.section === section)?._sum.kg ?? 0));
+  return { LOAN: kg("LOAN"), HOME: kg("HOME") };
+}
+
 export type AdvanceRegisterRow = {
   id: string;
   section: AdvanceSection;

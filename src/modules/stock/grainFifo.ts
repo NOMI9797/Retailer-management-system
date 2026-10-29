@@ -29,7 +29,7 @@ export async function drawGrainFifo(
   }
 ): Promise<{ untaken: number }> {
   const all = await tx.grainBatch.findMany({
-    where: { productId: params.productId },
+    where: { productId: params.productId, removedFromGrain: false },
     orderBy: { receivedAt: "asc" },
   });
   const batches = [...all.filter((b) => !b.ownerCustomerId), ...all.filter((b) => b.ownerCustomerId)];
@@ -221,7 +221,7 @@ export async function coverDepositFromOwnStock(
 
   const ownBatches = (
     await tx.grainBatch.findMany({
-      where: { productId: params.productId, ownerCustomerId: null },
+      where: { productId: params.productId, ownerCustomerId: null, removedFromGrain: false },
       orderBy: { receivedAt: "asc" },
     })
   ).map((b) => ({

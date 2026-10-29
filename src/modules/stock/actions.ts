@@ -999,7 +999,7 @@ export async function getStockOverview(productId: string) {
   const product = await db.product.findFirst({ where: { id: productId, shopId } });
   if (!product) throw new Error("Product not found");
 
-  const batches = await db.grainBatch.findMany({ where: { productId } });
+  const batches = await db.grainBatch.findMany({ where: { productId, removedFromGrain: false } });
 
   let ownAvailable = 0;
   let ownValue = 0;
@@ -1359,7 +1359,7 @@ export async function listGrainLedger(productId: string) {
       where: {
         direction: "OUT",
         quantity: { not: null },
-        linkedGrainBatch: { productId, product: { shopId } },
+        linkedGrainBatch: { productId, product: { shopId }, removedFromGrain: false },
       },
       include: { linkedGrainBatch: true, customerAccount: { include: { customer: true } } },
     }),
@@ -1380,6 +1380,7 @@ export async function listGrainLedger(productId: string) {
         grainLoanId: null,
         grainLoanReturnId: null,
         grainWasteId: null,
+        removedFromGrain: false,
         paymentTransactions: { none: {} },
       },
     }),
@@ -1539,7 +1540,9 @@ async function takeUnsettledGrain(
   const fromShopStock = round3(quantity - Math.min(quantity, onShelf));
 
   if (fromShopStock > 0) {
-    const own = await tx.grainBatch.findMany({ where: { productId: batch.productId, ownerCustomerId: null } });
+    const own = await tx.grainBatch.findMany({
+      where: { productId: batch.productId, ownerCustomerId: null, removedFromGrain: false },
+    });
     const ownFree = round3(
       own.reduce(
         (s, b) =>

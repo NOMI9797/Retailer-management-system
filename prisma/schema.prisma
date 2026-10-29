@@ -717,6 +717,11 @@ model GrainBatch {
   product             Product          @relation(fields: [productId], references: [id])
   ownerCustomerId     String?
   ownerCustomer       Customer?        @relation("GrainBatchOwner", fields: [ownerCustomerId], references: [id])
+  // Taken out of the grain stock while records are brought in line with
+  // the register: the Grain page (stock cards, Debit tab, Profit / Loss)
+  // and sales / waste / loans skip it, but the purchase stays in the
+  // customer's account, cash flow and ledger exactly as recorded.
+  removedFromGrain    Boolean          @default(false)
   // Bought by the shop but still lying at this customer's home: the
   // shop owns it (own stock, value) but it isn't on the shelf yet.
   // quantityAtHome is what's still there — it goes down as the shop

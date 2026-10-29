@@ -43,6 +43,7 @@ export function GrainBatchList({
   loanOptions,
   homeGrain,
   register,
+  customerAdvance,
 }: {
   product: GrainProduct;
   batchCount: number;
@@ -54,6 +55,8 @@ export function GrainBatchList({
   homeGrain: HomeGrainRow[];
   // Own stock / value typed in from the register, if any.
   register: GrainRegisterStock;
+  // Customers' Advance stock entries for this grain, added up per section.
+  customerAdvance: { LOAN: number; HOME: number };
 }) {
   const unit = product.unit.name;
 
@@ -74,6 +77,7 @@ export function GrainBatchList({
         stockValue={overview.ownValue}
         lentOut={overview.lentOut}
         atCustomerHomes={overview.atCustomerHomes}
+        customerAdvance={customerAdvance}
         borrowed={overview.borrowed}
         searchSlot={<GrainNameSearch />}
         registerEdit={{ productId: product.id, productName: product.name, register }}
