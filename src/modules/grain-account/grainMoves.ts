@@ -67,6 +67,7 @@ export async function collectGrainMoves(
         productId,
         product: { shopId, stockKind: "GRAIN" },
         visitAt: range,
+        removedFromGrain: false,
       },
       select: { productId: true, visitAt: true, quantity: true, actualPrice: true, discount: true },
     }),
@@ -215,7 +216,7 @@ export async function collectGrainProfit(
   const range = options?.range;
   const [items, loanReturns, saleReturnItems] = await Promise.all([
     db.dailySaleItem.findMany({
-      where: { productId, product: { shopId, stockKind: "GRAIN" }, visitAt: range },
+      where: { productId, product: { shopId, stockKind: "GRAIN" }, visitAt: range, removedFromGrain: false },
       select: {
         productId: true,
         visitAt: true,

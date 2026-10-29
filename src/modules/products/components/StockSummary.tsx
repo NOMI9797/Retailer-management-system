@@ -27,6 +27,7 @@ export function StockSummary({
   borrowed,
   searchSlot,
   registerEdit,
+  opening = null,
 }: {
   totalRemaining: number;
   unitName: string;
@@ -49,6 +50,9 @@ export function StockSummary({
   // Figures typed in from the register (display only), one per card;
   // a card with one shows it, with the system figure below.
   registerEdit?: { productId: string; productName: string; register: GrainRegisterStock };
+  // Finalized from the register: the opening Stock Udhaar still to buy
+  // back, and its money value at the break-even rate.
+  opening?: { remainingKg: number; remainingValue: number } | null;
 }) {
   const register = registerEdit?.register ?? {};
   const round3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -112,10 +116,15 @@ export function StockSummary({
       {card("ownKg", "Own stock", ownAvailable, () => " tone-primary")}
       {card("customerKg", "Customer stock", customerClaim, () => " tone-grain")}
       {card("physicalKg", "Total physical", totalRemaining, () => "")}
-      {card("stockUdhaarKg", "Stock Udhaar", stockUdhaarOutstanding, (v) => (v ? " tone-consigned" : ""))}
+      {card(
+        "stockUdhaarKg",
+        "Stock Udhaar",
+        round3(stockUdhaarOutstanding + (opening?.remainingKg ?? 0)),
+        (v) => (v ? " tone-consigned" : "")
+      )}
       {/* What the Stock Udhaar is worth in money — owed to customers;
           register only, not linked to any record. */}
-      {card("stockUdhaarValue", "Stock Udhaar value", null, (v) => (v ? " tone-consigned" : ""))}
+      {card("stockUdhaarValue", "Stock Udhaar value", opening ? opening.remainingValue : null, (v) => (v ? " tone-consigned" : ""))}
       {card("ownValue", "Stock value", stockValue, () => "")}
       {/* The shop's own grain that isn't here: lent out on grain loans
           (coming back), or bought but still at the seller's home (to

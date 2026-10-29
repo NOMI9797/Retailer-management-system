@@ -20,6 +20,7 @@ import {
   updateDepositReturnSchema,
   type UpdateDepositReturnInput,
 } from "./schema";
+import { getOpeningState } from "@/modules/grain-opening/fills";
 import { coverDepositFromOwnStock, coverStockUdhaarFromBatch, lentCostRates, movedOntoBatch, undoCoverOntoBatch } from "./grainFifo";
 
 type Result<T> = { success: true; data: T } | { success: false; error: string };
@@ -1053,6 +1054,12 @@ export async function getStockOverview(productId: string) {
   const udhaarSummary = await getStockUdhaarSummary(undefined, productId);
   const stockUdhaarOutstanding = udhaarSummary.reduce((sum, u) => sum + u.quantity, 0);
 
+  // Finalized from the register: customers' grain that had already
+  // left the shop isn't on the shelf — less what new stock bought to
+  // fill the opening Stock Udhaar has put back since.
+  const opening = await getOpeningState(db as unknown as Prisma.TransactionClient, productId);
+  if (opening) totalPhysical -= Math.max(opening.leftShopKg - opening.filledKg, 0);
+
   // Scoped to THIS product — per the "product-specific, not
   // shop-wide" decision (see getShopOwedForGrain's comment). A
   // customer's Cotton debt and Wheat debt are now tracked, paid, and
@@ -1104,8 +1111,11 @@ export async function getStockOverview(productId: string) {
     atCustomerHomes: round3(atCustomerHomes),
     borrowed: round3(borrowed),
     customerClaim,
-    totalPhysical,
+    totalPhysical: round3(totalPhysical),
     stockUdhaarOutstanding,
+    // The opening Stock Udhaar from the register (finalized grains only),
+    // still to be bought back, at its break-even rate.
+    opening,
     moneyOwedToCustomers,
     pooled,
   };
@@ -1347,7 +1357,7 @@ export async function listGrainLedger(productId: string) {
 
   const [saleItems, customerPurchases, dealerBatches, ownBatches] = await Promise.all([
     db.dailySaleItem.findMany({
-      where: { productId, product: { shopId } },
+      where: { productId, product: { shopId }, removedFromGrain: false },
       include: {
         dailySale: { include: { customer: true, dealer: true, payments: true } },
         batchAllocations: { where: { fromHome: true }, include: { grainBatch: { include: { homeCustomer: true } } } },

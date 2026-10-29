@@ -4,6 +4,7 @@ import type {
   listGrainLedger,
 } from "@/modules/stock/actions";
 import { StockSummary } from "./StockSummary";
+import { FinalizeRegisterButton } from "@/modules/grain-opening/components/FinalizeRegisterButton";
 import { GrainLedgerTabs } from "./GrainLedgerTabs";
 import { GrainNameSearch } from "./GrainNameSearch";
 import type { GrainLoanRow } from "@/modules/grain-loans/actions";
@@ -68,6 +69,12 @@ export function GrainBatchList({
         </p>
       )}
 
+      {!overview.opening && Object.keys(register).length > 0 && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <FinalizeRegisterButton productId={product.id} productName={product.name} />
+        </div>
+      )}
+
       <StockSummary
         totalRemaining={overview.totalPhysical}
         unitName={unit}
@@ -80,6 +87,7 @@ export function GrainBatchList({
         customerAdvance={customerAdvance}
         borrowed={overview.borrowed}
         searchSlot={<GrainNameSearch />}
+        opening={overview.opening}
         registerEdit={{ productId: product.id, productName: product.name, register }}
       />
 

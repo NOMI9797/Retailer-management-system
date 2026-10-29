@@ -1,4 +1,5 @@
 import type { GrainBatch, Prisma } from "@prisma/client";
+import { fillOpeningFromBatch, openingFilledOnBatch, undoOpeningFills } from "@/modules/grain-opening/fills";
 
 // Takes `quantity` of one grain product out of its batches — the shop's
 // OWN stock first (oldest batch first), and only once that's used up,
@@ -104,7 +105,19 @@ export async function drawGrainFifo(
 // the shop is paying for first), and `tag` marks each compensating
 // entry with the purchase's batch (linkedTransferBatchId) so deleting
 // or editing that purchase can move it all back (undoCoverOntoBatch).
+// Whatever the customers' Stock Udhaar leaves then fills the grain's
+// opening Stock Udhaar, if it has one (grain-opening/fills.ts).
 export async function coverStockUdhaarFromBatch(
+  tx: Prisma.TransactionClient,
+  productId: string,
+  newBatchId: string,
+  options?: { onlyDepositId?: string; tag?: boolean }
+) {
+  await coverCustomersStockUdhaar(tx, productId, newBatchId, options);
+  await fillOpeningFromBatch(tx, productId, newBatchId);
+}
+
+async function coverCustomersStockUdhaar(
   tx: Prisma.TransactionClient,
   productId: string,
   newBatchId: string,
@@ -326,8 +339,10 @@ async function taggedMoves(tx: Prisma.TransactionClient, batchId: string) {
 // How much of a purchase batch's "sold" figure is really grain it took
 // over from a deposit (not sold from it since) — so delete / edit can
 // tell that apart from grain genuinely sold out of the purchase.
+// Grain it put toward the opening Stock Udhaar counts the same way.
 export async function movedOntoBatch(tx: Prisma.TransactionClient, batchId: string) {
-  return Math.round((await taggedMoves(tx, batchId)).reduce((s, m) => s + m.moved, 0) * 1000) / 1000;
+  const moved = (await taggedMoves(tx, batchId)).reduce((s, m) => s + m.moved, 0);
+  return Math.round((moved + (await openingFilledOnBatch(tx, batchId))) * 1000) / 1000;
 }
 
 // Undoes coverStockUdhaarFromBatch(..., { tag: true }) for a purchase
@@ -336,7 +351,9 @@ export async function movedOntoBatch(tx: Prisma.TransactionClient, batchId: stri
 // Stock Udhaar comes back with the same link — so the customer is owed
 // that grain again, exactly as before the purchase. A draw that no
 // longer exists (its sale was since deleted) has nothing to move back.
+// Any of it put toward the opening Stock Udhaar is owed there again.
 export async function undoCoverOntoBatch(tx: Prisma.TransactionClient, batchId: string) {
+  await undoOpeningFills(tx, batchId);
   for (const { entry, moved } of await taggedMoves(tx, batchId)) {
     let left = moved;
     if (entry.linkedSaleId) {

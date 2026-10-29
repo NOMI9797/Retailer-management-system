@@ -6,6 +6,7 @@ import { ok, fail, type ActionResult } from "@/lib/actionResult";
 import { toLocalDateString } from "@/lib/utils";
 import { getStockOverview } from "@/modules/stock/actions";
 import { collectGrainMoves, collectGrainProfit, totalGrainMoves, type GrainMoveTotals } from "./grainMoves";
+import { getGrainOpening } from "@/modules/grain-opening/actions";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -46,11 +47,12 @@ export async function getGrainAccount(productId: string) {
   });
   if (!product) throw new Error("Grain not found");
 
-  const [moves, profitEntries, closed, overview] = await Promise.all([
+  const [moves, profitEntries, closed, overview, openingAll] = await Promise.all([
     collectGrainMoves(shopId, { productId }),
     collectGrainProfit(shopId, { productId }),
     db.grainSeason.findMany({ where: { shopId, productId }, orderBy: { seasonNumber: "desc" } }),
     getStockOverview(productId),
+    getGrainOpening(productId),
   ]);
 
   const allTime = totalGrainMoves(moves);
@@ -71,9 +73,23 @@ export async function getGrainAccount(productId: string) {
     kgSold: round3(allTime.kgSold - closedSum.kgSold),
   };
 
-  // The headline: received − paid + what the grain in hand cost.
+  // A grain finalized from the register: its opening Stock Udhaar was
+  // grain already sold, so what it sold for counts as money received
+  // in the season it was finalized in, and what's still to buy back
+  // is valued at its break-even rate — each kg bought back below that
+  // rate is profit, above it a loss. (Once a later season closes, it's
+  // part of that closed season.)
+  const lastClosed = closed[0]?.closedAt ?? null;
+  const opening = openingAll && (!lastClosed || openingAll.openedAt > lastClosed) ? openingAll : null;
+  if (opening) {
+    season.received = round2(season.received + opening.udhaarValue);
+    season.result = round2(season.result + opening.udhaarValue);
+  }
+
+  // The headline: received − paid + what the grain in hand cost, less
+  // the opening Stock Udhaar still to buy back.
   const stockValue = overview.ownValue;
-  const profit = round2(season.result + stockValue);
+  const profit = round2(season.result + stockValue - (opening?.remainingValue ?? 0));
 
   // While the shop still owes customers grain it sold (Stock Udhaar),
   // that grain has no cost yet, so the headline is too high by what
@@ -137,7 +153,7 @@ export async function getGrainAccount(productId: string) {
 
   const blockers: GrainSeasonBlocker[] = [];
   if (Math.abs(overview.ownAvailable - overview.lentOut) > 0.0005) blockers.push("OWN_STOCK");
-  if (overview.stockUdhaarOutstanding > 0.0005) blockers.push("STOCK_UDHAAR");
+  if (overview.stockUdhaarOutstanding + (opening?.remainingKg ?? 0) > 0.0005) blockers.push("STOCK_UDHAAR");
   if (overview.lentOut > 0.0005) blockers.push("LENT_OUT");
   if (overview.borrowed > 0.0005) blockers.push("BORROWED");
 
@@ -156,12 +172,14 @@ export async function getGrainAccount(productId: string) {
     // Shop's grain on its shelf (excludes Advance stock: out on loan,
     // or bought but still at the seller's home).
     shelfKg: round3(overview.ownAvailable - overview.lentOut - overview.atCustomerHomes),
-    stockUdhaar: overview.stockUdhaarOutstanding,
+    // Customers' Stock Udhaar plus the opening Stock Udhaar still to buy back.
+    stockUdhaar: round3(overview.stockUdhaarOutstanding + (opening?.remainingKg ?? 0)),
     lentOut: overview.lentOut,
     atCustomerHomes: overview.atCustomerHomes,
     borrowed: overview.borrowed,
     toRecover,
     breakEvenRate,
+    opening,
     days,
     blockers,
     closedSeasons: closed.map((c) => ({

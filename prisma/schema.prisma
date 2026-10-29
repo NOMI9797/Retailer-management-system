@@ -47,6 +47,7 @@ model Shop {
   grainPickups        GrainPickup[]
   grainWastes         GrainWaste[]
   grainRegisterStocks GrainRegisterStock[]
+  grainOpenings       GrainOpening[]
   grainAdvanceRegisters GrainAdvanceRegister[]
   shopRegister        ShopRegister?
 }
@@ -703,6 +704,7 @@ model Product {
   purchaseReturns     PurchaseReturn[]
   grainWastes         GrainWaste[]
   grainRegisterStocks GrainRegisterStock[]
+  grainOpenings       GrainOpening[]
   grainAdvanceRegisters GrainAdvanceRegister[]
 }
 
@@ -722,6 +724,7 @@ model GrainBatch {
   // and sales / waste / loans skip it, but the purchase stays in the
   // customer's account, cash flow and ledger exactly as recorded.
   removedFromGrain    Boolean          @default(false)
+  openingFills        GrainOpeningFill[]
   // Bought by the shop but still lying at this customer's home: the
   // shop owns it (own stock, value) but it isn't on the shelf yet.
   // quantityAtHome is what's still there — it goes down as the shop
@@ -1165,6 +1168,10 @@ model DailySaleItem {
   id              String    @id @default(uuid())
   dailySaleId     String
   dailySale       DailySale @relation(fields: [dailySaleId], references: [id])
+  // Taken out of the Grain section only while records were aligned with
+  // the register (the grain's Credit list and Profit / Loss skip it);
+  // the sale, its receipt, the customer's account and cash flow keep it.
+  removedFromGrain Boolean  @default(false)
   productId       String
   product         Product   @relation(fields: [productId], references: [id])
   // 6 decimals: a line sold by amount ("Rs 300 of DAP") works out
@@ -1522,4 +1529,44 @@ model ShopRegister {
   // Cash in hand on the Dashboard's What the shop has; null = not entered.
   cashInHand Decimal? @db.Decimal(14, 2)
   updatedAt  DateTime @updatedAt
+}
+
+// A grain's opening position, taken from the register when its records
+// are finalized (the cards' register figures become system figures).
+// The register's Stock Udhaar becomes one shop-level opening Udhaar
+// (no per-customer split): grain already sold, for udhaarValue — so its
+// break-even rate is udhaarValue ÷ udhaarKg. New own stock fills it
+// first (GrainOpeningFill); each kg bought below break-even is profit,
+// above it a loss. leftShopKg is customers' grain that had already left
+// the shop before the records (physical stock = records − this, less
+// what the fills have put back).
+model GrainOpening {
+  id          String             @id @default(uuid())
+  shopId      String
+  shop        Shop               @relation(fields: [shopId], references: [id])
+  productId   String
+  product     Product            @relation(fields: [productId], references: [id])
+  openedAt    DateTime           @default(now())
+  udhaarKg    Decimal            @db.Decimal(14, 3)
+  udhaarValue Decimal            @db.Decimal(14, 2)
+  leftShopKg  Decimal            @db.Decimal(14, 3)
+  // The register figures as they were when finalized.
+  register    Json
+  fills       GrainOpeningFill[]
+
+  @@unique([shopId, productId])
+}
+
+// Some of a new own-stock batch used to fill a grain's opening Stock
+// Udhaar (counted as sold on the batch). Undone if that batch's
+// purchase is edited or deleted.
+model GrainOpeningFill {
+  id             String       @id @default(uuid())
+  grainOpeningId String
+  grainOpening   GrainOpening @relation(fields: [grainOpeningId], references: [id])
+  grainBatchId   String
+  grainBatch     GrainBatch   @relation(fields: [grainBatchId], references: [id])
+  kg             Decimal      @db.Decimal(14, 3)
+  rate           Decimal      @db.Decimal(16, 6)
+  createdAt      DateTime     @default(now())
 }

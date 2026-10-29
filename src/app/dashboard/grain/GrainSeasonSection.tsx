@@ -2,6 +2,10 @@ import { getGrainAccount, type GrainSeasonBlocker } from "@/modules/grain-accoun
 import { CloseSeasonButton } from "@/modules/grain-account/components/CloseSeasonButton";
 import { formatMoney, formatDate } from "@/lib/utils";
 
+// A per-kg rate, to the paisa (break-even and buy-back rates differ by
+// less than a rupee).
+const perKg = (n: number) => `Rs ${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 // The Grain page's Profit / Loss tab for the grain picked in the
 // header: the season's account — money paid for the grain, money
 // received for it, the grain still in hand at what it cost, and the
@@ -34,6 +38,7 @@ export async function GrainSeasonSection({ productId }: { productId: string }) {
           <p className="cf-hero-value num">{formatMoney(a.season.received)}</p>
           <p className="cf-hero-sub">
             {a.season.kgSold} {unit} sold
+            {a.opening && ` · incl. ${formatMoney(a.opening.udhaarValue)} opening Stock Udhaar (sold before the records)`}
           </p>
         </div>
         <div className="cf-hero-card">
@@ -48,7 +53,11 @@ export async function GrainSeasonSection({ productId }: { productId: string }) {
           <p className="cf-hero-value num">
             {up ? "▲" : "▼"} {formatMoney(Math.abs(a.profit))}
           </p>
-          <p className="cf-hero-sub">Received − paid + stock in hand · final when the season closes</p>
+          <p className="cf-hero-sub">
+            {a.opening
+              ? "Received − paid + stock in hand − opening Stock Udhaar still to buy back (at break-even) · final when the season closes"
+              : "Received − paid + stock in hand · final when the season closes"}
+          </p>
           {a.estimate && (
             <p className="cf-hero-sub" style={{ marginTop: 6, color: "var(--grain-600)", fontWeight: 500 }}>
               ⚠ {a.estimate.kg} {unit} Stock Udhaar not bought yet — expected after buying it: about{" "}
@@ -80,7 +89,16 @@ export async function GrainSeasonSection({ productId }: { productId: string }) {
         </div>
         <div className="stat-card">
           <p className="stat-label">Break-even rate</p>
-          {a.breakEvenRate !== null ? (
+          {a.opening && a.opening.remainingKg > 0 ? (
+            <>
+              <p className="stat-value tone-grain">
+                {perKg(a.opening.breakEven)} / {unit}
+              </p>
+              <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
+                Buy the Stock Udhaar back below this for profit · {a.opening.remainingKg} {unit} left
+              </p>
+            </>
+          ) : a.breakEvenRate !== null ? (
             <>
               <p className="stat-value tone-grain">{formatMoney(a.breakEvenRate)} / {unit}</p>
               <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
@@ -103,11 +121,23 @@ export async function GrainSeasonSection({ productId }: { productId: string }) {
             </>
           )}
         </div>
-        {a.stockUdhaar > 0 && (
+        {a.opening && (
+          <div className="stat-card">
+            <p className="stat-label">Opening Stock Udhaar</p>
+            <p className={`stat-value${a.opening.remainingKg > 0 ? " tone-consigned" : " tone-primary"}`}>
+              {a.opening.remainingKg} {unit} left
+            </p>
+            <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
+              of {a.opening.udhaarKg} {unit} · {formatMoney(a.opening.remainingValue)} at break-even · bought back{" "}
+              {a.opening.filledKg} {unit}
+            </p>
+          </div>
+        )}
+        {a.stockUdhaar - (a.opening?.remainingKg ?? 0) > 0 && (
           <div className="stat-card">
             <p className="stat-label">Stock Udhaar (not bought yet)</p>
             <p className="stat-value tone-consigned">
-              {a.stockUdhaar} {unit}
+              {Math.round((a.stockUdhaar - (a.opening?.remainingKg ?? 0)) * 1000) / 1000} {unit}
             </p>
             <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
               Buying it will lower this result
@@ -175,6 +205,56 @@ export async function GrainSeasonSection({ productId }: { productId: string }) {
           </section>
         );
       })()}
+
+      {a.opening && (
+        <section className="panel cf-panel">
+          <h3 className="cf-panel-title">Opening Stock Udhaar bought back</h3>
+          {a.opening.fills.length === 0 ? (
+            <p className="cf-empty">
+              None bought back yet — new {a.product.name} stock fills it first ({a.opening.remainingKg} {unit} at{" "}
+              {perKg(a.opening.breakEven)} / {unit}).
+            </p>
+          ) : (
+            <table className="cf-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th style={{ textAlign: "right" }}>Bought back</th>
+                  <th style={{ textAlign: "right" }}>Rate paid</th>
+                  <th style={{ textAlign: "right" }}>Break-even</th>
+                  <th style={{ textAlign: "right" }}>Profit / loss</th>
+                </tr>
+              </thead>
+              <tbody>
+                {a.opening.fills.map((f) => (
+                  <tr key={f.id}>
+                    <td>{formatDate(f.date)}</td>
+                    <td className="num" style={{ textAlign: "right" }}>
+                      {f.kg} {unit}
+                    </td>
+                    <td className="num" style={{ textAlign: "right" }}>
+                      {perKg(f.rate)}
+                    </td>
+                    <td className="num" style={{ textAlign: "right" }}>
+                      {perKg(a.opening!.breakEven)}
+                    </td>
+                    <td
+                      className="num"
+                      style={{
+                        textAlign: "right",
+                        fontWeight: 600,
+                        color: f.gain >= 0 ? "var(--primary-600)" : "var(--consigned-600)",
+                      }}
+                    >
+                      {f.gain >= 0 ? "▲" : "▼"} {formatMoney(Math.abs(f.gain))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+      )}
 
       <section className="panel cf-panel">
         <h3 className="cf-panel-title">Day by day</h3>

@@ -146,32 +146,50 @@ export async function getDashboard() {
         lentOut: o.lentOut,
         atHomes: o.atCustomerHomes,
         borrowed: o.borrowed,
+        // Finalized from the register: the opening Stock Udhaar left.
+        opening: o.opening,
       };
     })
   );
 
   // Each grain as its Grain page cards show it (the register figure
-  // where one is entered, else the records): one owing Stock Udhaar is
-  // listed by what that's worth; otherwise by the stock it holds and its
-  // value. Owing first, then biggest value first.
+  // where one is entered, else the records — which, for a grain
+  // finalized from the register, include its opening Stock Udhaar still
+  // to buy back, valued at break-even): one owing Stock Udhaar is listed
+  // by what that's worth; otherwise by the stock it holds and its value.
+  // Owing first, then biggest value first.
   const registerRows = await db.grainRegisterStock.findMany({ where: { shopId } });
   const registerFor = new Map(registerRows.map((r) => [r.productId, r]));
   const figure = (v: Prisma.Decimal | null | undefined, fallback: number) => (v != null ? Number(v) : fallback);
-  const grainPositions = grain
-    .map((g) => {
-      const r = registerFor.get(g.id);
-      const udhaarKg = figure(r?.stockUdhaarKg, g.stockUdhaar);
-      return {
-        id: g.id,
-        name: g.name,
-        unit: g.unit,
-        status: udhaarKg > 0 ? ("UDHAAR" as const) : ("STOCK" as const),
-        udhaarKg,
-        udhaarValue: r?.stockUdhaarValue != null ? Number(r.stockUdhaarValue) : null,
-        stockKg: figure(r?.ownKg, g.own),
-        stockValue: figure(r?.ownValue, Math.max(g.value, 0)),
-      };
-    })
+  const grainFigures = grain.map((g) => {
+    const r = registerFor.get(g.id);
+    const udhaarKg = figure(r?.stockUdhaarKg, g.stockUdhaar + (g.opening?.remainingKg ?? 0));
+    return {
+      id: g.id,
+      name: g.name,
+      unit: g.unit,
+      status: udhaarKg > 0 ? ("UDHAAR" as const) : ("STOCK" as const),
+      udhaarKg,
+      udhaarValue:
+        r?.stockUdhaarValue != null ? Number(r.stockUdhaarValue) : g.opening ? g.opening.remainingValue : null,
+      stockKg: figure(r?.ownKg, g.own),
+      stockValue: figure(r?.ownValue, Math.max(g.value, 0)),
+      // The Dashboard's money cards count a grain once it has a figure
+      // to count: entered from the register, or finalized into records.
+      stockValueCounted: r?.ownValue != null ? Number(r.ownValue) : g.opening ? Math.max(g.value, 0) : 0,
+    };
+  });
+  const grainPositions = grainFigures
+    .map((g) => ({
+      id: g.id,
+      name: g.name,
+      unit: g.unit,
+      status: g.status,
+      udhaarKg: g.udhaarKg,
+      udhaarValue: g.udhaarValue,
+      stockKg: g.stockKg,
+      stockValue: g.stockValue,
+    }))
     .filter((g) => g.status === "UDHAAR" || g.stockKg > 0)
     .sort((a, b) =>
       a.status !== b.status
@@ -192,14 +210,10 @@ export async function getDashboard() {
   // since it has no agreed money value yet.
   const bankTotal = round(bankAccounts.reduce((s, b) => s + Number(b.currentBalance), 0));
   const productStockValue = round(productStats.stockValue);
-  // Grain stock = the Stock value typed in from the register on each
-  // grain's card, added up — the records' value isn't used (a grain with
-  // no register figure counts 0).
-  const registerValues = await db.grainRegisterStock.aggregate({
-    where: { shopId, ownValue: { not: null }, product: { isActive: true, isDeleted: false } },
-    _sum: { ownValue: true },
-  });
-  const grainStockValue = round(Number(registerValues._sum.ownValue ?? 0));
+  // Grain stock = each grain's Stock value: the register figure, or the
+  // records once the grain is finalized from the register (a grain with
+  // neither counts 0).
+  const grainStockValue = round(grainFigures.reduce((s, g) => s + g.stockValueCounted, 0));
   const has = {
     // The register's figure (0 until one is entered), not the cash
     // records — the Today row's Cash in hand still shows those.
@@ -211,17 +225,15 @@ export async function getDashboard() {
     customersOwe: round(customersOwe),
     dealersOwe: round(dealers.netDealersOwe),
   };
-  // Stock Udhaar's money value, typed in from the register on each
-  // grain's Stock Udhaar value card — added up across every grain.
-  const udhaarValue = await db.grainRegisterStock.aggregate({
-    where: { shopId, stockUdhaarValue: { not: null } },
-    _sum: { stockUdhaarValue: true },
-  });
+  // Stock Udhaar's money value across every grain: the register's
+  // Stock Udhaar value, or for a finalized grain its opening Stock
+  // Udhaar still to buy back at break-even.
+  const grainUdhaarValue = round(grainFigures.reduce((s, g) => s + (g.udhaarValue ?? 0), 0));
   const owesOut = {
     customers: round(shopOwesCustomers),
     dealers: round(dealers.netShopOwes),
     expenses: round(expenseUdhaar.totalRemaining),
-    grainStock: round(Number(udhaarValue._sum.stockUdhaarValue ?? 0)),
+    grainStock: grainUdhaarValue,
   };
   const totalHas = round(Object.entries(has).reduce((s, [k, v]) => (k === "banks" ? s : s + (v as number)), 0));
   const totalOwes = round(owesOut.customers + owesOut.dealers + owesOut.expenses + owesOut.grainStock);
