@@ -2,6 +2,12 @@ import Link from "next/link";
 import { getDashboard } from "@/modules/dashboard/actions";
 import { formatMoney, formatDate } from "@/lib/utils";
 import { LOW_STOCK_LIMIT } from "@/modules/products/lowStock";
+import { CashInHandTile } from "@/modules/shop-register/components/CashInHandTile";
+
+// Overall position (Shop has / Shop owes / Net worth) shows 0 while the
+// figures under it are being brought in line with the register one by
+// one; set true to show the calculated totals again.
+const OVERALL_POSITION_ENABLED = false;
 
 // The shopkeeper's first screen, laid out most-important-first: today's
 // headline numbers (each against yesterday), the last 7 days, who owes
@@ -14,6 +20,9 @@ export default async function DashboardPage() {
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const biggestDay = Math.max(1, ...d.week.map((w) => Math.max(w.in, w.out)));
   const net = d.kpis.net.today;
+  const overall = OVERALL_POSITION_ENABLED
+    ? { has: d.position.totalHas, owes: d.position.totalOwes, netWorth: d.position.netWorth }
+    : { has: 0, owes: 0, netWorth: 0 };
 
   return (
     <>
@@ -40,19 +49,19 @@ export default async function DashboardPage() {
       <div className="dash-summary">
         <div className="dash-summary-card has">
           <p className="dash-kpi-label">Shop has</p>
-          <p className="dash-summary-value num">{formatMoney(d.position.totalHas)}</p>
+          <p className="dash-summary-value num">{formatMoney(overall.has)}</p>
           <p className="dash-kpi-sub">Cash, bank, stock and money owed to the shop</p>
         </div>
         <div className="dash-summary-card owes">
           <p className="dash-kpi-label">Shop owes</p>
-          <p className="dash-summary-value num">{formatMoney(d.position.totalOwes)}</p>
+          <p className="dash-summary-value num">{formatMoney(overall.owes)}</p>
           <p className="dash-kpi-sub">To customers, dealers and unpaid expenses</p>
         </div>
-        <div className={`dash-summary-card net ${d.position.netWorth >= 0 ? "up" : "down"}`}>
+        <div className={`dash-summary-card net ${overall.netWorth >= 0 ? "up" : "down"}`}>
           <p className="dash-kpi-label">Net worth</p>
           <p className="dash-summary-value num">
-            {d.position.netWorth < 0 && "− "}
-            {formatMoney(Math.abs(d.position.netWorth))}
+            {overall.netWorth < 0 && "− "}
+            {formatMoney(Math.abs(overall.netWorth))}
           </p>
           <p className="dash-kpi-sub">What the shop has, minus what it owes</p>
         </div>
@@ -60,7 +69,7 @@ export default async function DashboardPage() {
 
       <p className="dash-group-label has">What the shop has</p>
       <div className="dash-tiles">
-        <PosTile label="Cash in hand" value={d.position.has.cashInHand} total={d.position.totalHas} href="/dashboard/cash-flow" />
+        <CashInHandTile register={d.position.cash.register} system={d.position.cash.system} total={d.position.totalHas} />
         <PosTile
           label="Bank"
           value={d.position.has.bank}
@@ -68,8 +77,8 @@ export default async function DashboardPage() {
           href="/dashboard/bank-accounts"
           note={d.position.has.banks.map((b) => `${b.name} ${formatMoney(b.balance)}`).join(" · ")}
         />
-        <PosTile label="Products stock" value={d.position.has.productStock} total={d.position.totalHas} href="/dashboard/products" note="At cost price" />
-        <PosTile label="Grain stock" value={d.position.has.grainStock} total={d.position.totalHas} href="/dashboard/grain" note="Shop's own grain" />
+        <PosTile label="Products stock" value={d.position.has.productStock} total={d.position.totalHas} href="/dashboard/products" note="Products page stock value" />
+        <PosTile label="Grain stock" value={d.position.has.grainStock} total={d.position.totalHas} href="/dashboard/grain" note="Stock value, all grains" />
         <PosTile label="Customers owe" value={d.position.has.customersOwe} total={d.position.totalHas} href="/dashboard/debts" />
         <PosTile label="Dealers owe" value={d.position.has.dealersOwe} total={d.position.totalHas} href="/dashboard/dealers" />
       </div>
@@ -78,6 +87,7 @@ export default async function DashboardPage() {
         <PosTile owes label="Owed to customers" value={d.position.owes.customers} total={d.position.totalOwes} href="/dashboard/debts" note="Borrowed money + unpaid grain purchases" />
         <PosTile owes label="Owed to dealers" value={d.position.owes.dealers} total={d.position.totalOwes} href="/dashboard/dealers" />
         <PosTile owes label="Expense Udhaar" value={d.position.owes.expenses} total={d.position.totalOwes} href="/dashboard/debts" note="Unpaid expenses" />
+        <PosTile owes label="Owed to grain stock" value={d.position.owes.grainStock} total={d.position.totalOwes} href="/dashboard/grain" note="Stock Udhaar value, all grains" />
         {d.position.stockUdhaar.length > 0 && (
           <Link href="/dashboard/grain?tab=udhaar" className="dash-tile owes grain">
             <p className="dash-tile-label">Grain owed (Stock Udhaar)</p>

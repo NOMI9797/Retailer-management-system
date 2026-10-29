@@ -977,16 +977,25 @@ export async function getDealerUdhaarTotals(type?: "PRODUCTS" | "GRAIN") {
 
   let shopOwes = 0;
   let dealersOwe = 0;
+  // The same, netted per dealer first (dealer owes − shop owes, each
+  // dealer counted once on whichever side is bigger) — the Dashboard's figures.
+  let netShopOwes = 0;
+  let netDealersOwe = 0;
   for (const dealer of dealers) {
     const sides = dealerUdhaarSides(dealer.account?.transactions ?? []);
     shopOwes += sides.shopOwes;
     dealersOwe += sides.dealerOwes;
+    const dealerNet = sides.dealerOwes - sides.shopOwes;
+    if (dealerNet > 0) netDealersOwe += dealerNet;
+    else netShopOwes -= dealerNet;
   }
 
   const net = dealersOwe - shopOwes;
   return {
     shopOwes,
     dealersOwe,
+    netShopOwes,
+    netDealersOwe,
     netAmount: Math.abs(net),
     netOwedBy: (net > 0.01 ? "DEALERS" : net < -0.01 ? "SHOP" : "SETTLED") as "DEALERS" | "SHOP" | "SETTLED",
   };

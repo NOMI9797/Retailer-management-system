@@ -48,6 +48,7 @@ model Shop {
   grainWastes         GrainWaste[]
   grainRegisterStocks GrainRegisterStock[]
   grainAdvanceRegisters GrainAdvanceRegister[]
+  shopRegister        ShopRegister?
 }
 
 // A login — email + hashed password, nothing more. Deliberately has
@@ -1505,3 +1506,15 @@ enum AdvanceRegisterSection {
   HOME // Bought — at their home tab
 }
 
+
+// Shop-wide figures typed in from the register while old records are
+// being brought in (one row per shop). Display only — shown on the
+// Dashboard in place of what the records add up to; nothing else uses them.
+model ShopRegister {
+  id         String   @id @default(uuid())
+  shopId     String   @unique
+  shop       Shop     @relation(fields: [shopId], references: [id])
+  // Cash in hand on the Dashboard's What the shop has; null = not entered.
+  cashInHand Decimal? @db.Decimal(14, 2)
+  updatedAt  DateTime @updatedAt
+}

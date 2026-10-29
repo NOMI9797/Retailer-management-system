@@ -12,8 +12,28 @@ import { getStockOverview } from "@/modules/stock/actions";
 import { getShopExpenseUdhaarSummary } from "@/modules/expenses/actions";
 import { lowStockWhere } from "@/modules/products/lowStock";
 import { formatStock } from "@/modules/products/units";
+import { getProductStats } from "@/modules/products/products.actions";
+import { getCashInHandRegister } from "@/modules/shop-register/actions";
 
 const round = (n: number) => Math.round(n * 100) / 100;
+
+
+// Per customer: customer owes shop − shop owes customer; the positive
+// nets add up to Customers owe, the negative ones (as positive) to Owed
+// to customers.
+function netCustomerBalances(
+  customerUdhaar: Map<string, { balance: number }>,
+  shopOwes: Map<string, { balance: number }>
+) {
+  let customersOwe = 0;
+  let shopOwesCustomers = 0;
+  for (const id of new Set([...customerUdhaar.keys(), ...shopOwes.keys()])) {
+    const net = (customerUdhaar.get(id)?.balance ?? 0) - (shopOwes.get(id)?.balance ?? 0);
+    if (net > 0) customersOwe += net;
+    else shopOwesCustomers -= net;
+  }
+  return { customersOwe, shopOwesCustomers };
+}
 const dayKey = (d: Date) => toLocalDateString(d);
 
 function shiftDays(dateStr: string, days: number) {
@@ -52,7 +72,7 @@ export async function getDashboard() {
     grainProducts,
     lowStock,
     bankAccounts,
-    stockedProducts,
+    productStats,
     expenseUdhaar,
     lowStockCount,
     outOfStockCount,
@@ -77,10 +97,8 @@ export async function getDashboard() {
     }),
     db.bankAccount.findMany({ where: { shopId }, orderBy: { name: "asc" } }),
     // Products in stock, valued at what the shop paid (cost price).
-    db.product.findMany({
-      where: { shopId, stockKind: "SIMPLE", isDeleted: false, tracksStock: true, quantity: { gt: 0 } },
-      select: { quantity: true, costPrice: true },
-    }),
+    // The Products page's own Stock value card — the same figure here.
+    getProductStats(),
     getShopExpenseUdhaarSummary(),
     db.product.count({ where: lowStockWhere(shopId) }),
     db.product.count({ where: { ...lowStockWhere(shopId), quantity: { lte: 0 } } }),
@@ -98,19 +116,21 @@ export async function getDashboard() {
     return { date, in: s.moneyIn, out: s.moneyOut };
   });
 
-  // Customers' Udhaar: total still owed, and who is overdue (any charge
-  // past its due date with something left on it), most overdue first.
-  let customersOwe = 0;
+  // Who is overdue (any charge past its due date with something left on
+  // it), most overdue first.
   const overdue: { customerId: string; name: string; overdue: number; balance: number }[] = [];
   for (const c of customerUdhaar.values()) {
-    customersOwe += c.balance;
     const overdueAmount = c.charges.filter((ch) => ch.isOverdue).reduce((s, ch) => s + ch.remaining, 0);
     if (overdueAmount > 0.01) {
       overdue.push({ customerId: c.customerId, name: c.customerName, overdue: round(overdueAmount), balance: round(c.balance) });
     }
   }
   overdue.sort((a, b) => b.overdue - a.overdue);
-  const shopOwesCustomers = [...shopOwes.values()].reduce((s, c) => s + c.balance, 0);
+  // Each customer counts once, netted (like the Net card on their page):
+  // what they owe the shop minus what the shop owes them. A customer who
+  // owes more adds the difference to Customers owe; one the shop owes
+  // more adds it to Owed to customers.
+  const { customersOwe, shopOwesCustomers } = netCustomerBalances(customerUdhaar, shopOwes);
 
   const grain = await Promise.all(
     grainProducts.map(async (p) => {
@@ -131,6 +151,7 @@ export async function getDashboard() {
 
   const cashInHand =
     register.isClosed && register.actualClosing !== null ? register.actualClosing : register.expectedClosing;
+  const cashInHandRegister = await getCashInHandRegister();
 
   // The shop's overall position — everything it has or is owed, against
   // everything it owes. Grain counts the shop's own grain (lent-out
@@ -138,31 +159,48 @@ export async function getDashboard() {
   // at; Stock Udhaar (grain owed back to depositors) is listed in kg,
   // since it has no agreed money value yet.
   const bankTotal = round(bankAccounts.reduce((s, b) => s + Number(b.currentBalance), 0));
-  const productStockValue = round(
-    stockedProducts.reduce((s, p) => s + Number(p.quantity) * Number(p.costPrice ?? 0), 0)
-  );
-  const grainStockValue = round(grain.reduce((s, g) => s + Math.max(g.value, 0), 0));
+  const productStockValue = round(productStats.stockValue);
+  // Grain stock = the Stock value typed in from the register on each
+  // grain's card, added up — the records' value isn't used (a grain with
+  // no register figure counts 0).
+  const registerValues = await db.grainRegisterStock.aggregate({
+    where: { shopId, ownValue: { not: null }, product: { isActive: true, isDeleted: false } },
+    _sum: { ownValue: true },
+  });
+  const grainStockValue = round(Number(registerValues._sum.ownValue ?? 0));
   const has = {
-    cashInHand: round(cashInHand),
+    // The register's figure (0 until one is entered), not the cash
+    // records — the Today row's Cash in hand still shows those.
+    cashInHand: round(cashInHandRegister ?? 0),
     bank: bankTotal,
     banks: bankAccounts.map((b) => ({ name: b.name, balance: Number(b.currentBalance) })),
     productStock: productStockValue,
     grainStock: grainStockValue,
     customersOwe: round(customersOwe),
-    dealersOwe: dealers.dealersOwe,
+    dealersOwe: round(dealers.netDealersOwe),
   };
+  // Stock Udhaar's money value, typed in from the register on each
+  // grain's Stock Udhaar value card — added up across every grain.
+  const udhaarValue = await db.grainRegisterStock.aggregate({
+    where: { shopId, stockUdhaarValue: { not: null } },
+    _sum: { stockUdhaarValue: true },
+  });
   const owesOut = {
     customers: round(shopOwesCustomers),
-    dealers: dealers.shopOwes,
+    dealers: round(dealers.netShopOwes),
     expenses: round(expenseUdhaar.totalRemaining),
+    grainStock: round(Number(udhaarValue._sum.stockUdhaarValue ?? 0)),
   };
   const totalHas = round(Object.entries(has).reduce((s, [k, v]) => (k === "banks" ? s : s + (v as number)), 0));
-  const totalOwes = round(owesOut.customers + owesOut.dealers + owesOut.expenses);
+  const totalOwes = round(owesOut.customers + owesOut.dealers + owesOut.expenses + owesOut.grainStock);
 
   return {
     today,
     position: {
       has,
+      // Cash in hand: the register's figure (null = not entered) and what
+      // the cash records say, for the tile's pencil.
+      cash: { register: cashInHandRegister, system: round(cashInHand) },
       owes: owesOut,
       totalHas,
       totalOwes,
@@ -186,8 +224,8 @@ export async function getDashboard() {
       customersOwe: round(customersOwe),
       overdueCount: overdue.length,
       shopOwesCustomers: round(shopOwesCustomers),
-      dealersOwe: dealers.dealersOwe,
-      shopOwesDealers: dealers.shopOwes,
+      dealersOwe: round(dealers.netDealersOwe),
+      shopOwesDealers: round(dealers.netShopOwes),
     },
     grain: grain.filter((g) => g.own !== 0 || g.stockUdhaar > 0 || g.lentOut > 0 || g.borrowed > 0),
     overdue: overdue.slice(0, 5),
