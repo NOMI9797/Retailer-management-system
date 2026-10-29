@@ -45,6 +45,9 @@ export type HomeGrainRow = {
   pickups: { id: string; date: Date; quantity: number; reference: string; notes: string | null }[];
   // Who it was delivered to straight from the home.
   soldTo: { name: string; href: string; quantity: number; date: Date }[];
+  // Advance stock from the register, turned into this record — picked
+  // up only, never sold straight from the home.
+  fromRegister: boolean;
 };
 
 // Grain the shop bought that was (or still is) at the seller's home —
@@ -109,6 +112,7 @@ export async function listHomeGrain(filter: { productId?: string; customerId?: s
           };
         })
         .sort((x, y) => x.date.getTime() - y.date.getTime()),
+      fromRegister: b.fromRegister,
     };
   });
 }
@@ -273,7 +277,7 @@ export async function updateHomeGrainImport(input: UpdateHomeGrainImportInput): 
       where: { id: batch.id },
       data: { quantityIn: data.quantity, quantityAtHome: { increment: change }, reference: data.reference },
     });
-    if (change !== 0) await postToPooledGrainStock(tx, batch.productId, change, 0);
+    if (change !== 0 && !batch.fromRegister) await postToPooledGrainStock(tx, batch.productId, change, 0);
     return null;
   });
 }
@@ -290,7 +294,7 @@ export async function deleteHomeGrainImport(id: string): Promise<ActionResult<nu
     if (Number(batch.quantityAtHome) + 0.0001 < Number(batch.quantityIn) || Number(batch.quantitySold) > 0.0001) {
       throw new Refused("Some of this grain has already been picked up or sold — delete those first.");
     }
-    await postToPooledGrainStock(tx, batch.productId, -Number(batch.quantityIn), 0);
+    if (!batch.fromRegister) await postToPooledGrainStock(tx, batch.productId, -Number(batch.quantityIn), 0);
     await tx.grainBatch.delete({ where: { id: batch.id } });
     return null;
   });

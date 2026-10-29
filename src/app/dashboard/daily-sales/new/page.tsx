@@ -345,7 +345,7 @@ async function EntryBody({ tab, person }: { tab: string; person: Person | null }
         <NewSaleForm
           initialLastPrices={lastPrices}
           homeSources={homeGrain
-            .filter((h) => h.remaining > 0)
+            .filter((h) => h.remaining > 0 && !h.fromRegister)
             .map((h) => ({ id: h.id, productId: h.product.id, customerName: h.customer.name, remaining: h.remaining }))}
           areas={areas}
           products={[...simpleProducts.products, ...grainProducts.products]}

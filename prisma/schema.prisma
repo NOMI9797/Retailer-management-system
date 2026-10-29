@@ -724,6 +724,14 @@ model GrainBatch {
   // and sales / waste / loans skip it, but the purchase stays in the
   // customer's account, cash flow and ledger exactly as recorded.
   removedFromGrain    Boolean          @default(false)
+  // An Advance stock entry from the register (the customer card's
+  // pencil) turned into a real "Bought — at their home" record, so it can
+  // be picked up in trips. Its grain was already counted when the
+  // grain's register figures were finalized, so it never adds to Own
+  // stock or Stock value, isn't sold from or wasted, and doesn't fill
+  // Stock Udhaar — picking it up only moves it onto the shelf (Total
+  // physical up, Advance stock down).
+  fromRegister        Boolean          @default(false)
   openingFills        GrainOpeningFill[]
   // Bought by the shop but still lying at this customer's home: the
   // shop owns it (own stock, value) but it isn't on the shelf yet.

@@ -76,6 +76,7 @@ export async function fillOpeningFromBatch(tx: Tx, productId: string, batchId: s
   if (
     batch.ownerCustomerId ||
     batch.removedFromGrain ||
+    batch.fromRegister ||
     batch.grainLoanId ||
     batch.grainLoanReturnId ||
     batch.grainWasteId

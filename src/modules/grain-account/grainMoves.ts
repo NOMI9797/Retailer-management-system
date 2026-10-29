@@ -57,6 +57,7 @@ export async function collectGrainMoves(
         // What grain waste left behind is grain already paid for.
         grainWasteId: null,
         removedFromGrain: false,
+        fromRegister: false,
         rate: { not: null },
         receivedAt: range,
       },

@@ -30,7 +30,7 @@ export async function drawGrainFifo(
   }
 ): Promise<{ untaken: number }> {
   const all = await tx.grainBatch.findMany({
-    where: { productId: params.productId, removedFromGrain: false },
+    where: { productId: params.productId, removedFromGrain: false, fromRegister: false },
     orderBy: { receivedAt: "asc" },
   });
   const batches = [...all.filter((b) => !b.ownerCustomerId), ...all.filter((b) => b.ownerCustomerId)];
@@ -113,6 +113,9 @@ export async function coverStockUdhaarFromBatch(
   newBatchId: string,
   options?: { onlyDepositId?: string; tag?: boolean }
 ) {
+  // Advance stock from the register picked up: already counted, owes nothing.
+  const batch = await tx.grainBatch.findUnique({ where: { id: newBatchId }, select: { fromRegister: true } });
+  if (batch?.fromRegister) return;
   await coverCustomersStockUdhaar(tx, productId, newBatchId, options);
   await fillOpeningFromBatch(tx, productId, newBatchId);
 }
@@ -234,7 +237,7 @@ export async function coverDepositFromOwnStock(
 
   const ownBatches = (
     await tx.grainBatch.findMany({
-      where: { productId: params.productId, ownerCustomerId: null, removedFromGrain: false },
+      where: { productId: params.productId, ownerCustomerId: null, removedFromGrain: false, fromRegister: false },
       orderBy: { receivedAt: "asc" },
     })
   ).map((b) => ({

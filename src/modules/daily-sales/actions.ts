@@ -152,7 +152,7 @@ async function applySaleItems(
       // delivered from there straight to this buyer — never on the
       // shelf. Only what's still at that home can go.
       const home = await tx.grainBatch.findFirst({
-        where: { id: item.fromHomeBatchId, productId: product.id, homeCustomerId: { not: null } },
+        where: { id: item.fromHomeBatchId, productId: product.id, homeCustomerId: { not: null }, fromRegister: false },
         include: { homeCustomer: true },
       });
       if (!home) return { success: false, error: "That customer's-home grain wasn't found." };

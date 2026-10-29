@@ -1035,6 +1035,13 @@ export async function getStockOverview(productId: string) {
       }
       // The customer's ownership claim, whatever has physically moved.
       customerClaim += quantityIn - quantityTransferred - quantityReturned;
+    } else if (batch.fromRegister) {
+      // Advance stock from the register: already in the finalized
+      // figures — what's been picked up is on the shelf, the rest is
+      // still at the customer's home. Never Own stock or Stock value.
+      const atHome = Number(batch.quantityAtHome);
+      totalPhysical += quantityIn - quantitySold - quantityReturned - atHome;
+      atCustomerHomes += atHome;
     } else {
       // Grain sent back to the dealer (purchase return) has left too.
       const available = quantityIn - quantitySold - quantityReturned;
@@ -1392,6 +1399,7 @@ export async function listGrainLedger(productId: string) {
         grainLoanReturnId: null,
         grainWasteId: null,
         removedFromGrain: false,
+        fromRegister: false,
         paymentTransactions: { none: {} },
       },
     }),
@@ -1552,7 +1560,7 @@ async function takeUnsettledGrain(
 
   if (fromShopStock > 0) {
     const own = await tx.grainBatch.findMany({
-      where: { productId: batch.productId, ownerCustomerId: null, removedFromGrain: false },
+      where: { productId: batch.productId, ownerCustomerId: null, removedFromGrain: false, fromRegister: false },
     });
     const ownFree = round3(
       own.reduce(

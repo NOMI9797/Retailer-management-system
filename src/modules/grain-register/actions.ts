@@ -175,3 +175,34 @@ export async function deleteAdvanceRegister(id: string): Promise<ActionResult<nu
   if (result.count === 0) return fail("Entry not found");
   return ok(null);
 }
+
+// Turns every "Bought — at their home" Advance stock entry from the
+// register into a real at-home record (quantity only, rate already set,
+// marked fromRegister) so it can be picked up in trips — then removes
+// the entry, so nothing is counted twice. Its grain was already counted
+// when the grain was finalized, so no figure changes. Returns how many
+// were turned into records.
+export async function convertAdvanceRegisterToRecords(): Promise<ActionResult<{ converted: number }>> {
+  const shopId = await getCurrentShopId();
+  const entries = await db.grainAdvanceRegister.findMany({ where: { shopId, section: "HOME" } });
+  await db.$transaction(async (tx) => {
+    for (const e of entries) {
+      await tx.grainBatch.create({
+        data: {
+          productId: e.productId,
+          ownerCustomerId: null,
+          quantityIn: e.kg,
+          rate: 0,
+          reference: e.note?.trim() || "From register",
+          homeCustomerId: e.customerId,
+          quantityAtHome: e.kg,
+          receivedAt: e.entryDate,
+          fromRegister: true,
+        },
+      });
+      await tx.grainAdvanceRegister.delete({ where: { id: e.id } });
+    }
+  });
+  return ok({ converted: entries.length });
+}
+
