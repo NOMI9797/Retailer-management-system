@@ -1465,6 +1465,8 @@ model GrainRegisterStock {
   customerKg    Decimal? @db.Decimal(14, 3)
   physicalKg    Decimal? @db.Decimal(14, 3)
   stockUdhaarKg Decimal? @db.Decimal(14, 3)
+  // Money value of the Stock Udhaar the shop owes customers — register only.
+  stockUdhaarValue Decimal? @db.Decimal(14, 2)
   pooledKg      Decimal? @db.Decimal(14, 3)
   advanceKg     Decimal? @db.Decimal(14, 3)
   borrowedKg    Decimal? @db.Decimal(14, 3)

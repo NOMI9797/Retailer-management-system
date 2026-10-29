@@ -20,7 +20,6 @@ export function StockSummary({
   ownAvailable,
   customerClaim,
   stockUdhaarOutstanding,
-  pooled,
   stockValue,
   lentOut,
   atCustomerHomes = 0,
@@ -33,7 +32,6 @@ export function StockSummary({
   ownAvailable: number;
   customerClaim: number;
   stockUdhaarOutstanding: number;
-  pooled: { quantity: number; isProfit: boolean; displayValue: number };
   // Value of the shop's own grain on hand, at the rates it was bought at.
   stockValue: number;
   // Grain loans still to come back to the shop / still to give back.
@@ -54,24 +52,29 @@ export function StockSummary({
   function card(
     key: RegisterCard,
     label: string,
-    system: number,
+    // null = register only, no system figure behind it.
+    system: number | null,
     tone: (value: number) => string,
     sub?: React.ReactNode
   ) {
     const fromRegister = register[key];
-    const value = fromRegister ?? system;
-    const money = key === "ownValue";
+    const value = fromRegister ?? system ?? 0;
+    const money = key === "ownValue" || key === "stockUdhaarValue";
     const show = (n: number) => (money ? `Rs ${n.toLocaleString()}` : `${n} ${unitName}`);
     return (
       <div className="stat-card" style={registerEdit ? { position: "relative" } : undefined}>
         <p className="stat-label">{label}</p>
         <p className={`stat-value${tone(value)}`}>{show(value)}</p>
-        {fromRegister !== undefined ? (
+        {fromRegister !== undefined && system !== null ? (
           <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
             <span className="pay-badge pay-mixed" style={{ marginRight: 6 }}>
               From register
             </span>
             System: {show(system)}
+          </p>
+        ) : fromRegister !== undefined ? (
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
+            <span className="pay-badge pay-mixed">From register</span>
           </p>
         ) : (
           sub
@@ -97,7 +100,9 @@ export function StockSummary({
       {card("customerKg", "Customer stock", customerClaim, () => " tone-grain")}
       {card("physicalKg", "Total physical", totalRemaining, () => "")}
       {card("stockUdhaarKg", "Stock Udhaar", stockUdhaarOutstanding, (v) => (v ? " tone-consigned" : ""))}
-      {card("pooledKg", "Pooled stock", pooled.quantity, () => " tone-grain")}
+      {/* What the Stock Udhaar is worth in money — owed to customers;
+          register only, not linked to any record. */}
+      {card("stockUdhaarValue", "Stock Udhaar value", null, (v) => (v ? " tone-consigned" : ""))}
       {card("ownValue", "Stock value", stockValue, () => "")}
       {/* The shop's own grain that isn't here: lent out on grain loans
           (coming back), or bought but still at the seller's home (to

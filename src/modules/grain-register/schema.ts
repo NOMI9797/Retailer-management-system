@@ -8,6 +8,7 @@ export const REGISTER_CARDS = [
   "customerKg",
   "physicalKg",
   "stockUdhaarKg",
+  "stockUdhaarValue",
   "pooledKg",
   "advanceKg",
   "borrowedKg",

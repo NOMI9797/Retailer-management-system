@@ -26,8 +26,9 @@ export function RegisterStockButton({
   // "Rs" for money, otherwise the grain's unit.
   unit: string;
   register: number | undefined;
-  // What the records add up to now, shown for comparison.
-  system: number;
+  // What the records add up to now, shown for comparison; null when
+  // the card has no system figure.
+  system: number | null;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -99,9 +100,11 @@ export function RegisterStockButton({
                   required
                   autoFocus
                 />
-                <span style={{ display: "block", fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
-                  System: {show(system)}
-                </span>
+                {system !== null && (
+                  <span style={{ display: "block", fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>
+                    System: {show(system)}
+                  </span>
+                )}
               </div>
               <div className="modal-actions">
                 <button type="submit" className="btn btn-primary" disabled={isSaving}>
@@ -109,7 +112,7 @@ export function RegisterStockButton({
                 </button>
                 {register !== undefined && (
                   <button type="button" className="btn btn-ghost" onClick={() => save(null)} disabled={isSaving}>
-                    Use system figure
+                    {system === null ? "Clear" : "Use system figure"}
                   </button>
                 )}
                 <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)} disabled={isSaving}>

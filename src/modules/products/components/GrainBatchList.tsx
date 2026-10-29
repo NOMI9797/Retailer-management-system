@@ -71,7 +71,6 @@ export function GrainBatchList({
         ownAvailable={overview.ownAvailable}
         customerClaim={overview.customerClaim}
         stockUdhaarOutstanding={overview.stockUdhaarOutstanding}
-        pooled={overview.pooled}
         stockValue={overview.ownValue}
         lentOut={overview.lentOut}
         atCustomerHomes={overview.atCustomerHomes}
