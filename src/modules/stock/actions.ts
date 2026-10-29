@@ -1058,7 +1058,8 @@ export async function getStockOverview(productId: string) {
   // left the shop isn't on the shelf — less what new stock bought to
   // fill the opening Stock Udhaar has put back since.
   const opening = await getOpeningState(db as unknown as Prisma.TransactionClient, productId);
-  if (opening) totalPhysical -= Math.max(opening.leftShopKg - opening.filledKg, 0);
+  // Customers' grain wasted since is gone from the shelf too.
+  if (opening) totalPhysical -= Math.max(opening.leftShopKg + opening.wastedKg - opening.filledKg, 0);
 
   // Scoped to THIS product — per the "product-specific, not
   // shop-wide" decision (see getShopOwedForGrain's comment). A

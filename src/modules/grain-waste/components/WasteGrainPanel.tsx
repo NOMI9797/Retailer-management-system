@@ -6,7 +6,17 @@ import { createGrainWaste, deleteGrainWaste, updateGrainWaste, type GrainWasteRo
 import { showToast } from "@/components/shared/toastStore";
 import { formatDate, formatMoney, toLocalDateString } from "@/lib/utils";
 
-type Shelf = { productName: string; unitName: string; kg: number; value: number; rate: number };
+type Shelf = {
+  productName: string;
+  unitName: string;
+  kg: number;
+  value: number;
+  rate: number;
+  // Customers' grain on the shelf — what waste beyond the shop's own
+  // comes out of — and the rate it's owed back at.
+  customerKg: number;
+  customerRate: number | null;
+};
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -15,7 +25,8 @@ const perKg = (n: number) => `Rs ${n.toLocaleString("en-US", { minimumFractionDi
 
 // The Waste grain tab: the shop's own grain on the shelf, a form to
 // mark some as waste with a live before → after (the cost stays, so the
-// cost per kg goes up), and the waste recorded so far.
+// cost per kg goes up; beyond the shop's own it's customers' grain, owed
+// back as Stock Udhaar), and the waste recorded so far.
 export function WasteGrainPanel({ productId, shelf, rows }: { productId: string; shelf: Shelf; rows: GrainWasteRow[] }) {
   const unit = shelf.unitName;
   return (
@@ -65,6 +76,11 @@ export function WasteGrainPanel({ productId, shelf, rows }: { productId: string;
                   <td>{formatDate(r.date)}</td>
                   <td className="num" style={{ textAlign: "right", fontWeight: 600, color: "var(--consigned-600)" }}>
                     {r.quantity} {unit}
+                    {r.fromCustomersKg > 0 && (
+                      <span style={{ display: "block", fontSize: 12, fontWeight: 400 }}>
+                        incl. {r.fromCustomersKg} {unit} customers&apos; → Stock Udhaar
+                      </span>
+                    )}
                   </td>
                   <td className="num" style={{ textAlign: "right" }}>
                     {r.kgBefore} → {r.kgAfter} {unit}
@@ -84,7 +100,7 @@ export function WasteGrainPanel({ productId, shelf, rows }: { productId: string;
                         </span>
                       ) : (
                         <>
-                          <EditWasteButton row={r} unit={unit} shelfKg={shelf.kg} />
+                          <EditWasteButton row={r} unit={unit} shelfKg={shelf.kg + shelf.customerKg} />
                           <DeleteWasteButton id={r.id} />
                         </>
                       )}
@@ -110,7 +126,11 @@ function WasteForm({ productId, shelf }: { productId: string; shelf: Shelf }) {
   const [isSaving, setIsSaving] = useState(false);
   const unit = shelf.unitName;
   const q = Number(quantity) || 0;
-  const left = round3(shelf.kg - q);
+  const most = round3(shelf.kg + shelf.customerKg);
+  // The shop's own grain goes first; anything beyond it is customers'.
+  const ownPart = round3(Math.min(q, shelf.kg));
+  const customerPart = round3(q - ownPart);
+  const left = round3(shelf.kg - ownPart);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -134,16 +154,19 @@ function WasteForm({ productId, shelf }: { productId: string; shelf: Shelf }) {
       {error && <p className="form-banner error">{error}</p>}
       <div className="field-row">
         <div className="field">
-          <label>Quantity wasted ({unit}) — up to {shelf.kg}</label>
+          <label>
+            Quantity wasted ({unit}) — up to {most}
+            {shelf.customerKg > 0 && ` (${shelf.kg} own + ${shelf.customerKg} customers')`}
+          </label>
           <input
             type="number"
             min="0"
-            max={shelf.kg}
+            max={most}
             step="any"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
             required
-            disabled={shelf.kg <= 0}
+            disabled={most <= 0}
           />
         </div>
         <div className="field">
@@ -168,38 +191,67 @@ function WasteForm({ productId, shelf }: { productId: string; shelf: Shelf }) {
         </div>
       </div>
 
-      {q > 0 && q <= shelf.kg && (
+      {q > 0 && q <= most && (
         <div className="bill-summary" style={{ marginBottom: 14 }}>
-          <div className="bill-summary-row">
-            <span>Stock</span>
-            <strong className="num">
-              {shelf.kg} → {left} {unit}
-            </strong>
-          </div>
-          <div className="bill-summary-row">
-            <span>Stock value</span>
-            <strong className="num">
-              {left > 0 ? `${formatMoney(shelf.value)} (stays the same)` : `${formatMoney(shelf.value)} → Rs 0`}
-            </strong>
-          </div>
-          <div className="bill-summary-row">
-            <span>Cost per {unit}</span>
-            <strong className="num">
+          {ownPart > 0 && customerPart > 0 && (
+            <div className="bill-summary-row">
+              <span>From the shop&apos;s own grain</span>
+              <strong className="num">
+                {ownPart} {unit}
+              </strong>
+            </div>
+          )}
+          {ownPart > 0 && (
+            <>
+            <div className="bill-summary-row">
+              <span>Stock</span>
+              <strong className="num">
+                {shelf.kg} → {left} {unit}
+              </strong>
+            </div>
+            <div className="bill-summary-row">
+              <span>Stock value</span>
+              <strong className="num">
+                {left > 0 ? `${formatMoney(shelf.value)} (stays the same)` : `${formatMoney(shelf.value)} → Rs 0`}
+              </strong>
+            </div>
+            <div className="bill-summary-row">
+              <span>Cost per {unit}</span>
+              <strong className="num">
+                {left > 0
+                  ? `${perKg(shelf.rate)} → ${perKg(shelf.value / left)}`
+                  : "—"}
+              </strong>
+            </div>
+            </>
+          )}
+          {ownPart > 0 && (
+            <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ink-muted)" }}>
               {left > 0
-                ? `${perKg(shelf.rate)} → ${perKg(shelf.value / left)}`
-                : "—"}
-            </strong>
-          </div>
-          <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ink-muted)" }}>
-            {left > 0
-              ? `Profit doesn't change today; each ${unit} left now costs ${perKg(shelf.value / left - shelf.rate)} more, so profit drops by ${formatMoney(round2(q * shelf.rate))} in total as it's sold.`
-              : `Nothing is left to carry the cost, so profit drops by ${formatMoney(shelf.value)} right away.`}
-          </p>
+                ? `Profit doesn't change today; each ${unit} left now costs ${perKg(shelf.value / left - shelf.rate)} more, so profit drops by ${formatMoney(round2(ownPart * shelf.rate))} in total as it's sold.`
+                : `Nothing is left to carry the cost, so profit drops by ${formatMoney(shelf.value)} right away.`}
+            </p>
+          )}
+          {customerPart > 0 && shelf.customerRate !== null && (
+            <>
+              <div className="bill-summary-row" style={{ marginTop: 8 }}>
+                <span>From customers&apos; grain → Stock Udhaar</span>
+                <strong className="num" style={{ color: "var(--consigned-600)" }}>
+                  +{customerPart} {unit}
+                </strong>
+              </div>
+              <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ink-muted)" }}>
+                The shop owes it back: worth {formatMoney(round2(customerPart * shelf.customerRate))} at{" "}
+                {perKg(shelf.customerRate)} / {unit} — profit drops by that much now, and buying it back below that rate earns it
+                back.
+              </p>
+            </>
+          )}
         </div>
       )}
 
       <div className="modal-actions">
-        <button type="submit" className="btn btn-primary" disabled={isSaving || q <= 0 || shelf.kg <= 0}>
+        <button type="submit" className="btn btn-primary" disabled={isSaving || q <= 0 || q > most}>
           {isSaving ? "Saving…" : "Mark as waste"}
         </button>
       </div>

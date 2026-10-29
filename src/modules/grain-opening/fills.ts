@@ -12,9 +12,16 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export type OpeningState = {
   id: string;
   openedAt: Date;
+  // From the register.
   udhaarKg: number;
   udhaarValue: number;
-  // udhaarValue ÷ udhaarKg: what each kg owed was sold for.
+  // Wasted since out of customers' grain (the shop's own ran out): owed
+  // back too, valued at the break-even rate of the day — a loss.
+  wastedKg: number;
+  wastedValue: number;
+  // Everything owed: udhaarKg + wastedKg.
+  totalKg: number;
+  // (udhaarValue + wastedValue) ÷ totalKg: what each kg owed is worth.
   breakEven: number;
   leftShopKg: number;
   filledKg: number;
@@ -29,16 +36,26 @@ export type OpeningState = {
 export async function getOpeningState(tx: Tx, productId: string): Promise<OpeningState | null> {
   const opening = await tx.grainOpening.findFirst({ where: { productId }, include: { fills: true } });
   if (!opening) return null;
+  const wastes = await tx.grainWaste.findMany({
+    where: { productId, fromCustomersKg: { gt: 0 } },
+    select: { fromCustomersKg: true, customerRate: true },
+  });
   const udhaarKg = Number(opening.udhaarKg);
   const udhaarValue = Number(opening.udhaarValue);
-  const breakEven = udhaarKg > 0 ? udhaarValue / udhaarKg : 0;
+  const wastedKg = round3(wastes.reduce((s, w) => s + Number(w.fromCustomersKg), 0));
+  const wastedValue = round2(wastes.reduce((s, w) => s + Number(w.fromCustomersKg) * Number(w.customerRate ?? 0), 0));
+  const totalKg = round3(udhaarKg + wastedKg);
+  const breakEven = totalKg > 0 ? (udhaarValue + wastedValue) / totalKg : 0;
   const filledKg = round3(opening.fills.reduce((s, f) => s + Number(f.kg), 0));
-  const remainingKg = round3(Math.max(udhaarKg - filledKg, 0));
+  const remainingKg = round3(Math.max(totalKg - filledKg, 0));
   return {
     id: opening.id,
     openedAt: opening.openedAt,
     udhaarKg,
     udhaarValue,
+    wastedKg,
+    wastedValue,
+    totalKg,
     breakEven,
     leftShopKg: Number(opening.leftShopKg),
     filledKg,

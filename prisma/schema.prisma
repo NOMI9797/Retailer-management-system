@@ -1444,6 +1444,11 @@ model GrainWaste {
   // The shelf stock just before: kg and what it cost.
   kgBefore    Decimal          @db.Decimal(14, 3)
   valueBefore Decimal          @db.Decimal(14, 2)
+  // Waste beyond the shop's own stock came out of customers' grain: the
+  // shop owes it back (more Stock Udhaar), valued at customerRate (the
+  // grain's break-even rate then) — a loss until it's bought back.
+  fromCustomersKg Decimal       @default(0) @db.Decimal(14, 3)
+  customerRate    Decimal?      @db.Decimal(16, 6)
   createdAt   DateTime         @default(now())
   draws       GrainWasteDraw[]
   remainder   GrainBatch?      @relation("WasteRemainder")

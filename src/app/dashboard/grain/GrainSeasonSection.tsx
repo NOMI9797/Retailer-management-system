@@ -128,8 +128,10 @@ export async function GrainSeasonSection({ productId }: { productId: string }) {
               {a.opening.remainingKg} {unit} left
             </p>
             <p style={{ margin: "4px 0 0", fontSize: 12, color: "var(--ink-muted)" }}>
-              of {a.opening.udhaarKg} {unit} · {formatMoney(a.opening.remainingValue)} at break-even · bought back{" "}
-              {a.opening.filledKg} {unit}
+              of {a.opening.totalKg} {unit}
+              {a.opening.wastedKg > 0 &&
+                ` (incl. ${a.opening.wastedKg} ${unit} of customers' grain wasted, ${formatMoney(a.opening.wastedValue)})`}{" "}
+              · {formatMoney(a.opening.remainingValue)} at break-even · bought back {a.opening.filledKg} {unit}
             </p>
           </div>
         )}
