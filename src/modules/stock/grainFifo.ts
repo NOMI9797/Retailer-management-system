@@ -111,7 +111,7 @@ export async function coverStockUdhaarFromBatch(
   tx: Prisma.TransactionClient,
   productId: string,
   newBatchId: string,
-  options?: { onlyDepositId?: string; tag?: boolean }
+  options?: { onlyDepositId?: string; tag?: boolean; note?: string }
 ) {
   // Advance stock from the register picked up: already counted, owes nothing.
   const batch = await tx.grainBatch.findUnique({ where: { id: newBatchId }, select: { fromRegister: true } });
@@ -124,7 +124,7 @@ async function coverCustomersStockUdhaar(
   tx: Prisma.TransactionClient,
   productId: string,
   newBatchId: string,
-  options?: { onlyDepositId?: string; tag?: boolean }
+  options?: { onlyDepositId?: string; tag?: boolean; note?: string }
 ) {
   const newBatch = await tx.grainBatch.findUniqueOrThrow({ where: { id: newBatchId } });
   // Only grain on the shelf can refill a deposit — what's still at a
@@ -204,7 +204,7 @@ async function coverCustomersStockUdhaar(
         productId,
         grainBatchId: deposit.id,
         quantity: -q,
-        notes: options?.tag ? "Bought by the shop" : "Given back from new stock",
+        notes: options?.note ?? (options?.tag ? "Bought by the shop" : "Given back from new stock"),
         ...link,
         ...(options?.tag ? { linkedTransferBatchId: newBatchId } : {}),
       },

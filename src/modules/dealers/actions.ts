@@ -2,13 +2,14 @@
 
 import { entryUnitName, mainUnitsPer, subUnitsPerUnit } from "@/modules/products/units";
 import { cache } from "react";
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { getCurrentShopId } from "@/lib/tenant";
 import { cachedShopQuery, invalidateShopCache } from "@/lib/cache";
 import { parseLocalDateStart, parseLocalDateEnd } from "@/lib/utils";
 import { postToBankAccount } from "@/modules/settings/bankAccounts.actions";
 import { postToPooledGrainStock } from "@/modules/stock/actions";
-import { coverStockUdhaarFromBatch } from "@/modules/stock/grainFifo";
+import { coverStockUdhaarFromBatch, movedOntoBatch, undoCoverOntoBatch } from "@/modules/stock/grainFifo";
 import {
   dealerSchema,
   updateDealerSchema,
@@ -662,8 +663,9 @@ export async function createDealerGrainPurchase(input: DealerGrainPurchaseInput)
 
     // Real, priced purchase from a dealer — pool gains what was paid.
     await postToPooledGrainStock(tx, data.productId, data.quantity, amount);
-    // New own grain first gives back any Stock Udhaar still owed.
-    await coverStockUdhaarFromBatch(tx, data.productId, created.id);
+    // New own grain first gives back any Stock Udhaar still owed —
+    // tagged with this batch so deleting the purchase can move it back.
+    await coverStockUdhaarFromBatch(tx, data.productId, created.id, { tag: true, note: "Given back from new stock" });
 
     return created;
   });
@@ -673,6 +675,94 @@ export async function createDealerGrainPurchase(input: DealerGrainPurchaseInput)
     success: true,
     data: { ...batch, quantityIn: Number(batch.quantityIn), rate: batch.rate !== null ? Number(batch.rate) : null },
   };
+}
+
+// A dealer grain purchase is two rows written together: the grain batch
+// and its payment row (createDealerGrainPurchase) — with no stored link
+// between them, so they're paired by dealer, amount, reference and
+// time. Null unless exactly one batch matches.
+async function findDealerGrainPurchaseBatch(shopId: string, transactionId: string) {
+  const txn = await db.dealerTransaction.findFirst({
+    where: {
+      id: transactionId,
+      dealerAccount: { dealer: { shopId, type: "GRAIN" } },
+      direction: "OUT",
+      isDealerSale: false,
+      linkedPurchaseId: null,
+      notes: { startsWith: "Purchased " },
+    },
+    include: { dealerAccount: true },
+  });
+  if (!txn) return null;
+  const candidates = await db.grainBatch.findMany({
+    where: {
+      dealerId: txn.dealerAccount.dealerId,
+      reference: txn.reference,
+      receivedAt: {
+        gte: new Date(txn.transactionDate.getTime() - 60_000),
+        lte: new Date(txn.transactionDate.getTime() + 60_000),
+      },
+    },
+  });
+  const matches = candidates.filter(
+    (b) => Math.abs(Number(b.quantityIn) * Number(b.rate ?? 0) - Number(txn.amount)) < 0.01
+  );
+  return matches.length === 1 ? { txn, batch: matches[0] } : null;
+}
+
+// Deletes a grain purchase from a dealer, everything it did undone:
+// the grain leaves the stock, any Stock Udhaar it gave back (to
+// customers or the opening) is owed again, the pooled value drops, and
+// the money goes back — the dealer's Udhaar for a credit purchase, the
+// bank for an Account one (Cash needs nothing: the payment row was the
+// cash record). Refused once any of its grain has been sold, lent,
+// wasted, returned or picked up — those have to be undone first.
+export async function deleteDealerGrainPurchase(transactionId: string): Promise<Result<null>> {
+  const shopId = await getCurrentShopId();
+  const found = await findDealerGrainPurchaseBatch(shopId, transactionId);
+  if (!found) return { success: false, error: "This grain purchase couldn't be matched to its stock — it can't be deleted here." };
+  const { txn, batch } = found;
+
+  const tx0 = db as unknown as Prisma.TransactionClient;
+  const takenOver = await movedOntoBatch(tx0, batch.id);
+  const [wasted, saleReturns, purchaseReturns, pickups, depositReturns] = await Promise.all([
+    db.grainWasteDraw.count({ where: { grainBatchId: batch.id } }),
+    db.saleReturnBatch.count({ where: { grainBatchId: batch.id } }),
+    db.purchaseReturn.count({ where: { grainBatchId: batch.id } }),
+    db.grainPickup.count({ where: { grainBatchId: batch.id } }),
+    db.grainDepositReturn.count({ where: { grainBatchId: batch.id } }),
+  ]);
+  if (
+    Number(batch.quantitySold) - takenOver > 0.0005 ||
+    Number(batch.quantityReturned) > 0.0005 ||
+    Number(batch.quantityTransferred) > 0.0005 ||
+    Number(batch.quantityAtHome) > 0.0005 ||
+    wasted + saleReturns + purchaseReturns + pickups + depositReturns > 0
+  ) {
+    return {
+      success: false,
+      error: "Some of this grain has already been sold, lent, wasted or returned — undo that first, then delete the purchase.",
+    };
+  }
+
+  const amount = Number(txn.amount);
+  await db.$transaction(async (tx) => {
+    // Customers' and the opening Stock Udhaar this grain gave back is
+    // owed again; sales moved onto the batch go back to their deposits.
+    await undoCoverOntoBatch(tx, batch.id);
+    await postToPooledGrainStock(tx, batch.productId, -Number(batch.quantityIn), -amount);
+    if (txn.paymentMethod === "CREDIT") {
+      await tx.dealerAccount.update({ where: { id: txn.dealerAccountId }, data: { currentBalance: { decrement: amount } } });
+    }
+    if (txn.paymentMethod === "ACCOUNT" && txn.bankAccountId) {
+      await postToBankAccount(tx, txn.bankAccountId, amount);
+    }
+    await tx.dealerTransaction.delete({ where: { id: txn.id } });
+    await tx.grainBatch.delete({ where: { id: batch.id } });
+  });
+
+  invalidateShopCache(ENTITY, shopId);
+  return { success: true, data: null };
 }
 
 // Every grain batch bought from GRAIN dealers, across every dealer —

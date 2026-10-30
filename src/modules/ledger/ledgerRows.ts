@@ -369,14 +369,13 @@ export async function collectLedgerRows(
       });
     } else if (txn.isSettledPurchase || txn.notes?.startsWith("Purchased ")) {
       // A grain purchase's own payment row (createDealerGrainPurchase
-      // writes no separate purchase record). No safe reversal exists
-      // for these yet — deleting this row alone would leave the grain
-      // batch and stock behind.
+      // writes no separate purchase record) — deleting it deletes the
+      // whole purchase, grain included (deleteDealerGrainPurchase).
       rows.push({
         ...base,
         label: "Grain bought from dealer",
         detail: [txn.notes, refDetail].filter(Boolean).join(" · ") || null,
-        deleteRef: null,
+        deleteRef: { kind: "DEALER_GRAIN_PURCHASE", transactionId: txn.id },
       });
     } else {
       rows.push({

@@ -17,7 +17,7 @@ import {
 import { ok, fail, type ActionResult } from "@/lib/actionResult";
 import { deleteSaleVisit, deleteGrainSaleItemCreditPayment } from "@/modules/daily-sales/actions";
 import { deleteExpense, deleteExpensePayment } from "@/modules/expenses/actions";
-import { deleteDealerProductPurchase, deleteDealerTransaction } from "@/modules/dealers/actions";
+import { deleteDealerGrainPurchase, deleteDealerProductPurchase, deleteDealerTransaction } from "@/modules/dealers/actions";
 import { deleteAccountTransaction } from "@/modules/customers/actions";
 import { deleteGrainSettlement } from "@/modules/stock/actions";
 import { deleteGrainLoan, deleteGrainLoanReturn } from "@/modules/grain-loans/actions";
@@ -189,6 +189,8 @@ export type BankAccountRowDeleteRef =
   | { kind: "GRAIN_CREDIT_PAYMENT"; paymentId: string }
   | { kind: "EXPENSE_PAYMENT"; paymentId: string }
   | { kind: "DEALER_TRANSACTION"; transactionId: string }
+  // A grain purchase from a dealer: its payment row (the grain goes with it).
+  | { kind: "DEALER_GRAIN_PURCHASE"; transactionId: string }
   | { kind: "GRAIN_LOAN_RETURN"; returnId: string }
   // Imported opening balance / cash withdrawn (Bank accounts page).
   | { kind: "BANK_ENTRY"; entryId: string }
@@ -507,7 +509,9 @@ export async function listBankAccountTransactions(options?: {
           ? "Grain bought from dealer"
           : "Dealer Udhaar repayment",
       description: `${txn.dealerAccount.dealer.name}${txn.reference ? ` · Ref: ${txn.reference}` : ""}`,
-      deleteRef: txn.isSettledPurchase ? null : { kind: "DEALER_TRANSACTION", transactionId: txn.id },
+      deleteRef: txn.isSettledPurchase
+        ? { kind: "DEALER_GRAIN_PURCHASE", transactionId: txn.id }
+        : { kind: "DEALER_TRANSACTION", transactionId: txn.id },
     });
   }
 
@@ -634,6 +638,11 @@ export async function deleteBankAccountRow(ref: BankAccountRowDeleteRef): Promis
     }
     case "DEALER_TRANSACTION": {
       const result = await deleteDealerTransaction(ref.transactionId);
+      if (!result.success) return fail(result.error);
+      return ok(null);
+    }
+    case "DEALER_GRAIN_PURCHASE": {
+      const result = await deleteDealerGrainPurchase(ref.transactionId);
       if (!result.success) return fail(result.error);
       return ok(null);
     }
