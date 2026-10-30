@@ -18,7 +18,6 @@ type Shelf = {
   customerRate: number | null;
 };
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 // A per-kg cost, to the paisa (the change per kg is often under a rupee).
 const perKg = (n: number) => `Rs ${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -228,8 +227,8 @@ function WasteForm({ productId, shelf }: { productId: string; shelf: Shelf }) {
           {ownPart > 0 && (
             <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ink-muted)" }}>
               {left > 0
-                ? `Profit doesn't change today; each ${unit} left now costs ${perKg(shelf.value / left - shelf.rate)} more, so profit drops by ${formatMoney(round2(ownPart * shelf.rate))} in total as it's sold.`
-                : `Nothing is left to carry the cost, so profit drops by ${formatMoney(shelf.value)} right away.`}
+                ? `The cost stays on what's left: each ${unit} now costs ${perKg(shelf.value / left - shelf.rate)} more.`
+                : "None of the shop's own grain is left."}
             </p>
           )}
           {customerPart > 0 && shelf.customerRate !== null && (
@@ -241,9 +240,7 @@ function WasteForm({ productId, shelf }: { productId: string; shelf: Shelf }) {
                 </strong>
               </div>
               <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--ink-muted)" }}>
-                The shop owes it back: worth {formatMoney(round2(customerPart * shelf.customerRate))} at{" "}
-                {perKg(shelf.customerRate)} / {unit} — profit drops by that much now, and buying it back below that rate earns it
-                back.
+                It was customers&apos; grain, so the shop owes it back — more Stock Udhaar to buy back.
               </p>
             </>
           )}

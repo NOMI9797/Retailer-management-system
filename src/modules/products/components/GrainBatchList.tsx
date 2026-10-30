@@ -45,6 +45,7 @@ export function GrainBatchList({
   homeGrain,
   register,
   customerAdvance,
+  stockUdhaarValue,
 }: {
   product: GrainProduct;
   batchCount: number;
@@ -58,6 +59,8 @@ export function GrainBatchList({
   register: GrainRegisterStock;
   // Customers' Advance stock entries for this grain, added up per section.
   customerAdvance: { LOAN: number; HOME: number };
+  // What the grain owed to customers is worth (money received − money paid), or null.
+  stockUdhaarValue: number | null;
 }) {
   const unit = product.unit.name;
 
@@ -88,6 +91,7 @@ export function GrainBatchList({
         borrowed={overview.borrowed}
         searchSlot={<GrainNameSearch />}
         opening={overview.opening}
+        stockUdhaarValue={stockUdhaarValue}
         registerEdit={{ productId: product.id, productName: product.name, register }}
       />
 

@@ -28,6 +28,7 @@ export function StockSummary({
   searchSlot,
   registerEdit,
   opening = null,
+  stockUdhaarValue = null,
 }: {
   totalRemaining: number;
   unitName: string;
@@ -52,7 +53,10 @@ export function StockSummary({
   registerEdit?: { productId: string; productName: string; register: GrainRegisterStock };
   // Finalized from the register: the opening Stock Udhaar still to buy
   // back, and its money value at the break-even rate.
-  opening?: { remainingKg: number; remainingValue: number } | null;
+  opening?: { remainingKg: number } | null;
+  // What the grain owed to customers is worth: the money received and
+  // not yet spent buying grain (null when nothing is owed).
+  stockUdhaarValue?: number | null;
 }) {
   const register = registerEdit?.register ?? {};
   const round3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -124,7 +128,7 @@ export function StockSummary({
       )}
       {/* What the Stock Udhaar is worth in money — owed to customers;
           register only, not linked to any record. */}
-      {card("stockUdhaarValue", "Stock Udhaar value", opening ? opening.remainingValue : null, (v) => (v ? " tone-consigned" : ""))}
+      {card("stockUdhaarValue", "Stock Udhaar value", opening || stockUdhaarValue !== null ? (stockUdhaarValue ?? 0) : null, (v) => (v ? " tone-consigned" : ""))}
       {card("ownValue", "Stock value", stockValue, () => "")}
       {/* The shop's own grain that isn't here: lent out on grain loans
           (coming back), or bought but still at the seller's home (to

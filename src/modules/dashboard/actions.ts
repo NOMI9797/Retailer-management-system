@@ -15,6 +15,7 @@ import { lowStockWhere } from "@/modules/products/lowStock";
 import { formatStock } from "@/modules/products/units";
 import { getProductStats } from "@/modules/products/products.actions";
 import { getCashInHandRegister } from "@/modules/shop-register/actions";
+import { grainSeasonTotals, stockUdhaarValue } from "@/modules/grain-account/seasonTotals";
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
@@ -148,6 +149,18 @@ export async function getDashboard() {
         borrowed: o.borrowed,
         // Finalized from the register: the opening Stock Udhaar left.
         opening: o.opening,
+        // Grain owed to customers: what it's worth (money received − money paid).
+        udhaarValue:
+          o.opening || o.stockUdhaarOutstanding > 0.0005
+            ? await (async () => {
+                const { season } = await grainSeasonTotals(shopId, p.id);
+                return stockUdhaarValue({
+                  paid: season.paid,
+                  received: season.received,
+                  owedKg: o.stockUdhaarOutstanding + (o.opening?.remainingKg ?? 0),
+                });
+              })()
+            : null,
       };
     })
   );
@@ -170,8 +183,7 @@ export async function getDashboard() {
       unit: g.unit,
       status: udhaarKg > 0 ? ("UDHAAR" as const) : ("STOCK" as const),
       udhaarKg,
-      udhaarValue:
-        r?.stockUdhaarValue != null ? Number(r.stockUdhaarValue) : g.opening ? g.opening.remainingValue : null,
+      udhaarValue: r?.stockUdhaarValue != null ? Number(r.stockUdhaarValue) : g.udhaarValue,
       stockKg: figure(r?.ownKg, g.own),
       stockValue: figure(r?.ownValue, Math.max(g.value, 0)),
       // The Dashboard's money cards count a grain once it has a figure

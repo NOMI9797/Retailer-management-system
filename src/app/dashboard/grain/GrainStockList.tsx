@@ -1,3 +1,4 @@
+import { getGrainBreakEven } from "@/modules/grain-account/actions";
 import { getAdvanceRegisterTotal, getGrainRegisterStock } from "@/modules/grain-register/actions";
 import { listHomeGrain } from "@/modules/stock/homeGrain.actions";
 import { listProducts, getGrainStockSummary } from "@/modules/products/actions";
@@ -63,7 +64,7 @@ export async function GrainStockList({
   const activeProduct =
     products.find((p) => p.id === searchParams.product) ?? products[0];
 
-  const [summary, overview, customerBatches, ledger, loans, areas, dealers, bankAccounts, homeGrain, register, customerAdvance] = await Promise.all([
+  const [summary, overview, customerBatches, ledger, loans, areas, dealers, bankAccounts, homeGrain, register, customerAdvance, money] = await Promise.all([
     getGrainStockSummary(activeProduct.id),
     getStockOverview(activeProduct.id),
     listCustomerBatchesForProduct(activeProduct.id),
@@ -75,6 +76,7 @@ export async function GrainStockList({
     listHomeGrain({ productId: activeProduct.id }),
     getGrainRegisterStock(activeProduct.id),
     getAdvanceRegisterTotal(activeProduct.id),
+    getGrainBreakEven(activeProduct.id),
   ]);
 
   return (
@@ -89,6 +91,7 @@ export async function GrainStockList({
         homeGrain={homeGrain}
         register={register}
         customerAdvance={customerAdvance}
+        stockUdhaarValue={money.stockUdhaarValue}
         loanOptions={{
           areas,
           dealers: dealers.map((d) => ({ id: d.id, name: d.name })),
